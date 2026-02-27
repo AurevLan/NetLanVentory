@@ -35,6 +35,25 @@ docker compose up --build
 
 > **Note:** The app container uses `network_mode: host` so scapy can send raw ARP frames. It requires `NET_ADMIN` and `NET_RAW` capabilities (set automatically by Docker Compose).
 
+## Default admin account
+
+On first startup, a default admin account is automatically created if no users exist in the database:
+
+| Field | Default value |
+|-------|---------------|
+| Email | `admin@localhost` |
+| Password | `changeme` |
+
+**Change these before exposing the app on a network.** Edit `.env` before the first `docker compose up`:
+
+```env
+ADMIN_EMAIL=your@email.com
+ADMIN_PASSWORD=a-strong-password
+JWT_SECRET_KEY=<openssl rand -hex 32>
+```
+
+> The bootstrap only runs once (when the `users` table is empty). If the stack is already running, change the password via the dashboard → **Users** tab, or recreate the database volume (`docker compose down -v && docker compose up --build`) to trigger a fresh bootstrap.
+
 ## Local development
 
 ```bash
