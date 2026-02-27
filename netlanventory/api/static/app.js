@@ -5,7 +5,7 @@ const API = '/api/v1';
 // ── Auth state ────────────────────────────────────────────────────────────────
 
 let _token = localStorage.getItem('nlv_token') || null;
-let _me = null;  // current user object from /auth/me
+let _me = null;
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
@@ -16,7 +16,6 @@ async function api(path, opts = {}) {
   const res = await fetch(API + path, { headers, ...opts });
 
   if (res.status === 401) {
-    // Token expired or invalid — go back to login
     _logout();
     return null;
   }
@@ -46,14 +45,52 @@ function statusBadge(status) {
 
 function fmtDate(iso) {
   if (!iso) return '—';
-  const d = new Date(iso);
-  return d.toLocaleString();
+  return new Date(iso).toLocaleString();
 }
 
 function escape(str) {
   return String(str ?? '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
   );
+}
+
+// ── Toast notifications ───────────────────────────────────────────────────────
+
+function showToast(message, type = 'info', duration = 4000) {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = message;
+  container.appendChild(el);
+  // Trigger transition
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('visible')));
+  setTimeout(() => {
+    el.classList.remove('visible');
+    setTimeout(() => el.remove(), 300);
+  }, duration);
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+
+function switchToView(viewName) {
+  document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+
+  const navBtn = document.querySelector(`.nav-item[data-view="${viewName}"]`);
+  if (navBtn) navBtn.classList.add('active');
+  const panel = document.getElementById(`panel-${viewName}`);
+  if (panel) panel.classList.add('active');
+
+  // Load data for the panel if needed
+  if (viewName === 'admin') loadUsers();
+}
+
+function initNav() {
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      switchToView(item.dataset.view);
+    });
+  });
 }
 
 // ── Authentication ────────────────────────────────────────────────────────────
@@ -113,12 +150,17 @@ async function checkAuth() {
 
 function _applyUserContext() {
   if (!_me) return;
-  document.getElementById('nav-username').textContent = _me.email;
+
+  // Sidebar user info
+  const letter = (_me.email || _me.username || '?').charAt(0).toUpperCase();
+  document.getElementById('nav-avatar').textContent = letter;
+  document.getElementById('nav-username').textContent =
+    _me.full_name || _me.username || _me.email;
   document.getElementById('nav-role').textContent = _me.role;
 
-  // Show Admin tab only for admins
+  // Show Admin section for admins
   if (_me.role === 'admin') {
-    document.getElementById('tab-admin-btn').style.display = '';
+    document.getElementById('admin-section').style.display = '';
   }
 }
 
@@ -142,7 +184,7 @@ function _initLoginForm() {
   });
 }
 
-// ── Module checkboxes in scan form ───────────────────────────────────────────
+// ── Module checkboxes ─────────────────────────────────────────────────────────
 
 async function loadModuleCheckboxes() {
   try {
@@ -159,27 +201,31 @@ async function loadModuleCheckboxes() {
   }
 }
 
-// ── Stats ────────────────────────────────────────────────────────────────────
+// ── Stats ─────────────────────────────────────────────────────────────────────
 
 async function refreshStats() {
   try {
-    const [assets, scans, mods] = await Promise.all([
+    const [assets, scans, mods, activeAssets] = await Promise.all([
       api('/assets?limit=1'),
       api('/scans?limit=1'),
       api('/modules'),
+      api('/assets?limit=1&active_only=true'),
     ]);
-    const activeAssets = await api('/assets?limit=1&active_only=true');
 
     document.querySelector('#stat-assets .num').textContent = assets.total;
     document.querySelector('#stat-active .num').textContent = activeAssets.total;
     document.querySelector('#stat-scans .num').textContent = scans.total;
     document.querySelector('#stat-modules .num').textContent = mods.total;
+
+    // Update sidebar badge
+    const badge = document.getElementById('nav-asset-count');
+    if (badge) badge.textContent = assets.total;
   } catch (e) {
     console.error('Stats error:', e);
   }
 }
 
-// ── Assets ───────────────────────────────────────────────────────────────────
+// ── Assets ────────────────────────────────────────────────────────────────────
 
 async function loadAssets() {
   const search = document.getElementById('asset-search').value.toLowerCase();
@@ -197,25 +243,27 @@ async function loadAssets() {
 
     const tbody = document.querySelector('#asset-table tbody');
     if (!filtered.length) {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:30px">No assets found</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:32px">No assets found</td></tr>';
       return;
     }
 
     tbody.innerHTML = filtered.map(a => {
       const openPorts = (a.ports || []).filter(p => p.state === 'open');
-      const portList = openPorts.slice(0, 6).map(p => `<span class="mono">${p.port_number}/${p.protocol}</span>`).join(' ');
-      const morePorts = openPorts.length > 6 ? `<span class="badge badge-muted">+${openPorts.length - 6}</span>` : '';
+      const portList = openPorts.slice(0, 6)
+        .map(p => `<span class="mono">${p.port_number}/${p.protocol}</span>`).join(' ');
+      const morePorts = openPorts.length > 6
+        ? `<span class="badge badge-muted">+${openPorts.length - 6}</span>` : '';
       return `
         <tr class="clickable" onclick="openAssetModal('${a.id}')">
-          <td>${a.name ? `<strong>${escape(a.name)}</strong>` : '<span style="color:var(--muted)">—</span>'}</td>
+          <td>${a.name ? `<strong>${escape(a.name)}</strong>` : '<span style="color:var(--text-muted)">—</span>'}</td>
           <td class="mono">${escape(a.ip || '—')}</td>
           <td class="mono">${escape(a.mac || '—')}</td>
           <td>${escape(a.hostname || '—')}</td>
           <td>${escape(a.vendor || '—')}</td>
-          <td>${escape(a.os_family || '—')}${a.os_version ? ` <small style="color:var(--muted)">${escape(a.os_version)}</small>` : ''}</td>
+          <td>${escape(a.os_family || '—')}${a.os_version ? ` <small style="color:var(--text-muted)">${escape(a.os_version)}</small>` : ''}</td>
           <td>${portList}${morePorts}</td>
           <td>${a.is_active ? badge('yes', 'success') : badge('no', 'muted')}</td>
-          <td style="color:var(--muted);font-size:12px">${fmtDate(a.last_seen)}</td>
+          <td style="color:var(--text-muted);font-size:12px">${fmtDate(a.last_seen)}</td>
         </tr>`;
     }).join('');
   } catch (e) {
@@ -223,7 +271,7 @@ async function loadAssets() {
   }
 }
 
-// ── Asset detail / edit modal ─────────────────────────────────────────────────
+// ── Asset modal ───────────────────────────────────────────────────────────────
 
 let _modalAssetId = null;
 
@@ -232,7 +280,6 @@ async function openAssetModal(id) {
   const overlay = document.getElementById('asset-modal');
   overlay.classList.remove('hidden');
 
-  // Reset save button
   const saveBtn = document.getElementById('modal-save-btn');
   saveBtn.disabled = false;
   saveBtn.textContent = 'Save';
@@ -242,7 +289,6 @@ async function openAssetModal(id) {
     document.getElementById('modal-title').textContent =
       a.name || a.hostname || a.ip || 'Asset';
 
-    // Read-only info grid
     const infoEl = document.getElementById('modal-info');
     const row = (k, v) =>
       `<span class="detail-key">${k}</span><span class="detail-val">${escape(v || '—')}</span>`;
@@ -256,17 +302,15 @@ async function openAssetModal(id) {
       row('Last seen', a.last_seen ? new Date(a.last_seen).toLocaleString() : null),
     ].join('');
 
-    // Editable fields
     document.getElementById('modal-name').value = a.name || '';
     document.getElementById('modal-ssh-user').value = a.ssh_user || '';
     document.getElementById('modal-ssh-port').value = a.ssh_port || '';
     document.getElementById('modal-notes').value = a.notes || '';
 
-    // Ports table
     const openPorts = (a.ports || []).filter(p => p.state === 'open');
     const portsTbody = document.querySelector('#modal-ports-table tbody');
     if (!openPorts.length) {
-      portsTbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted)">No open ports detected</td></tr>';
+      portsTbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted)">No open ports detected</td></tr>';
     } else {
       portsTbody.innerHTML = openPorts.map(p => `
         <tr>
@@ -274,7 +318,7 @@ async function openAssetModal(id) {
           <td>${escape(p.protocol)}</td>
           <td>${badge(p.state, p.state === 'open' ? 'success' : 'muted')}</td>
           <td>${escape(p.service_name || '—')}</td>
-          <td style="color:var(--muted);font-size:12px">${escape(p.version || '—')}</td>
+          <td style="color:var(--text-muted);font-size:12px">${escape(p.version || '—')}</td>
         </tr>`).join('');
     }
   } catch (e) {
@@ -284,7 +328,6 @@ async function openAssetModal(id) {
 }
 
 function closeAssetModal(event) {
-  // Close only when clicking the overlay background or the close/cancel buttons
   if (event && event.target !== document.getElementById('asset-modal')) return;
   document.getElementById('asset-modal').classList.add('hidden');
   _modalAssetId = null;
@@ -312,37 +355,50 @@ async function saveAssetModal() {
     document.getElementById('asset-modal').classList.add('hidden');
     _modalAssetId = null;
     await loadAssets();
+    showToast('Asset saved successfully.', 'success');
   } catch (e) {
     saveBtn.disabled = false;
     saveBtn.textContent = 'Save';
-    alert(`Save failed: ${e.message}`);
+    showToast(`Save failed: ${e.message}`, 'error');
   }
 }
 
-// ── Scans ────────────────────────────────────────────────────────────────────
+// ── Scan modal ────────────────────────────────────────────────────────────────
+
+function openScanModal() {
+  document.getElementById('scan-modal').classList.remove('hidden');
+}
+
+function closeScanModal(event) {
+  if (event && event.target !== document.getElementById('scan-modal')) return;
+  document.getElementById('scan-modal').classList.add('hidden');
+}
+
+// ── Scans ─────────────────────────────────────────────────────────────────────
 
 async function loadScans() {
   try {
     const { items } = await api('/scans?limit=50');
     const tbody = document.querySelector('#scan-table tbody');
     if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px">No scans yet</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:32px">No scans yet — start one with "+ New scan"</td></tr>';
       return;
     }
     tbody.innerHTML = items.map(s => {
-      const assetsFound = (s.summary?.modules
+      const assetsFound = s.summary?.modules
         ? Object.values(s.summary.modules).reduce((acc, m) => acc + (m.assets_found || 0), 0)
-        : '—');
+        : '—';
       const running = ['pending', 'running'].includes(s.status);
-      const rerunBtn = `<button class="btn btn-sm" onclick="rerunScan('${s.id}')" ${running ? 'disabled title="Scan in progress"' : ''}>&#8635; Re-run</button>`;
+      const rerunBtn = `<button class="btn btn-sm" onclick="rerunScan('${s.id}')"
+                          ${running ? 'disabled title="Scan in progress"' : ''}>&#8635; Re-run</button>`;
       return `
         <tr>
-          <td class="mono" style="font-size:11px;color:var(--muted)">${s.id.slice(0, 8)}…</td>
+          <td class="mono" style="font-size:11px;color:var(--text-muted)">${s.id.slice(0, 8)}…</td>
           <td class="mono">${escape(s.target)}</td>
           <td>${(s.modules_run || []).map(m => badge(m, 'info')).join(' ')}</td>
           <td>${statusBadge(s.status)}</td>
-          <td style="font-size:12px;color:var(--muted)">${fmtDate(s.started_at)}</td>
-          <td style="font-size:12px;color:var(--muted)">${fmtDate(s.finished_at)}</td>
+          <td style="font-size:12px;color:var(--text-muted)">${fmtDate(s.started_at)}</td>
+          <td style="font-size:12px;color:var(--text-muted)">${fmtDate(s.finished_at)}</td>
           <td>${assetsFound}</td>
           <td>${rerunBtn}</td>
         </tr>`;
@@ -352,40 +408,92 @@ async function loadScans() {
   }
 }
 
+async function triggerScan() {
+  const target = document.getElementById('scan-target').value.trim();
+  if (!target) { showToast('Please enter a target CIDR or IP.', 'warning'); return; }
+
+  const checked = [...document.querySelectorAll('#module-checkboxes input:checked')];
+  const modules = checked.map(cb => cb.value);
+  if (!modules.length) { showToast('Select at least one module.', 'warning'); return; }
+
+  // Close the modal and switch to scans panel
+  document.getElementById('scan-modal').classList.add('hidden');
+  switchToView('scans');
+
+  const statusEl = document.getElementById('scan-status');
+  statusEl.className = 'status-bar running';
+  statusEl.textContent = `Starting scan on ${target} with [${modules.join(', ')}]…`;
+  statusEl.classList.remove('hidden');
+  document.getElementById('scan-btn').disabled = true;
+
+  try {
+    const scan = await api('/scans', {
+      method: 'POST',
+      body: JSON.stringify({ target, modules }),
+    });
+
+    statusEl.textContent = `Scan ${scan.id.slice(0, 8)} created — polling…`;
+
+    let done = false;
+    while (!done) {
+      await new Promise(r => setTimeout(r, 2000));
+      const updated = await api(`/scans/${scan.id}`);
+      statusEl.textContent = `Scan ${updated.id.slice(0, 8)} — ${updated.status}`;
+
+      if (['completed', 'completed_with_errors', 'failed', 'error'].includes(updated.status)) {
+        done = true;
+        const ok = updated.status === 'completed';
+        statusEl.className = 'status-bar ' + (ok ? 'success' : 'error');
+        const total = updated.summary?.modules
+          ? Object.values(updated.summary.modules).reduce((s, m) => s + (m.assets_found || 0), 0)
+          : 0;
+        statusEl.textContent = `Scan complete (${updated.status}) — ${total} assets found.`;
+        showToast(`Scan finished: ${total} assets found.`, ok ? 'success' : 'warning');
+        await loadAssets();
+        await loadScans();
+        await refreshStats();
+      }
+    }
+  } catch (e) {
+    statusEl.className = 'status-bar error';
+    statusEl.textContent = `Error: ${e.message}`;
+    showToast(`Scan error: ${e.message}`, 'error');
+  } finally {
+    document.getElementById('scan-btn').disabled = false;
+  }
+}
+
 async function rerunScan(scanId) {
+  // Switch to scans panel
+  switchToView('scans');
+
   const statusEl = document.getElementById('scan-status');
   statusEl.className = 'status-bar running';
   statusEl.textContent = 'Re-running scan…';
   statusEl.classList.remove('hidden');
 
-  // Disable all re-run buttons while polling
   document.querySelectorAll('#scan-table button').forEach(b => { b.disabled = true; });
 
   try {
     const scan = await api(`/scans/${scanId}/rerun`, { method: 'POST' });
     statusEl.textContent = `Re-run ${scan.id.slice(0, 8)} created — target: ${scan.target}. Polling…`;
 
-    // Switch to Scans tab so the user can follow progress
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    const scansTab = document.querySelector('.tab[data-tab="scans"]');
-    if (scansTab) scansTab.classList.add('active');
-    document.getElementById('tab-scans').classList.add('active');
-
     let done = false;
     while (!done) {
       await new Promise(r => setTimeout(r, 2000));
       await loadScans();
       const updated = await api(`/scans/${scan.id}`);
-      statusEl.textContent = `Re-run ${updated.id.slice(0, 8)} — status: ${updated.status}`;
+      statusEl.textContent = `Re-run ${updated.id.slice(0, 8)} — ${updated.status}`;
 
       if (['completed', 'completed_with_errors', 'failed', 'error'].includes(updated.status)) {
         done = true;
-        statusEl.className = 'status-bar ' + (updated.status === 'completed' ? 'success' : 'error');
+        const ok = updated.status === 'completed';
+        statusEl.className = 'status-bar ' + (ok ? 'success' : 'error');
         const total = updated.summary?.modules
           ? Object.values(updated.summary.modules).reduce((s, m) => s + (m.assets_found || 0), 0)
           : 0;
         statusEl.textContent = `Re-run complete (${updated.status}) — ${total} assets found.`;
+        showToast(`Re-run finished: ${total} assets found.`, ok ? 'success' : 'warning');
         await loadAssets();
         await refreshStats();
       }
@@ -393,12 +501,13 @@ async function rerunScan(scanId) {
   } catch (e) {
     statusEl.className = 'status-bar error';
     statusEl.textContent = `Re-run error: ${e.message}`;
+    showToast(`Re-run error: ${e.message}`, 'error');
   } finally {
-    await loadScans(); // re-enable buttons via fresh render
+    await loadScans();
   }
 }
 
-// ── Modules ──────────────────────────────────────────────────────────────────
+// ── Modules ───────────────────────────────────────────────────────────────────
 
 async function loadModules() {
   try {
@@ -426,67 +535,17 @@ async function loadModules() {
   }
 }
 
-// ── Scan trigger ─────────────────────────────────────────────────────────────
-
-async function triggerScan() {
-  const target = document.getElementById('scan-target').value.trim();
-  if (!target) { alert('Please enter a target CIDR or IP.'); return; }
-
-  const checked = [...document.querySelectorAll('#module-checkboxes input:checked')];
-  const modules = checked.map(cb => cb.value);
-  if (!modules.length) { alert('Select at least one module.'); return; }
-
-  const statusEl = document.getElementById('scan-status');
-  statusEl.className = 'status-bar running';
-  statusEl.textContent = `Starting scan on ${target} with [${modules.join(', ')}]…`;
-  statusEl.classList.remove('hidden');
-  document.getElementById('scan-btn').disabled = true;
-
-  try {
-    const scan = await api('/scans', {
-      method: 'POST',
-      body: JSON.stringify({ target, modules }),
-    });
-
-    statusEl.textContent = `Scan ${scan.id.slice(0, 8)} created — status: ${scan.status}. Polling…`;
-
-    // Poll until finished
-    let done = false;
-    while (!done) {
-      await new Promise(r => setTimeout(r, 2000));
-      const updated = await api(`/scans/${scan.id}`);
-      statusEl.textContent = `Scan ${updated.id.slice(0, 8)} — status: ${updated.status}`;
-
-      if (['completed', 'completed_with_errors', 'failed', 'error'].includes(updated.status)) {
-        done = true;
-        statusEl.className = 'status-bar ' + (updated.status === 'completed' ? 'success' : 'error');
-        const total = updated.summary?.modules
-          ? Object.values(updated.summary.modules).reduce((s, m) => s + (m.assets_found || 0), 0)
-          : 0;
-        statusEl.textContent = `Scan complete (${updated.status}) — ${total} assets found.`;
-        await loadAssets();
-        await loadScans();
-        await refreshStats();
-      }
-    }
-  } catch (e) {
-    statusEl.className = 'status-bar error';
-    statusEl.textContent = `Error: ${e.message}`;
-  } finally {
-    document.getElementById('scan-btn').disabled = false;
-  }
-}
-
-// ── Admin panel ───────────────────────────────────────────────────────────────
+// ── Admin — sub-tab switching ─────────────────────────────────────────────────
 
 function initSubTabs() {
-  document.querySelectorAll('.sub-tab').forEach(tab => {
+  document.querySelectorAll('.subnav-item').forEach(tab => {
     tab.addEventListener('click', () => {
-      const panel = document.getElementById('tab-admin');
-      panel.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+      const panel = document.getElementById('panel-admin');
+      panel.querySelectorAll('.subnav-item').forEach(t => t.classList.remove('active'));
       panel.querySelectorAll('.sub-panel').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById('sub-' + tab.dataset.subtab).classList.add('active');
+
       if (tab.dataset.subtab === 'admin-auth') loadAuthSettings();
       if (tab.dataset.subtab === 'admin-oidc') loadOidcConfig();
       if (tab.dataset.subtab === 'admin-users') loadUsers();
@@ -502,7 +561,7 @@ async function loadUsers() {
     if (!data) return;
     const tbody = document.querySelector('#user-table tbody');
     if (!data.items.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">No users</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:32px">No users</td></tr>';
       return;
     }
     tbody.innerHTML = data.items.map(u => {
@@ -520,14 +579,15 @@ async function loadUsers() {
             ${!isSelf
               ? `<button class="btn btn-sm" style="color:var(--danger)"
                    onclick="deleteUser('${u.id}','${escape(u.email)}')">Delete</button>`
-              : '<span style="color:var(--muted);font-size:12px;padding:6px 4px">you</span>'}
+              : '<span style="color:var(--text-muted);font-size:12px;padding:6px 4px">you</span>'}
           </td>
         </tr>`;
     }).join('');
-  } catch (e) { console.error('Users error:', e); }
+  } catch (e) {
+    console.error('Users error:', e);
+  }
 }
 
-// user modal handles both create and edit
 let _userModalId = null;
 
 async function openUserModal(userId = null) {
@@ -535,8 +595,8 @@ async function openUserModal(userId = null) {
   const isEdit = !!userId;
   document.getElementById('user-modal-title').textContent = isEdit ? 'Edit user' : 'New user';
   document.getElementById('um-save-btn').textContent = isEdit ? 'Save' : 'Create';
+  document.getElementById('um-pwd-hint').style.display = isEdit ? '' : 'none';
 
-  // Reset
   ['um-email','um-username','um-fullname','um-password'].forEach(id => {
     document.getElementById(id).value = '';
   });
@@ -550,11 +610,13 @@ async function openUserModal(userId = null) {
       document.getElementById('um-username').value = u.username;
       document.getElementById('um-fullname').value = u.full_name || '';
       document.getElementById('um-role').value = u.role;
-      // Disable email/username for OIDC users
       const isOidc = u.auth_provider !== 'local';
       document.getElementById('um-email').disabled = isOidc;
       document.getElementById('um-username').disabled = isOidc;
-    } catch (e) { alert(`Error loading user: ${e.message}`); return; }
+    } catch (e) {
+      showToast(`Error loading user: ${e.message}`, 'error');
+      return;
+    }
   } else {
     document.getElementById('um-email').disabled = false;
     document.getElementById('um-username').disabled = false;
@@ -583,10 +645,7 @@ async function saveUserModal() {
         role: document.getElementById('um-role').value,
       };
       if (pwd) payload.password = pwd;
-      await api(`/users/${_userModalId}`, {
-        method: 'PATCH',
-        body: JSON.stringify(payload),
-      });
+      await api(`/users/${_userModalId}`, { method: 'PATCH', body: JSON.stringify(payload) });
     } else {
       await api('/users', {
         method: 'POST',
@@ -602,8 +661,9 @@ async function saveUserModal() {
     document.getElementById('user-modal').classList.add('hidden');
     _userModalId = null;
     await loadUsers();
+    showToast(isEdit ? 'User updated.' : 'User created.', 'success');
   } catch (e) {
-    alert(`Error: ${e.message}`);
+    showToast(`Error: ${e.message}`, 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = isEdit ? 'Save' : 'Create';
@@ -615,10 +675,13 @@ async function deleteUser(id, email) {
   try {
     await api(`/users/${id}`, { method: 'DELETE' });
     await loadUsers();
-  } catch (e) { alert(`Error: ${e.message}`); }
+    showToast('User deleted.', 'info');
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  }
 }
 
-// ── Authentication settings ───────────────────────────────────────────────────
+// ── Auth settings ─────────────────────────────────────────────────────────────
 
 async function loadAuthSettings() {
   try {
@@ -632,10 +695,12 @@ async function loadAuthSettings() {
       row('Token expiry', s.jwt_access_token_expire_minutes + ' minutes'),
       row('OIDC (env)', s.oidc_enabled_in_env ? 'enabled' : 'disabled'),
     ].join('');
-  } catch (e) { console.error('Auth settings error:', e); }
+  } catch (e) {
+    console.error('Auth settings error:', e);
+  }
 }
 
-// ── OIDC connector ────────────────────────────────────────────────────────────
+// ── OIDC ──────────────────────────────────────────────────────────────────────
 
 async function loadOidcConfig() {
   try {
@@ -645,13 +710,15 @@ async function loadOidcConfig() {
     document.getElementById('oidc-name').value = cfg.name || '';
     document.getElementById('oidc-issuer').value = cfg.issuer_url || '';
     document.getElementById('oidc-client-id').value = cfg.client_id || '';
-    document.getElementById('oidc-client-secret').value = '';  // never prefill secret
+    document.getElementById('oidc-client-secret').value = '';
     document.getElementById('oidc-client-secret').placeholder =
       cfg.client_secret_set ? '••••••••  (set — leave blank to keep)' : 'Enter client secret';
     document.getElementById('oidc-scopes').value = cfg.scopes || 'openid email profile';
     document.getElementById('oidc-auto-create').checked = cfg.auto_create_users;
     document.getElementById('oidc-default-role').value = cfg.default_role || 'user';
-  } catch (e) { console.error('OIDC load error:', e); }
+  } catch (e) {
+    console.error('OIDC load error:', e);
+  }
 }
 
 async function saveOidcConfig() {
@@ -667,20 +734,16 @@ async function saveOidcConfig() {
         name: document.getElementById('oidc-name').value.trim() || 'SSO',
         issuer_url: document.getElementById('oidc-issuer').value.trim() || null,
         client_id: document.getElementById('oidc-client-id').value.trim() || null,
-        client_secret: secret || null,   // null = keep existing
+        client_secret: secret || null,
         scopes: document.getElementById('oidc-scopes').value.trim() || 'openid email profile',
         auto_create_users: document.getElementById('oidc-auto-create').checked,
         default_role: document.getElementById('oidc-default-role').value,
       }),
     });
-    await loadOidcConfig();  // refresh (shows secret_set status)
-    const res = document.getElementById('oidc-test-result');
-    res.className = 'status-bar success';
-    res.textContent = 'Configuration saved.';
-    res.classList.remove('hidden');
-    setTimeout(() => res.classList.add('hidden'), 3000);
+    await loadOidcConfig();
+    showToast('OIDC configuration saved.', 'success');
   } catch (e) {
-    alert(`Save failed: ${e.message}`);
+    showToast(`Save failed: ${e.message}`, 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Save';
@@ -704,7 +767,7 @@ async function testOidcConnection() {
       const eps = result.endpoints
         ? Object.entries(result.endpoints)
             .filter(([, v]) => v)
-            .map(([k, v]) => `<br><span style="color:var(--muted)">${k}:</span> ${escape(v)}`)
+            .map(([k, v]) => `<br><span style="color:var(--text-muted)">${k}:</span> ${escape(v)}`)
             .join('')
         : '';
       res.innerHTML = `&#10003; ${escape(result.message)}${eps}`;
@@ -721,43 +784,33 @@ async function testOidcConnection() {
   }
 }
 
-// ── Tab switching ────────────────────────────────────────────────────────────
-
-function initTabs() {
-  document.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-      tab.classList.add('active');
-      document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-      if (tab.dataset.tab === 'admin') loadUsers();
-    });
-  });
-}
-
-// ── App data init ─────────────────────────────────────────────────────────────
+// ── App init ──────────────────────────────────────────────────────────────────
 
 async function _initAppData() {
-  initTabs();
+  initNav();
   initSubTabs();
+
   await loadModuleCheckboxes();
   await refreshStats();
   await loadAssets();
   await loadScans();
   await loadModules();
 
+  // Scan modal button
+  document.getElementById('open-scan-modal-btn').addEventListener('click', openScanModal);
   document.getElementById('scan-btn').addEventListener('click', triggerScan);
+
+  // Assets panel
   document.getElementById('refresh-assets').addEventListener('click', loadAssets);
-  document.getElementById('refresh-scans').addEventListener('click', loadScans);
-  // refresh-users removed (now inline onclick in sub-panel)
   document.getElementById('asset-search').addEventListener('input', loadAssets);
   document.getElementById('active-only').addEventListener('change', loadAssets);
 
-  // Auto-refresh every 30 seconds
+  // Scans panel
+  document.getElementById('refresh-scans').addEventListener('click', loadScans);
+
+  // Auto-refresh every 30 s
   setInterval(() => { refreshStats(); loadScans(); }, 30_000);
 }
-
-// ── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
   _initLoginForm();

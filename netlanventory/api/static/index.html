@@ -8,68 +8,148 @@
 </head>
 <body>
 
-  <!-- ── Login view (shown when not authenticated) ───────────────────────── -->
+  <!-- ── Login view ─────────────────────────────────────────────────────────── -->
   <div id="login-view" class="login-view hidden">
     <div class="login-card">
-      <div class="login-brand">&#128225; NetLanVentory</div>
-      <p class="login-sub">Sign in to continue</p>
+      <div class="login-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="7" rx="2"/>
+          <rect x="2" y="14" width="20" height="7" rx="2"/>
+          <circle cx="6" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+          <circle cx="6" cy="17.5" r="1" fill="currentColor" stroke="none"/>
+          <line x1="10" y1="6.5" x2="18" y2="6.5"/>
+          <line x1="10" y1="17.5" x2="18" y2="17.5"/>
+        </svg>
+      </div>
+      <h1 class="login-title">NetLanVentory</h1>
+      <p class="login-sub">Network inventory &amp; scanning</p>
       <form id="login-form" autocomplete="on">
-        <input id="login-username" type="text" placeholder="Email or username"
-               autocomplete="username" />
-        <input id="login-password" type="password" placeholder="Password"
-               autocomplete="current-password" />
+        <div class="field-group">
+          <label class="field-label" for="login-username">Email or username</label>
+          <input id="login-username" type="text" placeholder="admin@localhost"
+                 autocomplete="username" />
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="login-password">Password</label>
+          <input id="login-password" type="password" placeholder="••••••••"
+                 autocomplete="current-password" />
+        </div>
         <div id="login-error" class="login-error hidden"></div>
-        <button type="submit" class="btn btn-primary" style="width:100%">Sign in</button>
+        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:4px">Sign in</button>
       </form>
     </div>
   </div>
 
-  <!-- ── Main app (shown when authenticated) ─────────────────────────────── -->
-  <div id="app-view" class="hidden">
+  <!-- ── Main app ───────────────────────────────────────────────────────────── -->
+  <div id="app-view" class="app-layout hidden">
 
-    <nav class="navbar">
-      <span class="brand">&#128225; NetLanVentory</span>
-      <div class="nav-user">
-        <span id="nav-username" class="nav-username"></span>
-        <span id="nav-role" class="badge badge-muted"></span>
-        <button class="btn btn-sm" onclick="logout()">Sign out</button>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="7" rx="2"/>
+          <rect x="2" y="14" width="20" height="7" rx="2"/>
+          <circle cx="6" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+          <circle cx="6" cy="17.5" r="1" fill="currentColor" stroke="none"/>
+        </svg>
+        <span class="brand-name">NetLanVentory</span>
       </div>
-    </nav>
 
-    <div class="container">
-      <!-- Quick Scan -->
-      <section class="card" id="scan-card">
-        <h2>New Scan</h2>
-        <div class="form-row">
-          <input id="scan-target" type="text" placeholder="192.168.1.0/24" />
-          <div id="module-checkboxes" class="checkbox-group"></div>
-          <button id="scan-btn" class="btn btn-primary">&#9654; Run Scan</button>
+      <div class="sidebar-section">
+        <div class="sidebar-section-label">Inventory</div>
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-view="assets">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <path d="M8 21h8M12 17v4"/>
+            </svg>
+            Assets
+            <span class="nav-count" id="nav-asset-count"></span>
+          </button>
+          <button class="nav-item" data-view="scans">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.35-4.35"/>
+            </svg>
+            Scans
+          </button>
+          <button class="nav-item" data-view="modules">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2l9 4.5v9L12 20l-9-4.5v-9z"/>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+              <line x1="12" y1="22.08" x2="12" y2="12"/>
+            </svg>
+            Modules
+          </button>
+        </nav>
+      </div>
+
+      <div class="sidebar-section" id="admin-section" style="display:none">
+        <div class="sidebar-section-label">Administration</div>
+        <nav class="sidebar-nav">
+          <button class="nav-item" data-view="admin">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            Settings
+          </button>
+        </nav>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div class="user-avatar" id="nav-avatar">?</div>
+          <div class="user-meta">
+            <div class="user-name" id="nav-username"></div>
+            <div class="user-role-badge" id="nav-role"></div>
+          </div>
         </div>
-        <div id="scan-status" class="status-bar hidden"></div>
-      </section>
+        <button class="btn-logout" onclick="logout()" title="Sign out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+        </button>
+      </div>
+    </aside>
 
-      <!-- Stats bar -->
-      <section class="stats-bar">
-        <div class="stat" id="stat-assets"><span class="num">—</span><span class="lbl">Assets</span></div>
-        <div class="stat" id="stat-active"><span class="num">—</span><span class="lbl">Active</span></div>
-        <div class="stat" id="stat-scans"><span class="num">—</span><span class="lbl">Scans</span></div>
-        <div class="stat" id="stat-modules"><span class="num">—</span><span class="lbl">Modules</span></div>
-      </section>
+    <!-- Main content -->
+    <div class="main-area">
 
-      <!-- Tabs -->
-      <div class="tabs">
-        <button class="tab active" data-tab="assets">Assets</button>
-        <button class="tab" data-tab="scans">Scans</button>
-        <button class="tab" data-tab="modules">Modules</button>
-        <button class="tab" data-tab="admin" id="tab-admin-btn" style="display:none">&#9881; Admin</button>
+      <!-- Stats header -->
+      <div class="stats-header">
+        <div class="stat-card" id="stat-assets">
+          <span class="num">—</span>
+          <span class="stat-lbl">Total assets</span>
+        </div>
+        <div class="stat-card" id="stat-active">
+          <span class="num">—</span>
+          <span class="stat-lbl">Active now</span>
+        </div>
+        <div class="stat-card" id="stat-scans">
+          <span class="num">—</span>
+          <span class="stat-lbl">Scans run</span>
+        </div>
+        <div class="stat-card" id="stat-modules">
+          <span class="num">—</span>
+          <span class="stat-lbl">Modules</span>
+        </div>
       </div>
 
-      <!-- Assets panel -->
-      <section class="panel active" id="tab-assets">
-        <div class="toolbar">
-          <input id="asset-search" type="text" placeholder="Filter by name / IP / MAC / hostname…" />
-          <label><input type="checkbox" id="active-only" /> Active only</label>
-          <button class="btn btn-sm" id="refresh-assets">Refresh</button>
+      <!-- ── Assets panel ──────────────────────────────────────────────────── -->
+      <section class="panel active" id="panel-assets">
+        <div class="page-header">
+          <h1 class="page-title">Assets</h1>
+          <div class="page-actions">
+            <input id="asset-search" type="text" placeholder="Search by name, IP, MAC, hostname…" class="search-input" />
+            <label class="toggle-label">
+              <input type="checkbox" id="active-only" />
+              <span>Active only</span>
+            </label>
+            <button class="btn btn-sm" id="refresh-assets">Refresh</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table id="asset-table">
@@ -84,11 +164,16 @@
         </div>
       </section>
 
-      <!-- Scans panel -->
-      <section class="panel" id="tab-scans">
-        <div class="toolbar">
-          <button class="btn btn-sm" id="refresh-scans">Refresh</button>
+      <!-- ── Scans panel ───────────────────────────────────────────────────── -->
+      <section class="panel" id="panel-scans">
+        <div class="page-header">
+          <h1 class="page-title">Scans</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="open-scan-modal-btn">+ New scan</button>
+            <button class="btn btn-sm" id="refresh-scans">Refresh</button>
+          </div>
         </div>
+        <div id="scan-status" class="status-bar hidden"></div>
         <div class="table-wrap">
           <table id="scan-table">
             <thead>
@@ -102,123 +187,184 @@
         </div>
       </section>
 
-      <!-- Modules panel -->
-      <section class="panel" id="tab-modules">
+      <!-- ── Modules panel ─────────────────────────────────────────────────── -->
+      <section class="panel" id="panel-modules">
+        <div class="page-header">
+          <h1 class="page-title">Modules</h1>
+        </div>
         <div id="modules-grid" class="modules-grid"></div>
       </section>
 
-      <!-- Admin panel (admin only) -->
-      <section class="panel" id="tab-admin">
-
-        <!-- Sub-navigation -->
-        <div class="sub-tabs">
-          <button class="sub-tab active" data-subtab="admin-users">&#128100; Users</button>
-          <button class="sub-tab" data-subtab="admin-auth">&#128274; Authentication</button>
-          <button class="sub-tab" data-subtab="admin-oidc">&#128279; OIDC Connector</button>
+      <!-- ── Admin panel ───────────────────────────────────────────────────── -->
+      <section class="panel" id="panel-admin">
+        <div class="page-header">
+          <h1 class="page-title">Settings</h1>
         </div>
 
-        <!-- ── Users sub-panel ─────────────────────────────────────────────── -->
-        <div class="sub-panel active" id="sub-admin-users">
-          <div class="toolbar">
-            <button class="btn btn-primary btn-sm" onclick="openUserModal()">+ New user</button>
-            <button class="btn btn-sm" onclick="loadUsers()">Refresh</button>
-          </div>
-          <div class="table-wrap">
-            <table id="user-table">
-              <thead>
-                <tr>
-                  <th>Email</th><th>Username</th><th>Full name</th>
-                  <th>Role</th><th>Provider</th><th>Active</th><th>Actions</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
+        <div class="admin-layout">
+          <!-- Vertical sub-nav -->
+          <nav class="admin-subnav">
+            <button class="subnav-item active" data-subtab="admin-users">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+              Users
+            </button>
+            <button class="subnav-item" data-subtab="admin-auth">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              Authentication
+            </button>
+            <button class="subnav-item" data-subtab="admin-oidc">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+              </svg>
+              OIDC Connector
+            </button>
+          </nav>
 
-        <!-- ── Authentication sub-panel ───────────────────────────────────── -->
-        <div class="sub-panel" id="sub-admin-auth">
-          <div class="admin-card">
-            <h3 class="admin-card-title">&#128737; JWT Settings</h3>
-            <div class="detail-grid" id="auth-settings-grid" style="max-width:460px"></div>
-            <p class="admin-note">
-              &#9888; These values are read from <code>.env</code> and require
-              a container restart to take effect.
-            </p>
-          </div>
-          <div class="admin-card" style="margin-top:16px">
-            <h3 class="admin-card-title">&#128273; Password policy</h3>
-            <div class="detail-grid" style="max-width:460px">
-              <span class="detail-key">Min length</span><span class="detail-val">8 characters</span>
-              <span class="detail-key">Hashing</span><span class="detail-val">bcrypt (cost factor 12)</span>
-              <span class="detail-key">Storage</span><span class="detail-val">Hash only — plain text never stored</span>
-            </div>
-          </div>
-        </div>
+          <!-- Sub-panel content -->
+          <div class="admin-content">
 
-        <!-- ── OIDC sub-panel ──────────────────────────────────────────────── -->
-        <div class="sub-panel" id="sub-admin-oidc">
-          <div class="admin-card">
-            <h3 class="admin-card-title">&#128279; OIDC Provider</h3>
-
-            <div class="modal-fields" style="max-width:520px">
-              <label class="oidc-toggle">
-                <input type="checkbox" id="oidc-enabled" />
-                <span>Enable OIDC login</span>
-              </label>
-
-              <label class="field-label">Provider display name</label>
-              <input id="oidc-name" type="text" placeholder="e.g. Company SSO" />
-
-              <label class="field-label">Issuer URL</label>
-              <input id="oidc-issuer" type="text"
-                     placeholder="https://accounts.google.com" />
-              <p class="field-hint">The base URL of the OIDC provider.
-                The discovery document will be fetched from
-                <code>{issuer}/.well-known/openid-configuration</code>.</p>
-
-              <label class="field-label">Client ID</label>
-              <input id="oidc-client-id" type="text" placeholder="your-client-id" />
-
-              <label class="field-label">Client Secret</label>
-              <input id="oidc-client-secret" type="password"
-                     placeholder="Leave blank to keep existing secret" />
-
-              <label class="field-label">Scopes</label>
-              <input id="oidc-scopes" type="text"
-                     placeholder="openid email profile" />
-
-              <label class="oidc-toggle">
-                <input type="checkbox" id="oidc-auto-create" />
-                <span>Auto-create user account on first login</span>
-              </label>
-
-              <label class="field-label">Default role for auto-created users</label>
-              <select id="oidc-default-role" class="form-select">
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
-              </select>
+            <!-- Users sub-panel -->
+            <div class="sub-panel active" id="sub-admin-users">
+              <div class="sub-panel-header">
+                <h2>Users</h2>
+                <div class="page-actions">
+                  <button class="btn btn-primary btn-sm" onclick="openUserModal()">+ New user</button>
+                  <button class="btn btn-sm" onclick="loadUsers()">Refresh</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table id="user-table">
+                  <thead>
+                    <tr>
+                      <th>Email</th><th>Username</th><th>Full name</th>
+                      <th>Role</th><th>Provider</th><th>Active</th><th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
             </div>
 
-            <div class="admin-actions">
-              <button class="btn btn-sm" onclick="testOidcConnection()">
-                &#9654; Test connection
-              </button>
-              <button class="btn btn-primary" onclick="saveOidcConfig()">
-                Save
-              </button>
+            <!-- Authentication sub-panel -->
+            <div class="sub-panel" id="sub-admin-auth">
+              <div class="sub-panel-header">
+                <h2>Authentication</h2>
+              </div>
+              <div class="settings-card">
+                <h3 class="settings-card-title">JWT Settings</h3>
+                <div class="detail-grid" id="auth-settings-grid" style="max-width:400px"></div>
+                <p class="settings-note">
+                  ⚠ These values are read from <code>.env</code> and require a container restart to take effect.
+                </p>
+              </div>
+              <div class="settings-card" style="margin-top:16px">
+                <h3 class="settings-card-title">Password policy</h3>
+                <div class="detail-grid" style="max-width:400px">
+                  <span class="detail-key">Min length</span><span class="detail-val">8 characters</span>
+                  <span class="detail-key">Hashing</span><span class="detail-val">bcrypt (cost factor 12)</span>
+                  <span class="detail-key">Storage</span><span class="detail-val">Hash only — plain text never stored</span>
+                </div>
+              </div>
             </div>
 
-            <div id="oidc-test-result" class="status-bar hidden" style="margin-top:12px"></div>
-          </div>
-        </div>
+            <!-- OIDC sub-panel -->
+            <div class="sub-panel" id="sub-admin-oidc">
+              <div class="sub-panel-header">
+                <h2>OIDC Connector</h2>
+              </div>
+              <div class="settings-card" style="max-width:560px">
+                <div class="modal-fields">
+                  <label class="toggle-row">
+                    <input type="checkbox" id="oidc-enabled" />
+                    <div>
+                      <div class="toggle-label-text">Enable OIDC login</div>
+                      <div class="toggle-hint">Allow users to authenticate via an external identity provider</div>
+                    </div>
+                  </label>
+                  <div class="field-group">
+                    <label class="field-label">Provider display name</label>
+                    <input id="oidc-name" type="text" placeholder="e.g. Company SSO" />
+                  </div>
+                  <div class="field-group">
+                    <label class="field-label">Issuer URL</label>
+                    <input id="oidc-issuer" type="text" placeholder="https://accounts.google.com" />
+                    <span class="field-hint">Discovery document fetched from <code>{issuer}/.well-known/openid-configuration</code></span>
+                  </div>
+                  <div class="field-group">
+                    <label class="field-label">Client ID</label>
+                    <input id="oidc-client-id" type="text" placeholder="your-client-id" />
+                  </div>
+                  <div class="field-group">
+                    <label class="field-label">Client Secret</label>
+                    <input id="oidc-client-secret" type="password" placeholder="Leave blank to keep existing secret" />
+                  </div>
+                  <div class="field-group">
+                    <label class="field-label">Scopes</label>
+                    <input id="oidc-scopes" type="text" placeholder="openid email profile" />
+                  </div>
+                  <label class="toggle-row">
+                    <input type="checkbox" id="oidc-auto-create" />
+                    <div>
+                      <div class="toggle-label-text">Auto-create user on first login</div>
+                      <div class="toggle-hint">Automatically provision an account when a new OIDC user signs in</div>
+                    </div>
+                  </label>
+                  <div class="field-group">
+                    <label class="field-label">Default role for new users</label>
+                    <select id="oidc-default-role" class="form-select">
+                      <option value="user">User</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-actions">
+                  <button class="btn btn-sm" onclick="testOidcConnection()">▶ Test connection</button>
+                  <button class="btn btn-primary" onclick="saveOidcConfig()">Save</button>
+                </div>
+                <div id="oidc-test-result" class="status-bar hidden" style="margin-top:14px"></div>
+              </div>
+            </div>
 
+          </div><!-- /.admin-content -->
+        </div><!-- /.admin-layout -->
       </section>
+
+    </div><!-- /.main-area -->
+  </div><!-- /#app-view -->
+
+  <!-- ── New Scan modal ────────────────────────────────────────────────────── -->
+  <div id="scan-modal" class="modal-overlay hidden" onclick="closeScanModal(event)">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <h3>New Scan</h3>
+        <button class="modal-close" onclick="closeScanModal()">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-group">
+          <label class="field-label">Target — CIDR or single IP</label>
+          <input id="scan-target" type="text" placeholder="192.168.1.0/24" />
+        </div>
+        <div class="field-group">
+          <label class="field-label">Modules</label>
+          <div id="module-checkboxes" class="checkbox-group"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" onclick="closeScanModal()">Cancel</button>
+        <button id="scan-btn" class="btn btn-primary">&#9654; Run Scan</button>
+      </div>
     </div>
+  </div>
 
-  </div><!-- end #app-view -->
-
-  <!-- Asset detail / edit modal -->
+  <!-- ── Asset detail / edit modal ─────────────────────────────────────────── -->
   <div id="asset-modal" class="modal-overlay hidden" onclick="closeAssetModal(event)">
     <div class="modal">
       <div class="modal-header">
@@ -229,18 +375,26 @@
         <div class="detail-grid" id="modal-info"></div>
         <hr class="modal-divider" />
         <div class="modal-fields">
-          <label class="field-label">Name / Label</label>
-          <input id="modal-name" type="text" placeholder="e.g. Routeur principal" />
-          <label class="field-label">SSH User</label>
-          <input id="modal-ssh-user" type="text" placeholder="e.g. admin" />
-          <label class="field-label">SSH Port</label>
-          <input id="modal-ssh-port" type="number" placeholder="22" min="1" max="65535" />
-          <label class="field-label">Notes</label>
-          <textarea id="modal-notes" placeholder="Free-text notes…"></textarea>
+          <div class="field-group">
+            <label class="field-label">Name / Label</label>
+            <input id="modal-name" type="text" placeholder="e.g. Main Router" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">SSH User</label>
+            <input id="modal-ssh-user" type="text" placeholder="e.g. admin" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">SSH Port</label>
+            <input id="modal-ssh-port" type="number" placeholder="22" min="1" max="65535" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Notes</label>
+            <textarea id="modal-notes" placeholder="Free-text notes…"></textarea>
+          </div>
         </div>
         <hr class="modal-divider" />
         <div id="modal-ports-section">
-          <p class="field-label" style="margin-bottom:8px">Open ports</p>
+          <p class="field-label" style="margin-bottom:10px">Open ports</p>
           <div class="table-wrap">
             <table id="modal-ports-table">
               <thead><tr><th>Port</th><th>Proto</th><th>State</th><th>Service</th><th>Version</th></tr></thead>
@@ -256,7 +410,7 @@
     </div>
   </div>
 
-  <!-- User create/edit modal -->
+  <!-- ── User create / edit modal ──────────────────────────────────────────── -->
   <div id="user-modal" class="modal-overlay hidden" onclick="closeUserModal(event)">
     <div class="modal" style="max-width:460px">
       <div class="modal-header">
@@ -265,19 +419,32 @@
       </div>
       <div class="modal-body">
         <div class="modal-fields">
-          <label class="field-label">Email</label>
-          <input id="um-email" type="text" placeholder="user@example.com" />
-          <label class="field-label">Username</label>
-          <input id="um-username" type="text" placeholder="jdoe" />
-          <label class="field-label">Full name</label>
-          <input id="um-fullname" type="text" placeholder="Jane Doe" />
-          <label class="field-label">Password <span id="um-pwd-hint" style="color:var(--muted);font-weight:400">(leave blank to keep)</span></label>
-          <input id="um-password" type="password" placeholder="Min. 8 characters" />
-          <label class="field-label">Role</label>
-          <select id="um-role" class="form-select">
-            <option value="user">User</option>
-            <option value="admin">Admin</option>
-          </select>
+          <div class="field-group">
+            <label class="field-label">Email</label>
+            <input id="um-email" type="text" placeholder="user@example.com" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Username</label>
+            <input id="um-username" type="text" placeholder="jdoe" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Full name</label>
+            <input id="um-fullname" type="text" placeholder="Jane Doe" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">
+              Password
+              <span id="um-pwd-hint" style="color:var(--muted);font-weight:400"> — leave blank to keep</span>
+            </label>
+            <input id="um-password" type="password" placeholder="Min. 8 characters" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Role</label>
+            <select id="um-role" class="form-select">
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -286,6 +453,9 @@
       </div>
     </div>
   </div>
+
+  <!-- ── Toast notifications ───────────────────────────────────────────────── -->
+  <div id="toast-container" class="toast-container"></div>
 
   <script src="/static/app.js"></script>
 </body>
