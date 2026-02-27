@@ -283,6 +283,83 @@ tbody td { padding: 10px 12px; vertical-align: middle; }
 }
 .form-select:focus { border-color: var(--accent); }
 
+/* ── Sub-tabs (inside Admin panel) ────────────────────────────────────────── */
+.sub-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.sub-tab {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-bottom: 2px solid transparent;
+  transition: color .15s, border-color .15s;
+}
+.sub-tab:hover { color: var(--text); }
+.sub-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.sub-panel { display: none; }
+.sub-panel.active { display: block; }
+
+/* ── Admin cards ────────────────────────────────────────────────────────────── */
+.admin-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  max-width: 760px;
+}
+.admin-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text);
+}
+.admin-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  align-items: center;
+}
+.admin-note {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.admin-note code {
+  background: var(--surface2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 11px;
+}
+.field-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: -4px;
+  line-height: 1.5;
+}
+.field-hint code {
+  background: var(--surface2);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-family: monospace;
+  font-size: 10px;
+}
+.oidc-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.oidc-toggle input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+
 /* ── Asset row clickable ───────────────────────────────────────────────────── */
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover td:first-child { color: var(--accent); }

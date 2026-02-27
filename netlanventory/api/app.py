@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from netlanventory.api.routers import assets, modules, scans
+from netlanventory.api.routers import admin as admin_router
 from netlanventory.api.routers import auth as auth_router
 from netlanventory.api.routers import users as users_router
 from netlanventory.core.auth import hash_password
@@ -106,6 +107,7 @@ def create_app() -> FastAPI:
     # Auth & users — auth/login is public; other auth routes self-guard
     app.include_router(auth_router.router, prefix=api_prefix)
     app.include_router(users_router.router, prefix=api_prefix)
+    app.include_router(admin_router.router, prefix=api_prefix)
 
     # All data routers require a valid session
     _auth = [Depends(get_current_active_user)]

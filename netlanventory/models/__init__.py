@@ -7,7 +7,11 @@ from netlanventory.models.cve import Cve
 from netlanventory.models.port import Port
 from netlanventory.models.scan import Scan
 from netlanventory.models.scan_result import ScanResult
+from netlanventory.models.oidc_provider import OidcProvider
 from netlanventory.models.user import User
 from netlanventory.models.zap_report import ZapReport
 
-__all__ = ["Base", "Asset", "AssetCve", "Cve", "Port", "Scan", "ScanResult", "User", "ZapReport"]
+__all__ = [
+    "Base", "Asset", "AssetCve", "Cve", "OidcProvider",
+    "Port", "Scan", "ScanResult", "User", "ZapReport",
+]

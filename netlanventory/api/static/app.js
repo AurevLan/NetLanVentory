@@ -116,9 +116,9 @@ function _applyUserContext() {
   document.getElementById('nav-username').textContent = _me.email;
   document.getElementById('nav-role').textContent = _me.role;
 
-  // Show Users tab only for admins
+  // Show Admin tab only for admins
   if (_me.role === 'admin') {
-    document.getElementById('tab-users-btn').style.display = '';
+    document.getElementById('tab-admin-btn').style.display = '';
   }
 }
 
@@ -477,7 +477,24 @@ async function triggerScan() {
   }
 }
 
-// ── Users (admin panel) ───────────────────────────────────────────────────────
+// ── Admin panel ───────────────────────────────────────────────────────────────
+
+function initSubTabs() {
+  document.querySelectorAll('.sub-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const panel = document.getElementById('tab-admin');
+      panel.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+      panel.querySelectorAll('.sub-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('sub-' + tab.dataset.subtab).classList.add('active');
+      if (tab.dataset.subtab === 'admin-auth') loadAuthSettings();
+      if (tab.dataset.subtab === 'admin-oidc') loadOidcConfig();
+      if (tab.dataset.subtab === 'admin-users') loadUsers();
+    });
+  });
+}
+
+// ── Users ─────────────────────────────────────────────────────────────────────
 
 async function loadUsers() {
   try {
@@ -488,76 +505,219 @@ async function loadUsers() {
       tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">No users</td></tr>';
       return;
     }
-    tbody.innerHTML = data.items.map(u => `
-      <tr>
-        <td>${escape(u.email)}</td>
-        <td class="mono">${escape(u.username)}</td>
-        <td>${escape(u.full_name || '—')}</td>
-        <td>${badge(u.role, u.role === 'admin' ? 'warning' : 'info')}</td>
-        <td>${badge(u.auth_provider, 'muted')}</td>
-        <td>${u.is_active ? badge('yes', 'success') : badge('no', 'error')}</td>
-        <td>
-          ${u.id !== _me?.id
-            ? `<button class="btn btn-sm" style="color:var(--danger)" onclick="deleteUser('${u.id}', '${escape(u.email)}')">Delete</button>`
-            : '<span style="color:var(--muted);font-size:12px">you</span>'}
-        </td>
-      </tr>`).join('');
-  } catch (e) {
-    console.error('Users error:', e);
-  }
+    tbody.innerHTML = data.items.map(u => {
+      const isSelf = u.id === _me?.id;
+      return `
+        <tr>
+          <td>${escape(u.email)}</td>
+          <td class="mono">${escape(u.username)}</td>
+          <td>${escape(u.full_name || '—')}</td>
+          <td>${badge(u.role, u.role === 'admin' ? 'warning' : 'info')}</td>
+          <td>${badge(u.auth_provider, 'muted')}</td>
+          <td>${u.is_active ? badge('active', 'success') : badge('disabled', 'error')}</td>
+          <td style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-sm" onclick="openUserModal('${u.id}')">Edit</button>
+            ${!isSelf
+              ? `<button class="btn btn-sm" style="color:var(--danger)"
+                   onclick="deleteUser('${u.id}','${escape(u.email)}')">Delete</button>`
+              : '<span style="color:var(--muted);font-size:12px;padding:6px 4px">you</span>'}
+          </td>
+        </tr>`;
+    }).join('');
+  } catch (e) { console.error('Users error:', e); }
 }
 
-let _userModalMode = 'create';
+// user modal handles both create and edit
+let _userModalId = null;
 
-function openUserModal() {
-  _userModalMode = 'create';
-  document.getElementById('user-modal-title').textContent = 'New user';
-  document.getElementById('um-email').value = '';
-  document.getElementById('um-username').value = '';
-  document.getElementById('um-fullname').value = '';
-  document.getElementById('um-password').value = '';
+async function openUserModal(userId = null) {
+  _userModalId = userId;
+  const isEdit = !!userId;
+  document.getElementById('user-modal-title').textContent = isEdit ? 'Edit user' : 'New user';
+  document.getElementById('um-save-btn').textContent = isEdit ? 'Save' : 'Create';
+
+  // Reset
+  ['um-email','um-username','um-fullname','um-password'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
   document.getElementById('um-role').value = 'user';
-  document.getElementById('um-save-btn').textContent = 'Create';
+
+  if (isEdit) {
+    try {
+      const u = await api(`/users/${userId}`);
+      if (!u) return;
+      document.getElementById('um-email').value = u.email;
+      document.getElementById('um-username').value = u.username;
+      document.getElementById('um-fullname').value = u.full_name || '';
+      document.getElementById('um-role').value = u.role;
+      // Disable email/username for OIDC users
+      const isOidc = u.auth_provider !== 'local';
+      document.getElementById('um-email').disabled = isOidc;
+      document.getElementById('um-username').disabled = isOidc;
+    } catch (e) { alert(`Error loading user: ${e.message}`); return; }
+  } else {
+    document.getElementById('um-email').disabled = false;
+    document.getElementById('um-username').disabled = false;
+  }
+
   document.getElementById('user-modal').classList.remove('hidden');
 }
 
 function closeUserModal(event) {
   if (event && event.target !== document.getElementById('user-modal')) return;
   document.getElementById('user-modal').classList.add('hidden');
+  _userModalId = null;
 }
 
 async function saveUserModal() {
   const btn = document.getElementById('um-save-btn');
   btn.disabled = true;
   btn.textContent = 'Saving…';
+  const isEdit = !!_userModalId;
+
   try {
-    await api('/users', {
-      method: 'POST',
-      body: JSON.stringify({
-        email: document.getElementById('um-email').value.trim(),
-        username: document.getElementById('um-username').value.trim(),
+    if (isEdit) {
+      const pwd = document.getElementById('um-password').value;
+      const payload = {
         full_name: document.getElementById('um-fullname').value.trim() || null,
-        password: document.getElementById('um-password').value,
         role: document.getElementById('um-role').value,
-      }),
-    });
+      };
+      if (pwd) payload.password = pwd;
+      await api(`/users/${_userModalId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await api('/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: document.getElementById('um-email').value.trim(),
+          username: document.getElementById('um-username').value.trim(),
+          full_name: document.getElementById('um-fullname').value.trim() || null,
+          password: document.getElementById('um-password').value,
+          role: document.getElementById('um-role').value,
+        }),
+      });
+    }
     document.getElementById('user-modal').classList.add('hidden');
+    _userModalId = null;
     await loadUsers();
   } catch (e) {
     alert(`Error: ${e.message}`);
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Create';
+    btn.textContent = isEdit ? 'Save' : 'Create';
   }
 }
 
 async function deleteUser(id, email) {
-  if (!confirm(`Delete user ${email}?`)) return;
+  if (!confirm(`Delete user "${email}"? This action cannot be undone.`)) return;
   try {
     await api(`/users/${id}`, { method: 'DELETE' });
     await loadUsers();
+  } catch (e) { alert(`Error: ${e.message}`); }
+}
+
+// ── Authentication settings ───────────────────────────────────────────────────
+
+async function loadAuthSettings() {
+  try {
+    const s = await api('/admin/auth-settings');
+    if (!s) return;
+    const grid = document.getElementById('auth-settings-grid');
+    const row = (k, v) =>
+      `<span class="detail-key">${k}</span><span class="detail-val">${escape(String(v))}</span>`;
+    grid.innerHTML = [
+      row('Algorithm', s.jwt_algorithm),
+      row('Token expiry', s.jwt_access_token_expire_minutes + ' minutes'),
+      row('OIDC (env)', s.oidc_enabled_in_env ? 'enabled' : 'disabled'),
+    ].join('');
+  } catch (e) { console.error('Auth settings error:', e); }
+}
+
+// ── OIDC connector ────────────────────────────────────────────────────────────
+
+async function loadOidcConfig() {
+  try {
+    const cfg = await api('/admin/oidc');
+    if (!cfg) return;
+    document.getElementById('oidc-enabled').checked = cfg.enabled;
+    document.getElementById('oidc-name').value = cfg.name || '';
+    document.getElementById('oidc-issuer').value = cfg.issuer_url || '';
+    document.getElementById('oidc-client-id').value = cfg.client_id || '';
+    document.getElementById('oidc-client-secret').value = '';  // never prefill secret
+    document.getElementById('oidc-client-secret').placeholder =
+      cfg.client_secret_set ? '••••••••  (set — leave blank to keep)' : 'Enter client secret';
+    document.getElementById('oidc-scopes').value = cfg.scopes || 'openid email profile';
+    document.getElementById('oidc-auto-create').checked = cfg.auto_create_users;
+    document.getElementById('oidc-default-role').value = cfg.default_role || 'user';
+  } catch (e) { console.error('OIDC load error:', e); }
+}
+
+async function saveOidcConfig() {
+  const btn = document.querySelector('[onclick="saveOidcConfig()"]');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const secret = document.getElementById('oidc-client-secret').value;
+    await api('/admin/oidc', {
+      method: 'PUT',
+      body: JSON.stringify({
+        enabled: document.getElementById('oidc-enabled').checked,
+        name: document.getElementById('oidc-name').value.trim() || 'SSO',
+        issuer_url: document.getElementById('oidc-issuer').value.trim() || null,
+        client_id: document.getElementById('oidc-client-id').value.trim() || null,
+        client_secret: secret || null,   // null = keep existing
+        scopes: document.getElementById('oidc-scopes').value.trim() || 'openid email profile',
+        auto_create_users: document.getElementById('oidc-auto-create').checked,
+        default_role: document.getElementById('oidc-default-role').value,
+      }),
+    });
+    await loadOidcConfig();  // refresh (shows secret_set status)
+    const res = document.getElementById('oidc-test-result');
+    res.className = 'status-bar success';
+    res.textContent = 'Configuration saved.';
+    res.classList.remove('hidden');
+    setTimeout(() => res.classList.add('hidden'), 3000);
   } catch (e) {
-    alert(`Error: ${e.message}`);
+    alert(`Save failed: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save';
+  }
+}
+
+async function testOidcConnection() {
+  const btn = document.querySelector('[onclick="testOidcConnection()"]');
+  btn.disabled = true;
+  btn.textContent = 'Testing…';
+  const res = document.getElementById('oidc-test-result');
+  res.className = 'status-bar running';
+  res.textContent = 'Fetching discovery document…';
+  res.classList.remove('hidden');
+
+  try {
+    const result = await api('/admin/oidc/test', { method: 'POST' });
+    if (!result) return;
+    if (result.success) {
+      res.className = 'status-bar success';
+      const eps = result.endpoints
+        ? Object.entries(result.endpoints)
+            .filter(([, v]) => v)
+            .map(([k, v]) => `<br><span style="color:var(--muted)">${k}:</span> ${escape(v)}`)
+            .join('')
+        : '';
+      res.innerHTML = `&#10003; ${escape(result.message)}${eps}`;
+    } else {
+      res.className = 'status-bar error';
+      res.textContent = `&#10007; ${result.message}`;
+    }
+  } catch (e) {
+    res.className = 'status-bar error';
+    res.textContent = `Error: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Test connection';
   }
 }
 
@@ -570,7 +730,7 @@ function initTabs() {
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-      if (tab.dataset.tab === 'users') loadUsers();
+      if (tab.dataset.tab === 'admin') loadUsers();
     });
   });
 }
@@ -579,6 +739,7 @@ function initTabs() {
 
 async function _initAppData() {
   initTabs();
+  initSubTabs();
   await loadModuleCheckboxes();
   await refreshStats();
   await loadAssets();
@@ -588,7 +749,7 @@ async function _initAppData() {
   document.getElementById('scan-btn').addEventListener('click', triggerScan);
   document.getElementById('refresh-assets').addEventListener('click', loadAssets);
   document.getElementById('refresh-scans').addEventListener('click', loadScans);
-  document.getElementById('refresh-users').addEventListener('click', loadUsers);
+  // refresh-users removed (now inline onclick in sub-panel)
   document.getElementById('asset-search').addEventListener('input', loadAssets);
   document.getElementById('active-only').addEventListener('change', loadAssets);
 

@@ -61,7 +61,7 @@
         <button class="tab active" data-tab="assets">Assets</button>
         <button class="tab" data-tab="scans">Scans</button>
         <button class="tab" data-tab="modules">Modules</button>
-        <button class="tab" data-tab="users" id="tab-users-btn" style="display:none">Users</button>
+        <button class="tab" data-tab="admin" id="tab-admin-btn" style="display:none">&#9881; Admin</button>
       </div>
 
       <!-- Assets panel -->
@@ -107,20 +107,112 @@
         <div id="modules-grid" class="modules-grid"></div>
       </section>
 
-      <!-- Users panel (admin only) -->
-      <section class="panel" id="tab-users">
-        <div class="toolbar">
-          <button class="btn btn-primary btn-sm" onclick="openUserModal()">+ New user</button>
-          <button class="btn btn-sm" id="refresh-users">Refresh</button>
+      <!-- Admin panel (admin only) -->
+      <section class="panel" id="tab-admin">
+
+        <!-- Sub-navigation -->
+        <div class="sub-tabs">
+          <button class="sub-tab active" data-subtab="admin-users">&#128100; Users</button>
+          <button class="sub-tab" data-subtab="admin-auth">&#128274; Authentication</button>
+          <button class="sub-tab" data-subtab="admin-oidc">&#128279; OIDC Connector</button>
         </div>
-        <div class="table-wrap">
-          <table id="user-table">
-            <thead>
-              <tr><th>Email</th><th>Username</th><th>Full name</th><th>Role</th><th>Provider</th><th>Active</th><th>Actions</th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+
+        <!-- ── Users sub-panel ─────────────────────────────────────────────── -->
+        <div class="sub-panel active" id="sub-admin-users">
+          <div class="toolbar">
+            <button class="btn btn-primary btn-sm" onclick="openUserModal()">+ New user</button>
+            <button class="btn btn-sm" onclick="loadUsers()">Refresh</button>
+          </div>
+          <div class="table-wrap">
+            <table id="user-table">
+              <thead>
+                <tr>
+                  <th>Email</th><th>Username</th><th>Full name</th>
+                  <th>Role</th><th>Provider</th><th>Active</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
+
+        <!-- ── Authentication sub-panel ───────────────────────────────────── -->
+        <div class="sub-panel" id="sub-admin-auth">
+          <div class="admin-card">
+            <h3 class="admin-card-title">&#128737; JWT Settings</h3>
+            <div class="detail-grid" id="auth-settings-grid" style="max-width:460px"></div>
+            <p class="admin-note">
+              &#9888; These values are read from <code>.env</code> and require
+              a container restart to take effect.
+            </p>
+          </div>
+          <div class="admin-card" style="margin-top:16px">
+            <h3 class="admin-card-title">&#128273; Password policy</h3>
+            <div class="detail-grid" style="max-width:460px">
+              <span class="detail-key">Min length</span><span class="detail-val">8 characters</span>
+              <span class="detail-key">Hashing</span><span class="detail-val">bcrypt (cost factor 12)</span>
+              <span class="detail-key">Storage</span><span class="detail-val">Hash only — plain text never stored</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── OIDC sub-panel ──────────────────────────────────────────────── -->
+        <div class="sub-panel" id="sub-admin-oidc">
+          <div class="admin-card">
+            <h3 class="admin-card-title">&#128279; OIDC Provider</h3>
+
+            <div class="modal-fields" style="max-width:520px">
+              <label class="oidc-toggle">
+                <input type="checkbox" id="oidc-enabled" />
+                <span>Enable OIDC login</span>
+              </label>
+
+              <label class="field-label">Provider display name</label>
+              <input id="oidc-name" type="text" placeholder="e.g. Company SSO" />
+
+              <label class="field-label">Issuer URL</label>
+              <input id="oidc-issuer" type="text"
+                     placeholder="https://accounts.google.com" />
+              <p class="field-hint">The base URL of the OIDC provider.
+                The discovery document will be fetched from
+                <code>{issuer}/.well-known/openid-configuration</code>.</p>
+
+              <label class="field-label">Client ID</label>
+              <input id="oidc-client-id" type="text" placeholder="your-client-id" />
+
+              <label class="field-label">Client Secret</label>
+              <input id="oidc-client-secret" type="password"
+                     placeholder="Leave blank to keep existing secret" />
+
+              <label class="field-label">Scopes</label>
+              <input id="oidc-scopes" type="text"
+                     placeholder="openid email profile" />
+
+              <label class="oidc-toggle">
+                <input type="checkbox" id="oidc-auto-create" />
+                <span>Auto-create user account on first login</span>
+              </label>
+
+              <label class="field-label">Default role for auto-created users</label>
+              <select id="oidc-default-role" class="form-select">
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+
+            <div class="admin-actions">
+              <button class="btn btn-sm" onclick="testOidcConnection()">
+                &#9654; Test connection
+              </button>
+              <button class="btn btn-primary" onclick="saveOidcConfig()">
+                Save
+              </button>
+            </div>
+
+            <div id="oidc-test-result" class="status-bar hidden" style="margin-top:12px"></div>
+          </div>
+        </div>
+
       </section>
     </div>
 
@@ -179,7 +271,7 @@
           <input id="um-username" type="text" placeholder="jdoe" />
           <label class="field-label">Full name</label>
           <input id="um-fullname" type="text" placeholder="Jane Doe" />
-          <label class="field-label">Password</label>
+          <label class="field-label">Password <span id="um-pwd-hint" style="color:var(--muted);font-weight:400">(leave blank to keep)</span></label>
           <input id="um-password" type="password" placeholder="Min. 8 characters" />
           <label class="field-label">Role</label>
           <select id="um-role" class="form-select">
