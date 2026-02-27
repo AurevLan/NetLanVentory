@@ -1,0 +1,90 @@
+version: "3.9"
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  internal:
+    driver: bridge
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+
+# ── Services ──────────────────────────────────────────────────────────────────
+services:
+
+  # ── PostgreSQL database ────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      - internal          # DB is NOT exposed on host network
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-netlanventory}
+      POSTGRES_USER:     ${POSTGRES_USER:-netlv}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-netlv_secret}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-netlv} -d ${POSTGRES_DB:-netlanventory}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Database migration (one-shot) ─────────────────────────────────────────
+  migrate:
+    build: .
+    networks:
+      - internal
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-netlv}:${POSTGRES_PASSWORD:-netlv_secret}@db:5432/${POSTGRES_DB:-netlanventory}"
+    command: >
+      sh -c "
+        until pg_isready -h db -U ${POSTGRES_USER:-netlv} -d ${POSTGRES_DB:-netlanventory} 2>/dev/null; do
+          echo 'Waiting for postgres…'; sleep 2;
+        done;
+        alembic upgrade head
+      "
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # ── Application server ────────────────────────────────────────────────────
+  app:
+    build: .
+    restart: unless-stopped
+    # network_mode: host is required for Layer 2 ARP scanning (scapy).
+    # This means the container shares the host network stack.
+    network_mode: host
+    # Alternatively, for environments where host networking is not available,
+    # uncomment the block below and comment out network_mode above:
+    # networks:
+    #   - internal
+    # ports:
+    #   - "${APP_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL:      "postgresql+asyncpg://${POSTGRES_USER:-netlv}:${POSTGRES_PASSWORD:-netlv_secret}@localhost:5432/${POSTGRES_DB:-netlanventory}"
+      APP_HOST:          ${APP_HOST:-0.0.0.0}
+      APP_PORT:          ${APP_PORT:-8000}
+      APP_DEBUG:         ${APP_DEBUG:-false}
+      LOG_LEVEL:         ${LOG_LEVEL:-INFO}
+      SECRET_KEY:        ${SECRET_KEY:-change-me-in-production}
+    cap_add:
+      - NET_ADMIN   # Required for ARP manipulation
+      - NET_RAW     # Required for raw socket access (scapy / nmap)
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      # Optional: mount .env for local overrides
+      - ./.env:/app/.env:ro
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
