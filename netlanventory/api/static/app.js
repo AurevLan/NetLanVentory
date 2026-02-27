@@ -130,13 +130,15 @@ async function loadScans() {
     const { items } = await api('/scans?limit=50');
     const tbody = document.querySelector('#scan-table tbody');
     if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">No scans yet</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px">No scans yet</td></tr>';
       return;
     }
     tbody.innerHTML = items.map(s => {
       const assetsFound = (s.summary?.modules
         ? Object.values(s.summary.modules).reduce((acc, m) => acc + (m.assets_found || 0), 0)
         : '—');
+      const running = ['pending', 'running'].includes(s.status);
+      const rerunBtn = `<button class="btn btn-sm" onclick="rerunScan('${s.id}')" ${running ? 'disabled title="Scan in progress"' : ''}>&#8635; Re-run</button>`;
       return `
         <tr>
           <td class="mono" style="font-size:11px;color:var(--muted)">${s.id.slice(0, 8)}…</td>
@@ -146,10 +148,57 @@ async function loadScans() {
           <td style="font-size:12px;color:var(--muted)">${fmtDate(s.started_at)}</td>
           <td style="font-size:12px;color:var(--muted)">${fmtDate(s.finished_at)}</td>
           <td>${assetsFound}</td>
+          <td>${rerunBtn}</td>
         </tr>`;
     }).join('');
   } catch (e) {
     console.error('Scans error:', e);
+  }
+}
+
+async function rerunScan(scanId) {
+  const statusEl = document.getElementById('scan-status');
+  statusEl.className = 'status-bar running';
+  statusEl.textContent = 'Re-running scan…';
+  statusEl.classList.remove('hidden');
+
+  // Disable all re-run buttons while polling
+  document.querySelectorAll('#scan-table button').forEach(b => { b.disabled = true; });
+
+  try {
+    const scan = await api(`/scans/${scanId}/rerun`, { method: 'POST' });
+    statusEl.textContent = `Re-run ${scan.id.slice(0, 8)} created — target: ${scan.target}. Polling…`;
+
+    // Switch to Scans tab so the user can follow progress
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    const scansTab = document.querySelector('.tab[data-tab="scans"]');
+    if (scansTab) scansTab.classList.add('active');
+    document.getElementById('tab-scans').classList.add('active');
+
+    let done = false;
+    while (!done) {
+      await new Promise(r => setTimeout(r, 2000));
+      await loadScans();
+      const updated = await api(`/scans/${scan.id}`);
+      statusEl.textContent = `Re-run ${updated.id.slice(0, 8)} — status: ${updated.status}`;
+
+      if (['completed', 'completed_with_errors', 'failed', 'error'].includes(updated.status)) {
+        done = true;
+        statusEl.className = 'status-bar ' + (updated.status === 'completed' ? 'success' : 'error');
+        const total = updated.summary?.modules
+          ? Object.values(updated.summary.modules).reduce((s, m) => s + (m.assets_found || 0), 0)
+          : 0;
+        statusEl.textContent = `Re-run complete (${updated.status}) — ${total} assets found.`;
+        await loadAssets();
+        await refreshStats();
+      }
+    }
+  } catch (e) {
+    statusEl.className = 'status-bar error';
+    statusEl.textContent = `Re-run error: ${e.message}`;
+  } finally {
+    await loadScans(); // re-enable buttons via fresh render
   }
 }
 

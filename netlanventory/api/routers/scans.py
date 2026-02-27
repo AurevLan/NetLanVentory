@@ -98,6 +98,44 @@ async def create_scan(
     return scan
 
 
+@router.post("/{scan_id}/rerun", response_model=ScanOut, status_code=status.HTTP_202_ACCEPTED)
+async def rerun_scan(
+    scan_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: DbDep,
+) -> Scan:
+    """Create a new scan using the same target and modules as an existing scan."""
+    result = await db.execute(
+        select(Scan).where(Scan.id == scan_id)
+    )
+    original = result.scalar_one_or_none()
+    if not original:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+
+    scan = Scan(
+        target=original.target,
+        status="pending",
+        modules_run=original.modules_run,
+    )
+    db.add(scan)
+    await db.commit()
+    result = await db.execute(
+        select(Scan).where(Scan.id == scan.id).options(selectinload(Scan.results))
+    )
+    scan = result.scalar_one()
+
+    background_tasks.add_task(
+        _run_scan,
+        scan_id=scan.id,
+        target=scan.target,
+        modules=scan.modules_run or [],
+        options={},
+    )
+
+    logger.info("Rerun scan queued", original_scan_id=str(scan_id), new_scan_id=str(scan.id))
+    return scan
+
+
 @router.delete("/{scan_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_scan(scan_id: uuid.UUID, db: DbDep) -> None:
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
