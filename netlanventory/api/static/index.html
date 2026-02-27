@@ -366,7 +366,7 @@
 
   <!-- ── Asset detail / edit modal ─────────────────────────────────────────── -->
   <div id="asset-modal" class="modal-overlay hidden" onclick="closeAssetModal(event)">
-    <div class="modal" style="max-width:680px">
+    <div class="modal" style="max-width:820px">
       <div class="modal-header">
         <h3 id="modal-title">Asset</h3>
         <button class="modal-close" onclick="closeAssetModal()">&#10005;</button>
@@ -376,8 +376,12 @@
       <div class="modal-tabs">
         <button class="modal-tab active" data-modaltab="details">Details</button>
         <button class="modal-tab" data-modaltab="ports">Ports</button>
-        <button class="modal-tab" data-modaltab="security">
-          Security
+        <button class="modal-tab" data-modaltab="overview">
+          Overview
+          <span class="modal-tab-badge" id="modal-auto-badge" style="display:none;background:var(--accent)">Auto</span>
+        </button>
+        <button class="modal-tab" data-modaltab="flaws">
+          Failles
           <span class="modal-tab-badge" id="modal-cve-badge" style="display:none"></span>
         </button>
       </div>
@@ -418,8 +422,51 @@
           </div>
         </div>
 
-        <!-- ── Security tab ─────────────────────────────────────────── -->
-        <div class="modal-tab-panel" id="mtab-security">
+        <!-- ── Overview tab ──────────────────────────────────────────── -->
+        <div class="modal-tab-panel" id="mtab-overview">
+
+          <!-- 4 stat cards -->
+          <div class="overview-stats">
+            <div class="overview-stat">
+              <span class="overview-stat-num" id="ov-alerts">—</span>
+              <span class="overview-stat-lbl">Alertes</span>
+            </div>
+            <div class="overview-stat">
+              <span class="overview-stat-num" id="ov-cves">—</span>
+              <span class="overview-stat-lbl">CVEs</span>
+            </div>
+            <div class="overview-stat">
+              <span class="overview-stat-num" id="ov-techs">—</span>
+              <span class="overview-stat-lbl">Technologies</span>
+            </div>
+            <div class="overview-stat">
+              <span class="overview-stat-num overview-stat-date" id="ov-last-scan">—</span>
+              <span class="overview-stat-lbl">Dernier scan</span>
+            </div>
+          </div>
+
+          <!-- Chart -->
+          <div class="chart-wrap" id="ov-chart-wrap" style="display:none">
+            <canvas id="overview-chart"></canvas>
+          </div>
+
+          <!-- No scan message -->
+          <p id="ov-no-scan" style="color:var(--text-muted);font-size:13px;text-align:center;padding:32px 0">
+            Aucun scan ZAP — lancez-en un depuis l'onglet Failles.
+          </p>
+
+          <!-- Technologies -->
+          <div style="margin-top:20px">
+            <p class="field-label" style="margin-bottom:10px">Technologies détectées</p>
+            <div id="ov-tech-pills" class="tech-pills">
+              <span style="color:var(--text-muted);font-size:12px">Aucune technologie détectée.</span>
+            </div>
+          </div>
+
+        </div><!-- /.modal-tab-panel overview -->
+
+        <!-- ── Failles tab ────────────────────────────────────────────── -->
+        <div class="modal-tab-panel" id="mtab-flaws">
 
           <!-- ZAP scan launcher -->
           <div class="zap-launcher">
@@ -436,11 +483,18 @@
           <!-- Risk summary -->
           <div id="zap-risk-summary" class="risk-pills hidden"></div>
 
-          <!-- Detected technologies -->
-          <div id="tech-section" style="margin-top:20px">
-            <p class="field-label" style="margin-bottom:10px">Detected technologies</p>
-            <div id="tech-pills" class="tech-pills">
-              <span style="color:var(--text-muted);font-size:12px">No technologies detected yet — run a ZAP scan.</span>
+          <!-- Report selector (visible if multiple completed scans) -->
+          <div id="zap-report-selector" style="margin-top:14px;display:none">
+            <label class="field-label" style="margin-bottom:6px;display:block">Rapport</label>
+            <select id="zap-report-select" class="form-select" style="max-width:340px"
+                    onchange="loadZapReportDetail(this.value)"></select>
+          </div>
+
+          <!-- Alerts list -->
+          <div style="margin-top:20px">
+            <p class="field-label" style="margin-bottom:10px">Alertes ZAP</p>
+            <div id="flaws-list">
+              <p style="color:var(--text-muted);font-size:12px">Aucun rapport disponible — lancez un scan ZAP.</p>
             </div>
           </div>
 
@@ -470,7 +524,7 @@
             <div id="zap-history-list"></div>
           </div>
 
-        </div><!-- /.modal-tab-panel security -->
+        </div><!-- /.modal-tab-panel flaws -->
       </div><!-- /.modal-body -->
 
       <div class="modal-footer">
@@ -527,6 +581,7 @@
   <!-- ── Toast notifications ───────────────────────────────────────────────── -->
   <div id="toast-container" class="toast-container"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

@@ -6,6 +6,10 @@ const API = '/api/v1';
 
 let _token = localStorage.getItem('nlv_token') || null;
 let _me = null;
+let _overviewChart = null;
+let _currentReportId = null;
+const HTTP_PORTS  = new Set([80, 8080, 8000, 3000, 8888]);
+const HTTPS_PORTS = new Set([443, 8443, 4443]);
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
@@ -298,9 +302,11 @@ async function openAssetModal(id) {
   saveBtn.disabled = false;
   saveBtn.textContent = 'Save';
 
-  // Reset ZAP status
+  // Reset ZAP status & auto badge
   document.getElementById('zap-status').classList.add('hidden');
   document.getElementById('zap-risk-summary').classList.add('hidden');
+  const autoBadge = document.getElementById('modal-auto-badge');
+  if (autoBadge) autoBadge.style.display = 'none';
 
   try {
     const a = await api(`/assets/${id}`);
@@ -345,8 +351,10 @@ async function openAssetModal(id) {
         </tr>`).join('');
     }
 
-    // ── Security tab ─────────────────────────────────────────────────────
-    _renderSecurityTab(a);
+    // ── Overview + Failles tabs ───────────────────────────────────────
+    _renderOverviewTab(a);
+    _renderFlawsTab(a);
+    _autoTriggerZap(a);
 
   } catch (e) {
     document.getElementById('modal-info').innerHTML =
@@ -354,51 +362,126 @@ async function openAssetModal(id) {
   }
 }
 
-function _renderSecurityTab(asset) {
+// ── Overview tab renderer ─────────────────────────────────────────────────────
+
+function _renderOverviewTab(asset) {
+  const zapReports = asset.zap_reports || [];
+  const cves = asset.cves || [];
+
+  const lastCompleted = zapReports.find(r => r.status === 'completed');
+  const hasData = !!lastCompleted;
+
+  const risk = lastCompleted?.risk_summary || {};
+  const totalAlerts = hasData
+    ? (risk.high || 0) + (risk.medium || 0) + (risk.low || 0) + (risk.informational || 0)
+    : '—';
+
+  document.getElementById('ov-alerts').textContent = totalAlerts;
+  document.getElementById('ov-cves').textContent = cves.length > 0 ? cves.length : '—';
+  document.getElementById('ov-techs').textContent = hasData ? (lastCompleted.technologies?.length || 0) : '—';
+  document.getElementById('ov-last-scan').textContent = lastCompleted?.created_at
+    ? fmtDate(lastCompleted.created_at) : '—';
+
+  const noScanEl = document.getElementById('ov-no-scan');
+  const chartWrap = document.getElementById('ov-chart-wrap');
+
+  if (!hasData) {
+    if (noScanEl) noScanEl.style.display = '';
+    if (chartWrap) chartWrap.style.display = 'none';
+  } else {
+    if (noScanEl) noScanEl.style.display = 'none';
+    if (chartWrap) chartWrap.style.display = '';
+
+    if (_overviewChart) { _overviewChart.destroy(); _overviewChart = null; }
+
+    const ctx = document.getElementById('overview-chart')?.getContext('2d');
+    if (ctx && window.Chart) {
+      _overviewChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['High', 'Medium', 'Low', 'Info'],
+          datasets: [{
+            data: [risk.high || 0, risk.medium || 0, risk.low || 0, risk.informational || 0],
+            backgroundColor: ['#e53935', '#fb8c00', '#fdd835', '#90a4ae'],
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              beginAtZero: true,
+              ticks: { color: '#8b949e', font: { size: 11 }, precision: 0 },
+              grid: { color: '#30363d' },
+            },
+            y: {
+              ticks: { color: '#8b949e', font: { size: 12 } },
+              grid: { display: false },
+            },
+          },
+        },
+      });
+    }
+  }
+
+  // Technologies
+  const techPillsEl = document.getElementById('ov-tech-pills');
+  if (techPillsEl) {
+    const techs = lastCompleted?.technologies || [];
+    const catCls = { server: 'tech-server', javascript: 'tech-js', language: 'tech-lang', framework: 'tech-fw', library: 'tech-lib' };
+    techPillsEl.innerHTML = techs.length
+      ? techs.map(t =>
+          `<span class="tech-pill ${catCls[t.category] || 'tech-lib'}" title="${escape(t.alert_name || t.category)}">
+            ${escape(t.name)}${t.version ? `<span class="tech-version">${escape(t.version)}</span>` : ''}
+          </span>`).join('')
+      : '<span style="color:var(--text-muted);font-size:12px">Aucune technologie détectée.</span>';
+  }
+}
+
+// ── Failles tab renderer ──────────────────────────────────────────────────────
+
+function _renderFlawsTab(asset) {
   const cves = asset.cves || [];
   const zapReports = asset.zap_reports || [];
 
-  // CVE count badge on tab
-  const badge_el = document.getElementById('modal-cve-badge');
+  // CVE count badge on Failles tab
+  const badgeEl = document.getElementById('modal-cve-badge');
   if (cves.length > 0) {
-    badge_el.textContent = cves.length;
-    badge_el.style.display = '';
+    badgeEl.textContent = cves.length;
+    badgeEl.style.display = '';
   } else {
-    badge_el.style.display = 'none';
+    badgeEl.style.display = 'none';
   }
 
-  // ── Technologies ─────────────────────────────────────────────────────────
-  // Use the most recent completed report that has technologies
-  let techs = [];
-  for (const r of zapReports) {
-    if (r.status === 'completed' && r.technologies && r.technologies.length) {
-      techs = r.technologies;
-      break;
-    }
-  }
-  const techPillsEl = document.getElementById('tech-pills');
-  const catCls = {
-    server:    'tech-server',
-    javascript:'tech-js',
-    language:  'tech-lang',
-    framework: 'tech-fw',
-    library:   'tech-lib',
-  };
-  if (!techs.length) {
-    techPillsEl.innerHTML =
-      '<span style="color:var(--text-muted);font-size:12px">No technologies detected yet — run a ZAP scan.</span>';
-  } else {
-    techPillsEl.innerHTML = techs.map(t =>
-      `<span class="tech-pill ${catCls[t.category] || 'tech-lib'}"
-             title="${escape(t.alert_name || t.category)}">
-        ${escape(t.name)}${t.version
-          ? `<span class="tech-version">${escape(t.version)}</span>`
-          : ''}
-      </span>`
+  // Report selector
+  const completedReports = zapReports.filter(r => r.status === 'completed');
+  const selectorDiv = document.getElementById('zap-report-selector');
+  const selectorEl = document.getElementById('zap-report-select');
+
+  if (completedReports.length > 1 && selectorEl && selectorDiv) {
+    selectorEl.innerHTML = completedReports.map(r =>
+      `<option value="${escape(r.id)}">${escape(r.target_url || '?')} — ${fmtDate(r.created_at)}</option>`
     ).join('');
+    selectorDiv.style.display = '';
+  } else if (selectorDiv) {
+    selectorDiv.style.display = 'none';
   }
 
-  // ── CVE table ─────────────────────────────────────────────────────────────
+  // Load most recent completed report
+  if (completedReports.length > 0) {
+    loadZapReportDetail(completedReports[0].id);
+  } else {
+    const flawsEl = document.getElementById('flaws-list');
+    if (flawsEl) flawsEl.innerHTML =
+      '<p style="color:var(--text-muted);font-size:12px">Aucun rapport disponible — lancez un scan ZAP.</p>';
+    const riskEl = document.getElementById('zap-risk-summary');
+    if (riskEl) riskEl.classList.add('hidden');
+  }
+
+  // CVE table
   const tbody = document.getElementById('cve-tbody');
   if (!cves.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:24px">No vulnerabilities detected yet</td></tr>';
@@ -406,8 +489,7 @@ function _renderSecurityTab(asset) {
     tbody.innerHTML = cves.map(c => {
       const sev = (c.severity || '').toLowerCase();
       const sevType = sev === 'high' || sev === 'critical' ? 'error'
-        : sev === 'medium' ? 'warning'
-        : sev === 'low' ? 'info' : 'muted';
+        : sev === 'medium' ? 'warning' : sev === 'low' ? 'info' : 'muted';
       return `
         <tr>
           <td><a class="cve-link" href="https://nvd.nist.gov/vuln/detail/${escape(c.cve_id_str)}"
@@ -421,7 +503,7 @@ function _renderSecurityTab(asset) {
     }).join('');
   }
 
-  // ── ZAP history ───────────────────────────────────────────────────────────
+  // ZAP history
   const histList = document.getElementById('zap-history-list');
   if (!zapReports.length) {
     histList.innerHTML = '<p style="color:var(--text-muted);font-size:12px">No scans run yet.</p>';
@@ -436,8 +518,7 @@ function _renderSecurityTab(asset) {
         .join(' ') : '';
       const techCount = r.technologies ? r.technologies.length : 0;
       const techBadge = techCount > 0
-        ? `<span class="badge badge-muted">${techCount} tech</span>`
-        : '';
+        ? `<span class="badge badge-muted">${techCount} tech</span>` : '';
       return `
         <div class="zap-history-item">
           ${badge(r.status, statusType)}
@@ -447,6 +528,143 @@ function _renderSecurityTab(asset) {
           <span class="zap-history-date">${fmtDate(r.created_at)}</span>
         </div>`;
     }).join('');
+  }
+}
+
+// ── ZAP report detail loader ──────────────────────────────────────────────────
+
+async function loadZapReportDetail(reportId) {
+  if (!_modalAssetId || !reportId) return;
+  _currentReportId = reportId;
+  try {
+    const detail = await api(`/assets/${_modalAssetId}/zap/${reportId}`);
+    if (!detail) return;
+    _renderFlawsList(detail.alerts || []);
+    _renderRiskSummary(detail.risk_summary);
+  } catch (e) {
+    console.error('ZAP report detail error:', e);
+  }
+}
+
+// ── Flaws list renderer ───────────────────────────────────────────────────────
+
+function _renderFlawsList(alerts) {
+  const container = document.getElementById('flaws-list');
+  if (!container) return;
+
+  if (!alerts || !alerts.length) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:12px">Aucune alerte pour ce rapport.</p>';
+    return;
+  }
+
+  const riskOrder = { high: 0, medium: 1, low: 2, informational: 3 };
+  const sorted = [...alerts].sort((a, b) =>
+    (riskOrder[(a.risk || '').toLowerCase()] ?? 9) - (riskOrder[(b.risk || '').toLowerCase()] ?? 9)
+  );
+
+  container.innerHTML = sorted.map(alert => {
+    const risk = (alert.risk || 'informational').toLowerCase();
+    const riskCls = risk === 'high' ? 'risk-high'
+      : risk === 'medium' ? 'risk-medium'
+      : risk === 'low' ? 'risk-low' : 'risk-info';
+
+    const cveLinks = (alert.cve_ids || []).map(cve =>
+      `<a class="cve-link" href="https://nvd.nist.gov/vuln/detail/${escape(cve)}"
+         target="_blank" rel="noopener">${escape(cve)}</a>`
+    ).join(' ');
+
+    return `
+      <div class="flaw-item ${riskCls}">
+        <div class="flaw-header" onclick="toggleFlaw(this)">
+          <span class="flaw-arrow">▶</span>
+          <span class="flaw-risk-badge">${escape(alert.risk || 'Info')}</span>
+          <span class="flaw-name">${escape(alert.name || alert.alert || '—')}</span>
+          ${(alert.count > 1) ? `<span class="badge badge-muted" style="margin-left:auto">${alert.count}x</span>` : ''}
+        </div>
+        <div class="flaw-body">
+          ${alert.description ? `<p style="margin-bottom:10px;font-size:12px;color:var(--text-muted)">${escape(alert.description)}</p>` : ''}
+          ${alert.solution ? `<div class="flaw-solution"><strong>Solution :</strong><br>${escape(alert.solution)}</div>` : ''}
+          ${cveLinks ? `<div style="margin-top:8px;font-size:12px">CVE : ${cveLinks}</div>` : ''}
+          ${alert.evidence ? `<div class="flaw-evidence"><code>${escape(alert.evidence)}</code></div>` : ''}
+          ${alert.url ? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">URL : <span class="mono">${escape(alert.url)}</span></div>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function toggleFlaw(headerEl) {
+  const item = headerEl.closest('.flaw-item');
+  if (!item) return;
+  item.classList.toggle('open');
+}
+
+// ── Auto ZAP trigger ──────────────────────────────────────────────────────────
+
+async function _autoTriggerZap(asset) {
+  const openPorts = (asset.ports || []).filter(p => p.state === 'open');
+  const httpPort  = openPorts.find(p => HTTP_PORTS.has(p.port_number));
+  const httpsPort = openPorts.find(p => HTTPS_PORTS.has(p.port_number));
+  if (!httpPort || !httpsPort) return;
+
+  const zapReports = asset.zap_reports || [];
+  const now = Date.now();
+  const hasRecent = zapReports.some(r => {
+    if (['running', 'pending'].includes(r.status)) return true;
+    if (r.status === 'completed' && r.created_at) {
+      return (now - new Date(r.created_at).getTime()) < 3_600_000;
+    }
+    return false;
+  });
+  if (hasRecent) return;
+
+  // Show Auto badge on Overview tab
+  const autoBadge = document.getElementById('modal-auto-badge');
+  if (autoBadge) autoBadge.style.display = '';
+
+  const httpUrl  = httpPort.port_number  === 80  ? `http://${asset.ip}`  : `http://${asset.ip}:${httpPort.port_number}`;
+  const httpsUrl = httpsPort.port_number === 443 ? `https://${asset.ip}` : `https://${asset.ip}:${httpsPort.port_number}`;
+
+  _launchAutoScan(asset.id, httpUrl);
+  _launchAutoScan(asset.id, httpsUrl);
+}
+
+async function _launchAutoScan(assetId, url) {
+  try {
+    const report = await api(`/assets/${assetId}/zap`, {
+      method: 'POST',
+      body: JSON.stringify({ target_url: url, spider: true }),
+    });
+    if (!report) return;
+
+    let done = false;
+    while (!done && _modalAssetId === assetId) {
+      await new Promise(r => setTimeout(r, 5000));
+      if (_modalAssetId !== assetId) break;
+
+      const updated = await api(`/assets/${assetId}/zap/${report.id}`);
+      if (!updated) break;
+
+      const statusEl = document.getElementById('zap-status');
+      if (statusEl) {
+        statusEl.className = 'status-bar running';
+        statusEl.textContent = `Auto ZAP (${url}) — ${updated.status}${updated.alerts_count != null ? ' — ' + updated.alerts_count + ' alertes' : ''}`;
+        statusEl.classList.remove('hidden');
+      }
+
+      if (['completed', 'failed'].includes(updated.status)) {
+        done = true;
+        const refreshed = await api(`/assets/${assetId}`);
+        if (refreshed && _modalAssetId === assetId) {
+          _renderOverviewTab(refreshed);
+          _renderFlawsTab(refreshed);
+        }
+        if (updated.status === 'completed') {
+          showToast(`Auto ZAP (${url}) : ${updated.alerts_count} alertes.`, 'success');
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Auto ZAP error:', e);
   }
 }
 
@@ -531,9 +749,9 @@ async function runZapScan() {
           showToast('ZAP scan failed.', 'error');
         }
 
-        // Reload asset to get updated CVEs + history
+        // Reload asset to get updated data
         const asset = await api(`/assets/${_modalAssetId}`);
-        if (asset) _renderSecurityTab(asset);
+        if (asset) { _renderOverviewTab(asset); _renderFlawsTab(asset); }
       }
     }
   } catch (e) {

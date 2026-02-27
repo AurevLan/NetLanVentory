@@ -806,6 +806,147 @@ tbody tr.clickable:hover td:first-child { color: var(--accent); }
 .tech-fw       { background: rgba(156,39,176,.1); border-color: rgba(156,39,176,.35); color: #7b1fa2; }
 .tech-lib      { background: rgba(96,125,139,.1); border-color: rgba(96,125,139,.35); color: var(--text-muted); }
 
+/* ── Overview stats ────────────────────────────────────────────────────────── */
+.overview-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.overview-stat {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.overview-stat-num {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+.overview-stat-date {
+  font-size: 13px;
+  font-weight: 600;
+}
+.overview-stat-lbl {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+
+/* ── Chart wrapper ──────────────────────────────────────────────────────────── */
+.chart-wrap {
+  height: 220px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 4px;
+  position: relative;
+}
+
+/* ── Flaw items (collapsible alert list) ────────────────────────────────────── */
+.flaw-item {
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+.flaw-item.risk-high   { border-left-color: var(--danger); }
+.flaw-item.risk-medium { border-left-color: var(--warning); }
+.flaw-item.risk-low    { border-left-color: var(--accent); }
+.flaw-item.risk-info,
+.flaw-item.risk-informational { border-left-color: var(--text-muted); }
+
+.flaw-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: var(--surface2);
+  user-select: none;
+  transition: background .12s;
+}
+.flaw-header:hover { background: var(--surface3); }
+
+.flaw-arrow {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform .15s;
+}
+.flaw-item.open .flaw-arrow { transform: rotate(90deg); }
+
+.flaw-risk-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.risk-high   .flaw-risk-badge { background: rgba(248,81,73,.15);  color: var(--danger); }
+.risk-medium .flaw-risk-badge { background: rgba(210,153,34,.15); color: var(--warning); }
+.risk-low    .flaw-risk-badge { background: rgba(47,129,247,.15); color: var(--accent); }
+.risk-info   .flaw-risk-badge,
+.risk-informational .flaw-risk-badge { background: var(--surface3); color: var(--text-muted); }
+
+.flaw-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flaw-body {
+  display: none;
+  padding: 14px 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.flaw-item.open .flaw-body { display: block; }
+
+.flaw-solution {
+  background: rgba(63,185,80,.06);
+  border-left: 3px solid var(--success);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 10px 12px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.flaw-evidence {
+  margin-top: 10px;
+  overflow-x: auto;
+}
+.flaw-evidence code {
+  display: block;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 11px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* ── Responsive tweaks ─────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar { width: 200px; }
@@ -814,4 +955,5 @@ tbody tr.clickable:hover td:first-child { color: var(--accent); }
   .panel { padding: 16px; }
   .page-header { flex-direction: column; align-items: flex-start; }
   .search-input { min-width: 0; width: 100%; }
+  .overview-stats { grid-template-columns: repeat(2, 1fr); }
 }
