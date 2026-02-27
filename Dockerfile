@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python dependencies
-COPY pyproject.toml .
+COPY pyproject.toml README.md ./
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir --prefix=/install \
     "hatchling" && \
@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nmap \
     libpcap-dev \
     libpq5 \
+    postgresql-client \
     iputils-ping \
     net-tools \
     && rm -rf /var/lib/apt/lists/*
