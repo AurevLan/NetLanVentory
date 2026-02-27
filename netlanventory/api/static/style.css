@@ -214,6 +214,75 @@ tbody td { padding: 10px 12px; vertical-align: middle; }
 .badge-info    { background: rgba(59,130,246,.15);  color: var(--accent); }
 .badge-muted   { background: var(--surface2); color: var(--muted); }
 
+/* ── Login view ────────────────────────────────────────────────────────────── */
+.login-view {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 36px 32px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.4);
+}
+.login-brand {
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 6px;
+}
+.login-sub {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 24px;
+}
+#login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#login-form input { width: 100%; }
+.login-error {
+  background: rgba(239,68,68,.12);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  color: var(--danger);
+  font-size: 13px;
+  padding: 8px 12px;
+}
+
+/* ── Navbar user section ───────────────────────────────────────────────────── */
+.nav-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nav-username {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ── Select input ──────────────────────────────────────────────────────────── */
+.form-select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 12px;
+  outline: none;
+  width: 100%;
+  font-size: 13px;
+  transition: border-color .15s;
+}
+.form-select:focus { border-color: var(--accent); }
+
 /* ── Asset row clickable ───────────────────────────────────────────────────── */
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover td:first-child { color: var(--accent); }

@@ -29,6 +29,11 @@ dependencies = [
     # Networking / scanning
     "scapy>=2.5.0",
     "python-nmap>=0.7.1",
+    # Authentication
+    "pyjwt>=2.8.0",
+    "bcrypt>=4.1.0",
+    "python-multipart>=0.0.9",
+    "email-validator>=2.1.0",
     # Logging
     "structlog>=24.1.0",
     # Async utilities

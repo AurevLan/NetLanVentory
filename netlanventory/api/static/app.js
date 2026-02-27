@@ -2,13 +2,25 @@
 
 const API = '/api/v1';
 
+// ── Auth state ────────────────────────────────────────────────────────────────
+
+let _token = localStorage.getItem('nlv_token') || null;
+let _me = null;  // current user object from /auth/me
+
 // ── Utilities ────────────────────────────────────────────────────────────────
 
 async function api(path, opts = {}) {
-  const res = await fetch(API + path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  });
+  const headers = { 'Content-Type': 'application/json' };
+  if (_token) headers['Authorization'] = `Bearer ${_token}`;
+
+  const res = await fetch(API + path, { headers, ...opts });
+
+  if (res.status === 401) {
+    // Token expired or invalid — go back to login
+    _logout();
+    return null;
+  }
+  if (res.status === 204) return null;
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || res.statusText);
@@ -42,6 +54,92 @@ function escape(str) {
   return String(str ?? '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
   );
+}
+
+// ── Authentication ────────────────────────────────────────────────────────────
+
+function _showLogin() {
+  document.getElementById('login-view').classList.remove('hidden');
+  document.getElementById('app-view').classList.add('hidden');
+}
+
+function _showApp() {
+  document.getElementById('login-view').classList.add('hidden');
+  document.getElementById('app-view').classList.remove('hidden');
+}
+
+function _logout() {
+  _token = null;
+  _me = null;
+  localStorage.removeItem('nlv_token');
+  _showLogin();
+}
+
+function logout() { _logout(); }
+
+async function login(username, password) {
+  const form = new URLSearchParams();
+  form.append('username', username);
+  form.append('password', password);
+
+  const res = await fetch(`${API}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Login failed' }));
+    throw new Error(err.detail || 'Login failed');
+  }
+
+  const data = await res.json();
+  _token = data.access_token;
+  _me = data.user;
+  localStorage.setItem('nlv_token', _token);
+}
+
+async function checkAuth() {
+  if (!_token) { _showLogin(); return false; }
+  try {
+    _me = await api('/auth/me');
+    if (!_me) { _showLogin(); return false; }
+    return true;
+  } catch {
+    _showLogin();
+    return false;
+  }
+}
+
+function _applyUserContext() {
+  if (!_me) return;
+  document.getElementById('nav-username').textContent = _me.email;
+  document.getElementById('nav-role').textContent = _me.role;
+
+  // Show Users tab only for admins
+  if (_me.role === 'admin') {
+    document.getElementById('tab-users-btn').style.display = '';
+  }
+}
+
+function _initLoginForm() {
+  document.getElementById('login-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const errEl = document.getElementById('login-error');
+    errEl.classList.add('hidden');
+
+    try {
+      await login(username, password);
+      _showApp();
+      _applyUserContext();
+      await _initAppData();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+    }
+  });
 }
 
 // ── Module checkboxes in scan form ───────────────────────────────────────────
@@ -379,6 +477,90 @@ async function triggerScan() {
   }
 }
 
+// ── Users (admin panel) ───────────────────────────────────────────────────────
+
+async function loadUsers() {
+  try {
+    const data = await api('/users');
+    if (!data) return;
+    const tbody = document.querySelector('#user-table tbody');
+    if (!data.items.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">No users</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.items.map(u => `
+      <tr>
+        <td>${escape(u.email)}</td>
+        <td class="mono">${escape(u.username)}</td>
+        <td>${escape(u.full_name || '—')}</td>
+        <td>${badge(u.role, u.role === 'admin' ? 'warning' : 'info')}</td>
+        <td>${badge(u.auth_provider, 'muted')}</td>
+        <td>${u.is_active ? badge('yes', 'success') : badge('no', 'error')}</td>
+        <td>
+          ${u.id !== _me?.id
+            ? `<button class="btn btn-sm" style="color:var(--danger)" onclick="deleteUser('${u.id}', '${escape(u.email)}')">Delete</button>`
+            : '<span style="color:var(--muted);font-size:12px">you</span>'}
+        </td>
+      </tr>`).join('');
+  } catch (e) {
+    console.error('Users error:', e);
+  }
+}
+
+let _userModalMode = 'create';
+
+function openUserModal() {
+  _userModalMode = 'create';
+  document.getElementById('user-modal-title').textContent = 'New user';
+  document.getElementById('um-email').value = '';
+  document.getElementById('um-username').value = '';
+  document.getElementById('um-fullname').value = '';
+  document.getElementById('um-password').value = '';
+  document.getElementById('um-role').value = 'user';
+  document.getElementById('um-save-btn').textContent = 'Create';
+  document.getElementById('user-modal').classList.remove('hidden');
+}
+
+function closeUserModal(event) {
+  if (event && event.target !== document.getElementById('user-modal')) return;
+  document.getElementById('user-modal').classList.add('hidden');
+}
+
+async function saveUserModal() {
+  const btn = document.getElementById('um-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    await api('/users', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: document.getElementById('um-email').value.trim(),
+        username: document.getElementById('um-username').value.trim(),
+        full_name: document.getElementById('um-fullname').value.trim() || null,
+        password: document.getElementById('um-password').value,
+        role: document.getElementById('um-role').value,
+      }),
+    });
+    document.getElementById('user-modal').classList.add('hidden');
+    await loadUsers();
+  } catch (e) {
+    alert(`Error: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create';
+  }
+}
+
+async function deleteUser(id, email) {
+  if (!confirm(`Delete user ${email}?`)) return;
+  try {
+    await api(`/users/${id}`, { method: 'DELETE' });
+    await loadUsers();
+  } catch (e) {
+    alert(`Error: ${e.message}`);
+  }
+}
+
 // ── Tab switching ────────────────────────────────────────────────────────────
 
 function initTabs() {
@@ -388,13 +570,14 @@ function initTabs() {
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      if (tab.dataset.tab === 'users') loadUsers();
     });
   });
 }
 
-// ── Init ─────────────────────────────────────────────────────────────────────
+// ── App data init ─────────────────────────────────────────────────────────────
 
-async function init() {
+async function _initAppData() {
   initTabs();
   await loadModuleCheckboxes();
   await refreshStats();
@@ -405,11 +588,25 @@ async function init() {
   document.getElementById('scan-btn').addEventListener('click', triggerScan);
   document.getElementById('refresh-assets').addEventListener('click', loadAssets);
   document.getElementById('refresh-scans').addEventListener('click', loadScans);
+  document.getElementById('refresh-users').addEventListener('click', loadUsers);
   document.getElementById('asset-search').addEventListener('input', loadAssets);
   document.getElementById('active-only').addEventListener('change', loadAssets);
 
   // Auto-refresh every 30 seconds
   setInterval(() => { refreshStats(); loadScans(); }, 30_000);
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+
+async function init() {
+  _initLoginForm();
+
+  const authenticated = await checkAuth();
+  if (!authenticated) return;
+
+  _showApp();
+  _applyUserContext();
+  await _initAppData();
 }
 
 document.addEventListener('DOMContentLoaded', init);

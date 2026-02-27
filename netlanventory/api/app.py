@@ -11,8 +11,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from netlanventory.api.routers import assets, modules, scans
+from netlanventory.api.routers import auth as auth_router
+from netlanventory.api.routers import users as users_router
+from netlanventory.core.auth import hash_password
 from netlanventory.core.config import get_settings
-from netlanventory.core.database import close_engine, get_engine
+from netlanventory.core.database import close_engine, get_engine, get_session_factory
 from netlanventory.core.logging import configure_logging, get_logger
 from netlanventory.core.registry import get_registry
 
@@ -35,11 +38,41 @@ async def lifespan(app: FastAPI):
     registry = get_registry()
     logger.info("Modules ready", modules=registry.names())
 
+    # Bootstrap: create default admin if no users exist
+    await _bootstrap_admin(settings)
+
     yield
 
     # Cleanup
     await close_engine()
     logger.info("NetLanVentory stopped")
+
+
+async def _bootstrap_admin(settings) -> None:
+    """Create the default admin account on first start (no users in DB)."""
+    from sqlalchemy import func, select
+
+    from netlanventory.models.user import User
+
+    factory = get_session_factory()
+    async with factory() as session:
+        count = (await session.execute(select(func.count()).select_from(User))).scalar_one()
+        if count == 0:
+            admin = User(
+                email=settings.admin_email,
+                username="admin",
+                hashed_password=hash_password(settings.admin_password),
+                role="admin",
+                is_active=True,
+                auth_provider="local",
+            )
+            session.add(admin)
+            await session.commit()
+            logger.info(
+                "Bootstrap admin created",
+                email=settings.admin_email,
+                hint="Change the default password immediately!",
+            )
 
 
 def create_app() -> FastAPI:
@@ -63,11 +96,22 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    from fastapi import Depends
+
+    from netlanventory.api.dependencies import get_current_active_user
+
     # API routers
     api_prefix = "/api/v1"
-    app.include_router(assets.router, prefix=api_prefix)
-    app.include_router(scans.router, prefix=api_prefix)
-    app.include_router(modules.router, prefix=api_prefix)
+
+    # Auth & users — auth/login is public; other auth routes self-guard
+    app.include_router(auth_router.router, prefix=api_prefix)
+    app.include_router(users_router.router, prefix=api_prefix)
+
+    # All data routers require a valid session
+    _auth = [Depends(get_current_active_user)]
+    app.include_router(assets.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(scans.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(modules.router, prefix=api_prefix, dependencies=_auth)
 
     # Serve static dashboard if the directory exists
     if STATIC_DIR.exists():

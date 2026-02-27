@@ -29,8 +29,23 @@ class Settings(BaseSettings):
         default="INFO"
     )
 
-    # Security
+    # Security — general
     secret_key: str = Field(default="change-me-in-production")
+
+    # JWT — local authentication
+    jwt_secret_key: str = Field(default="change-me-jwt-secret")
+    jwt_algorithm: str = Field(default="HS256")
+    jwt_access_token_expire_minutes: int = Field(default=60)
+
+    # Bootstrap admin (created on first start if no users exist)
+    admin_email: str = Field(default="admin@localhost")
+    admin_password: str = Field(default="changeme")
+
+    # OIDC connector (future — set these to enable OIDC login)
+    oidc_enabled: bool = Field(default=False)
+    oidc_issuer: str | None = Field(default=None)
+    oidc_client_id: str | None = Field(default=None)
+    oidc_client_secret: str | None = Field(default=None)
 
     # Scanning defaults
     scan_timeout: int = Field(default=300, description="Default scan timeout in seconds")
