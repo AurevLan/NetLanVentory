@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# netlv — wrapper that runs the NetLanVentory CLI inside the Docker container.
+# Usage: ./netlv [args...]
+#   e.g. ./netlv scan run --target 192.168.1.0/24 --modules arp_sweep
+# ---------------------------------------------------------------------------
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Ensure we run from the project root so docker compose finds the compose file
+cd "$SCRIPT_DIR"
+
+# Check the app container is running
+if ! sudo docker compose ps --services --filter status=running 2>/dev/null | grep -q '^app$'; then
+  echo "ERROR: The 'app' container is not running." >&2
+  echo "Start the stack first:  sudo docker compose up -d" >&2
+  exit 1
+fi
+
+exec sudo docker compose exec app netlv "$@"

@@ -50,6 +50,17 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # ── Test runner (one-shot, profile: test) ─────────────────────────────────
+  tests:
+    build:
+      context: .
+      target: test      # dedicated stage with dev deps + tests/ copied in
+    profiles: [test]
+    environment:
+      # Tests use SQLite in-memory — no PostgreSQL needed
+      DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+    restart: "no"
+
   # ── Application server ────────────────────────────────────────────────────
   app:
     build: .

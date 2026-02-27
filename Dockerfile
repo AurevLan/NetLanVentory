@@ -9,14 +9,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install Python dependencies
+# Copy and install Python dependencies (runtime + dev extras)
 COPY pyproject.toml README.md ./
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir --prefix=/install \
     "hatchling" && \
-    pip install --no-cache-dir --prefix=/install .
+    pip install --no-cache-dir --prefix=/install ".[dev]"
 
-# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
+# ── Stage 2: Test runner ──────────────────────────────────────────────────────
+FROM python:3.11-slim AS test
+
+WORKDIR /app
+
+# Copy installed packages (includes dev deps: pytest, httpx, aiosqlite…)
+COPY --from=builder /install /usr/local
+
+# Copy source and tests
+COPY netlanventory/ ./netlanventory/
+COPY tests/ ./tests/
+COPY alembic/ ./alembic/
+COPY alembic.ini .
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app
+
+CMD ["pytest", "tests/", "-v", "--tb=short"]
+
+# ── Stage 3: Runtime ──────────────────────────────────────────────────────────
 FROM python:3.11-slim
 
 LABEL org.opencontainers.image.title="NetLanVentory"
