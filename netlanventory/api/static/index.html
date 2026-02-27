@@ -366,35 +366,50 @@
 
   <!-- ── Asset detail / edit modal ─────────────────────────────────────────── -->
   <div id="asset-modal" class="modal-overlay hidden" onclick="closeAssetModal(event)">
-    <div class="modal">
+    <div class="modal" style="max-width:680px">
       <div class="modal-header">
         <h3 id="modal-title">Asset</h3>
         <button class="modal-close" onclick="closeAssetModal()">&#10005;</button>
       </div>
+
+      <!-- Modal tabs -->
+      <div class="modal-tabs">
+        <button class="modal-tab active" data-modaltab="details">Details</button>
+        <button class="modal-tab" data-modaltab="ports">Ports</button>
+        <button class="modal-tab" data-modaltab="security">
+          Security
+          <span class="modal-tab-badge" id="modal-cve-badge" style="display:none"></span>
+        </button>
+      </div>
+
       <div class="modal-body">
-        <div class="detail-grid" id="modal-info"></div>
-        <hr class="modal-divider" />
-        <div class="modal-fields">
-          <div class="field-group">
-            <label class="field-label">Name / Label</label>
-            <input id="modal-name" type="text" placeholder="e.g. Main Router" />
-          </div>
-          <div class="field-group">
-            <label class="field-label">SSH User</label>
-            <input id="modal-ssh-user" type="text" placeholder="e.g. admin" />
-          </div>
-          <div class="field-group">
-            <label class="field-label">SSH Port</label>
-            <input id="modal-ssh-port" type="number" placeholder="22" min="1" max="65535" />
-          </div>
-          <div class="field-group">
-            <label class="field-label">Notes</label>
-            <textarea id="modal-notes" placeholder="Free-text notes…"></textarea>
+
+        <!-- ── Details tab ──────────────────────────────────────────── -->
+        <div class="modal-tab-panel active" id="mtab-details">
+          <div class="detail-grid" id="modal-info"></div>
+          <hr class="modal-divider" />
+          <div class="modal-fields">
+            <div class="field-group">
+              <label class="field-label">Name / Label</label>
+              <input id="modal-name" type="text" placeholder="e.g. Main Router" />
+            </div>
+            <div class="field-group">
+              <label class="field-label">SSH User</label>
+              <input id="modal-ssh-user" type="text" placeholder="e.g. admin" />
+            </div>
+            <div class="field-group">
+              <label class="field-label">SSH Port</label>
+              <input id="modal-ssh-port" type="number" placeholder="22" min="1" max="65535" />
+            </div>
+            <div class="field-group">
+              <label class="field-label">Notes</label>
+              <textarea id="modal-notes" placeholder="Free-text notes…"></textarea>
+            </div>
           </div>
         </div>
-        <hr class="modal-divider" />
-        <div id="modal-ports-section">
-          <p class="field-label" style="margin-bottom:10px">Open ports</p>
+
+        <!-- ── Ports tab ────────────────────────────────────────────── -->
+        <div class="modal-tab-panel" id="mtab-ports">
           <div class="table-wrap">
             <table id="modal-ports-table">
               <thead><tr><th>Port</th><th>Proto</th><th>State</th><th>Service</th><th>Version</th></tr></thead>
@@ -402,7 +417,54 @@
             </table>
           </div>
         </div>
-      </div>
+
+        <!-- ── Security tab ─────────────────────────────────────────── -->
+        <div class="modal-tab-panel" id="mtab-security">
+
+          <!-- ZAP scan launcher -->
+          <div class="zap-launcher">
+            <div class="field-group" style="flex:1">
+              <label class="field-label">Target URL for ZAP scan</label>
+              <input id="zap-target-url" type="text" placeholder="http://192.168.1.1" />
+            </div>
+            <button class="btn btn-primary" id="zap-scan-btn" onclick="runZapScan()">
+              &#9654; Scan ZAP
+            </button>
+          </div>
+          <div id="zap-status" class="status-bar hidden" style="margin-top:12px"></div>
+
+          <!-- Risk summary -->
+          <div id="zap-risk-summary" class="risk-pills hidden"></div>
+
+          <!-- CVE table -->
+          <div id="cve-section" style="margin-top:20px">
+            <p class="field-label" style="margin-bottom:10px">Vulnerabilities (CVE)</p>
+            <div class="table-wrap">
+              <table id="cve-table">
+                <thead>
+                  <tr>
+                    <th>CVE</th><th>Composant</th><th>Version</th>
+                    <th>Sévérité</th><th>Score CVSS</th><th>Source</th>
+                  </tr>
+                </thead>
+                <tbody id="cve-tbody">
+                  <tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:24px">
+                    No vulnerabilities detected yet
+                  </td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ZAP reports history -->
+          <div id="zap-history" style="margin-top:20px">
+            <p class="field-label" style="margin-bottom:10px">ZAP scan history</p>
+            <div id="zap-history-list"></div>
+          </div>
+
+        </div><!-- /.modal-tab-panel security -->
+      </div><!-- /.modal-body -->
+
       <div class="modal-footer">
         <button class="btn btn-sm" onclick="closeAssetModal()">Cancel</button>
         <button class="btn btn-primary" id="modal-save-btn" onclick="saveAssetModal()">Save</button>

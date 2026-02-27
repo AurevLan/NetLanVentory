@@ -12,11 +12,18 @@ from sqlalchemy.orm import selectinload
 
 from netlanventory.api.dependencies import get_db
 from netlanventory.models.asset import Asset
+from netlanventory.models.asset_cve import AssetCve
 from netlanventory.schemas.asset import AssetCreate, AssetList, AssetOut, AssetUpdate
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
+
+_ASSET_OPTIONS = [
+    selectinload(Asset.ports),
+    selectinload(Asset.zap_reports),
+    selectinload(Asset.cves).selectinload(AssetCve.cve),
+]
 
 
 @router.get("", response_model=AssetList)
@@ -26,7 +33,7 @@ async def list_assets(
     limit: int = Query(50, ge=1, le=500),
     active_only: bool = Query(False),
 ) -> AssetList:
-    query = select(Asset).options(selectinload(Asset.ports))
+    query = select(Asset).options(*_ASSET_OPTIONS)
     if active_only:
         query = query.where(Asset.is_active.is_(True))
     query = query.offset(skip).limit(limit).order_by(Asset.created_at.desc())
@@ -49,7 +56,7 @@ async def get_asset(asset_id: uuid.UUID, db: DbDep) -> Asset:
     result = await db.execute(
         select(Asset)
         .where(Asset.id == asset_id)
-        .options(selectinload(Asset.ports))
+        .options(*_ASSET_OPTIONS)
     )
     asset = result.scalar_one_or_none()
     if not asset:
@@ -60,7 +67,7 @@ async def get_asset(asset_id: uuid.UUID, db: DbDep) -> Asset:
 @router.get("/by-ip/{ip}", response_model=AssetOut)
 async def get_asset_by_ip(ip: str, db: DbDep) -> Asset:
     result = await db.execute(
-        select(Asset).where(Asset.ip == ip).options(selectinload(Asset.ports))
+        select(Asset).where(Asset.ip == ip).options(*_ASSET_OPTIONS)
     )
     asset = result.scalar_one_or_none()
     if not asset:
@@ -75,9 +82,8 @@ async def create_asset(payload: AssetCreate, db: DbDep) -> Asset:
     asset = Asset(**payload.model_dump(exclude_none=True))
     db.add(asset)
     await db.flush()
-    # Re-query with ports eagerly loaded to avoid lazy-load during serialization
     result = await db.execute(
-        select(Asset).where(Asset.id == asset.id).options(selectinload(Asset.ports))
+        select(Asset).where(Asset.id == asset.id).options(*_ASSET_OPTIONS)
     )
     return result.scalar_one()
 
@@ -94,7 +100,7 @@ async def update_asset(asset_id: uuid.UUID, payload: AssetUpdate, db: DbDep) -> 
 
     await db.flush()
     result = await db.execute(
-        select(Asset).where(Asset.id == asset_id).options(selectinload(Asset.ports))
+        select(Asset).where(Asset.id == asset_id).options(*_ASSET_OPTIONS)
     )
     return result.scalar_one()
 

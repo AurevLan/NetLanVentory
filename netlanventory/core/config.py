@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     oidc_client_id: str | None = Field(default=None)
     oidc_client_secret: str | None = Field(default=None)
 
+    # ZAP web scanner
+    zap_api_url: str = Field(
+        default="http://localhost:8080",
+        description="Base URL of the OWASP ZAP REST API daemon",
+    )
+
     # Scanning defaults
     scan_timeout: int = Field(default=300, description="Default scan timeout in seconds")
     max_concurrent_scans: int = Field(default=3, description="Max simultaneous scans")

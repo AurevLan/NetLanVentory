@@ -275,20 +275,39 @@ async function loadAssets() {
 
 let _modalAssetId = null;
 
+function _switchModalTab(tabName) {
+  document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.modal-tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.modal-tab[data-modaltab="${tabName}"]`)?.classList.add('active');
+  document.getElementById(`mtab-${tabName}`)?.classList.add('active');
+}
+
+function _initModalTabs() {
+  document.querySelectorAll('.modal-tab').forEach(tab => {
+    tab.addEventListener('click', () => _switchModalTab(tab.dataset.modaltab));
+  });
+}
+
 async function openAssetModal(id) {
   _modalAssetId = id;
   const overlay = document.getElementById('asset-modal');
   overlay.classList.remove('hidden');
+  _switchModalTab('details');
 
   const saveBtn = document.getElementById('modal-save-btn');
   saveBtn.disabled = false;
   saveBtn.textContent = 'Save';
+
+  // Reset ZAP status
+  document.getElementById('zap-status').classList.add('hidden');
+  document.getElementById('zap-risk-summary').classList.add('hidden');
 
   try {
     const a = await api(`/assets/${id}`);
     document.getElementById('modal-title').textContent =
       a.name || a.hostname || a.ip || 'Asset';
 
+    // ── Details tab ──────────────────────────────────────────────────────
     const infoEl = document.getElementById('modal-info');
     const row = (k, v) =>
       `<span class="detail-key">${k}</span><span class="detail-val">${escape(v || '—')}</span>`;
@@ -307,10 +326,14 @@ async function openAssetModal(id) {
     document.getElementById('modal-ssh-port').value = a.ssh_port || '';
     document.getElementById('modal-notes').value = a.notes || '';
 
+    // Pre-fill ZAP URL
+    document.getElementById('zap-target-url').value = a.ip ? `http://${a.ip}` : '';
+
+    // ── Ports tab ────────────────────────────────────────────────────────
     const openPorts = (a.ports || []).filter(p => p.state === 'open');
     const portsTbody = document.querySelector('#modal-ports-table tbody');
     if (!openPorts.length) {
-      portsTbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted)">No open ports detected</td></tr>';
+      portsTbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:20px">No open ports detected</td></tr>';
     } else {
       portsTbody.innerHTML = openPorts.map(p => `
         <tr>
@@ -321,9 +344,73 @@ async function openAssetModal(id) {
           <td style="color:var(--text-muted);font-size:12px">${escape(p.version || '—')}</td>
         </tr>`).join('');
     }
+
+    // ── Security tab ─────────────────────────────────────────────────────
+    _renderSecurityTab(a);
+
   } catch (e) {
     document.getElementById('modal-info').innerHTML =
       `<span class="detail-key">Error</span><span class="detail-val" style="color:var(--danger)">${escape(e.message)}</span>`;
+  }
+}
+
+function _renderSecurityTab(asset) {
+  const cves = asset.cves || [];
+  const zapReports = asset.zap_reports || [];
+
+  // CVE count badge on tab
+  const badge_el = document.getElementById('modal-cve-badge');
+  if (cves.length > 0) {
+    badge_el.textContent = cves.length;
+    badge_el.style.display = '';
+  } else {
+    badge_el.style.display = 'none';
+  }
+
+  // CVE table
+  const tbody = document.getElementById('cve-tbody');
+  if (!cves.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:24px">No vulnerabilities detected yet</td></tr>';
+  } else {
+    tbody.innerHTML = cves.map(c => {
+      const sev = (c.severity || '').toLowerCase();
+      const sevType = sev === 'high' || sev === 'critical' ? 'error'
+        : sev === 'medium' ? 'warning'
+        : sev === 'low' ? 'info' : 'muted';
+      return `
+        <tr>
+          <td><a class="cve-link" href="https://nvd.nist.gov/vuln/detail/${escape(c.cve_id_str)}"
+               target="_blank" rel="noopener">${escape(c.cve_id_str)}</a></td>
+          <td>${escape(c.package_name || '—')}</td>
+          <td class="mono">${escape(c.package_version || '—')}</td>
+          <td>${c.severity ? badge(c.severity, sevType) : '—'}</td>
+          <td>${c.cvss_score != null ? c.cvss_score.toFixed(1) : '—'}</td>
+          <td>${badge(c.source || '?', 'muted')}</td>
+        </tr>`;
+    }).join('');
+  }
+
+  // ZAP history
+  const histList = document.getElementById('zap-history-list');
+  if (!zapReports.length) {
+    histList.innerHTML = '<p style="color:var(--text-muted);font-size:12px">No scans run yet.</p>';
+  } else {
+    histList.innerHTML = zapReports.map(r => {
+      const statusType = r.status === 'completed' ? 'success'
+        : r.status === 'failed' ? 'error'
+        : r.status === 'running' ? 'warning' : 'muted';
+      const riskPills = r.risk_summary ? Object.entries(r.risk_summary)
+        .filter(([, v]) => v > 0)
+        .map(([k, v]) => `<span class="badge badge-${k === 'high' ? 'error' : k === 'medium' ? 'warning' : 'info'}">${v} ${k}</span>`)
+        .join(' ') : '';
+      return `
+        <div class="zap-history-item">
+          ${badge(r.status, statusType)}
+          <span class="zap-history-url">${escape(r.target_url || '—')}</span>
+          ${riskPills}
+          <span class="zap-history-date">${fmtDate(r.created_at)}</span>
+        </div>`;
+    }).join('');
   }
 }
 
@@ -361,6 +448,82 @@ async function saveAssetModal() {
     saveBtn.textContent = 'Save';
     showToast(`Save failed: ${e.message}`, 'error');
   }
+}
+
+// ── ZAP scan ──────────────────────────────────────────────────────────────────
+
+async function runZapScan() {
+  if (!_modalAssetId) return;
+  const targetUrl = document.getElementById('zap-target-url').value.trim();
+  if (!targetUrl) { showToast('Enter a target URL for the ZAP scan.', 'warning'); return; }
+
+  const btn = document.getElementById('zap-scan-btn');
+  btn.disabled = true;
+
+  const statusEl = document.getElementById('zap-status');
+  statusEl.className = 'status-bar running';
+  statusEl.textContent = 'ZAP scan queued — spider starting…';
+  statusEl.classList.remove('hidden');
+  document.getElementById('zap-risk-summary').classList.add('hidden');
+
+  try {
+    const report = await api(`/assets/${_modalAssetId}/zap`, {
+      method: 'POST',
+      body: JSON.stringify({ target_url: targetUrl, spider: true }),
+    });
+    if (!report) return;
+
+    // Poll until done
+    let done = false;
+    while (!done) {
+      await new Promise(r => setTimeout(r, 3000));
+      const updated = await api(`/assets/${_modalAssetId}/zap/${report.id}`);
+      if (!updated) break;
+
+      statusEl.textContent = `ZAP scan ${updated.status} — ${updated.alerts_count ?? '…'} alerts`;
+
+      if (['completed', 'failed'].includes(updated.status)) {
+        done = true;
+        if (updated.status === 'completed') {
+          statusEl.className = 'status-bar success';
+          statusEl.textContent = `ZAP scan complete — ${updated.alerts_count} alerts found.`;
+          _renderRiskSummary(updated.risk_summary);
+          showToast(`ZAP scan finished: ${updated.alerts_count} alerts.`, 'success');
+        } else {
+          statusEl.className = 'status-bar error';
+          statusEl.textContent = `ZAP scan failed: ${updated.error_msg || 'unknown error'}`;
+          showToast('ZAP scan failed.', 'error');
+        }
+
+        // Reload asset to get updated CVEs + history
+        const asset = await api(`/assets/${_modalAssetId}`);
+        if (asset) _renderSecurityTab(asset);
+      }
+    }
+  } catch (e) {
+    statusEl.className = 'status-bar error';
+    statusEl.textContent = `ZAP error: ${e.message}`;
+    showToast(`ZAP error: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function _renderRiskSummary(riskSummary) {
+  const el = document.getElementById('zap-risk-summary');
+  if (!riskSummary) { el.classList.add('hidden'); return; }
+  const items = [
+    { key: 'high',          label: 'High',   cls: 'risk-high' },
+    { key: 'medium',        label: 'Medium', cls: 'risk-medium' },
+    { key: 'low',           label: 'Low',    cls: 'risk-low' },
+    { key: 'informational', label: 'Info',   cls: 'risk-info' },
+  ];
+  el.innerHTML = items.map(i => `
+    <div class="risk-pill ${i.cls}">
+      <span class="risk-pill-num">${riskSummary[i.key] ?? 0}</span>
+      <span class="risk-pill-label">${i.label}</span>
+    </div>`).join('');
+  el.classList.remove('hidden');
 }
 
 // ── Scan modal ────────────────────────────────────────────────────────────────
@@ -789,6 +952,7 @@ async function testOidcConnection() {
 async function _initAppData() {
   initNav();
   initSubTabs();
+  _initModalTabs();
 
   await loadModuleCheckboxes();
   await refreshStats();

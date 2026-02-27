@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
+
+from netlanventory.schemas.zap import AssetCveOut, ZapReportOut  # noqa: F401 (re-exported)
 
 
 class PortOut(BaseModel):
@@ -53,6 +56,18 @@ class AssetOut(AssetBase):
     created_at: datetime
     updated_at: datetime
     ports: list[PortOut] = []
+    cves: list[AssetCveOut] = []
+    zap_reports: list[ZapReportOut] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flatten_cves(cls, data: Any) -> Any:
+        """Convert ORM AssetCve instances to AssetCveOut (flattening the .cve relation)."""
+        if hasattr(data, "cves"):
+            data.__dict__["cves"] = [
+                AssetCveOut.from_orm_with_cve(c) for c in (data.cves or [])
+            ]
+        return data
 
 
 class AssetList(BaseModel):

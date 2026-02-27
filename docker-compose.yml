@@ -61,6 +61,24 @@ services:
       DATABASE_URL: "sqlite+aiosqlite:///:memory:"
     restart: "no"
 
+  # ── OWASP ZAP web scanner daemon ──────────────────────────────────────────
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    command: >
+      zap.sh -daemon -host 0.0.0.0 -port 8080
+      -config api.disablekey=true
+      -config api.addrs.addr.name=.*
+      -config api.addrs.addr.regex=true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/JSON/core/view/version/ || exit 1"]
+      interval: 20s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+
   # ── Application server ────────────────────────────────────────────────────
   app:
     build: .
