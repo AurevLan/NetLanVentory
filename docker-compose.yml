@@ -15,7 +15,9 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     networks:
-      - internal          # DB is NOT exposed on host network
+      - internal
+    ports:
+      - "127.0.0.1:5432:5432"   # Required: app uses network_mode: host → connects to localhost
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:

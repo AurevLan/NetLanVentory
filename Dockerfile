@@ -44,13 +44,8 @@ COPY netlanventory/ ./netlanventory/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 
-# Create non-root user (but keep root capabilities for raw sockets)
-RUN groupadd -r netlv && useradd -r -g netlv -d /app netlv && \
-    chown -R netlv:netlv /app
-
-# Allow nmap + scapy to use raw sockets without full root
-RUN setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap 2>/dev/null || true && \
-    setcap cap_net_raw,cap_net_admin+eip $(which python3.11) 2>/dev/null || true
+# Network scanning requires raw socket access — run as root
+# (NET_ADMIN + NET_RAW capabilities are set in docker-compose.yml)
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -60,9 +55,7 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
-
-USER netlv
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 CMD ["python", "-m", "uvicorn", "netlanventory.api.app:app", \
      "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
