@@ -214,6 +214,124 @@ tbody td { padding: 10px 12px; vertical-align: middle; }
 .badge-info    { background: rgba(59,130,246,.15);  color: var(--accent); }
 .badge-muted   { background: var(--surface2); color: var(--muted); }
 
+/* ── Asset row clickable ───────────────────────────────────────────────────── */
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:hover td:first-child { color: var(--accent); }
+
+/* ── Modal ─────────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 620px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { font-size: 15px; font-weight: 600; }
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: color .15s, background .15s;
+}
+.modal-close:hover { color: var(--text); background: var(--surface2); }
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+}
+.modal-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 18px 0;
+}
+
+/* Info grid (read-only key/value pairs) */
+.detail-grid {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 6px 12px;
+  font-size: 13px;
+}
+.detail-key { color: var(--muted); padding: 2px 0; }
+.detail-val { color: var(--text); font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; padding: 2px 0; word-break: break-all; }
+
+/* Editable fields in modal */
+.modal-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.field-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--muted);
+}
+.modal-fields input[type="text"],
+.modal-fields input[type="number"] {
+  width: 100%;
+}
+input[type="number"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color .15s;
+  width: 100%;
+}
+input[type="number"]:focus { border-color: var(--accent); }
+textarea {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 80px;
+  outline: none;
+  padding: 8px 12px;
+  resize: vertical;
+  transition: border-color .15s;
+  width: 100%;
+}
+textarea:focus { border-color: var(--accent); }
+
 /* Modules grid */
 .modules-grid {
   display: grid;

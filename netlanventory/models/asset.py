@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from netlanventory.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -11,6 +11,9 @@ from netlanventory.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "assets"
+
+    # Custom label (user-defined)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Network identifiers
     mac: Mapped[str | None] = mapped_column(String(17), unique=True, nullable=True, index=True)
@@ -29,7 +32,11 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Additional notes
+    # SSH access (used by future ssh_audit module)
+    ssh_user: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ssh_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Free-text notes
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
@@ -38,6 +45,12 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     scan_results: Mapped[list["ScanResult"]] = relationship(  # noqa: F821
         "ScanResult", back_populates="asset", cascade="all, delete-orphan"
+    )
+    cves: Mapped[list["AssetCve"]] = relationship(  # noqa: F821
+        "AssetCve", back_populates="asset", cascade="all, delete-orphan"
+    )
+    zap_reports: Mapped[list["ZapReport"]] = relationship(  # noqa: F821
+        "ZapReport", back_populates="asset", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

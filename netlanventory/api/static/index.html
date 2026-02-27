@@ -50,7 +50,7 @@
         <table id="asset-table">
           <thead>
             <tr>
-              <th>IP</th><th>MAC</th><th>Hostname</th><th>Vendor</th>
+              <th>Name</th><th>IP</th><th>MAC</th><th>Hostname</th><th>Vendor</th>
               <th>OS</th><th>Open ports</th><th>Active</th><th>Last seen</th>
             </tr>
           </thead>
@@ -81,6 +81,58 @@
     <section class="panel" id="tab-modules">
       <div id="modules-grid" class="modules-grid"></div>
     </section>
+  </div>
+
+  <!-- Asset detail / edit modal -->
+  <div id="asset-modal" class="modal-overlay hidden" onclick="closeAssetModal(event)">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-title">Asset</h3>
+        <button class="modal-close" onclick="closeAssetModal()">&#10005;</button>
+      </div>
+      <div class="modal-body">
+
+        <!-- Read-only info grid -->
+        <div class="detail-grid" id="modal-info"></div>
+
+        <hr class="modal-divider" />
+
+        <!-- Editable fields -->
+        <div class="modal-fields">
+          <label class="field-label">Name / Label</label>
+          <input id="modal-name" type="text" placeholder="e.g. Routeur principal" />
+
+          <label class="field-label">SSH User</label>
+          <input id="modal-ssh-user" type="text" placeholder="e.g. admin" />
+
+          <label class="field-label">SSH Port</label>
+          <input id="modal-ssh-port" type="number" placeholder="22" min="1" max="65535" />
+
+          <label class="field-label">Notes</label>
+          <textarea id="modal-notes" placeholder="Free-text notes…"></textarea>
+        </div>
+
+        <hr class="modal-divider" />
+
+        <!-- Ports table -->
+        <div id="modal-ports-section">
+          <p class="field-label" style="margin-bottom:8px">Open ports</p>
+          <div class="table-wrap">
+            <table id="modal-ports-table">
+              <thead>
+                <tr><th>Port</th><th>Proto</th><th>State</th><th>Service</th><th>Version</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" onclick="closeAssetModal()">Cancel</button>
+        <button class="btn btn-primary" id="modal-save-btn" onclick="saveAssetModal()">Save</button>
+      </div>
+    </div>
   </div>
 
   <script src="/static/app.js"></script>

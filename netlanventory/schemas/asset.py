@@ -23,6 +23,7 @@ class PortOut(BaseModel):
 
 
 class AssetBase(BaseModel):
+    name: str | None = None
     mac: str | None = None
     ip: str | None = None
     hostname: str | None = None
@@ -30,6 +31,8 @@ class AssetBase(BaseModel):
     device_type: str | None = None
     os_family: str | None = None
     os_version: str | None = None
+    ssh_user: str | None = None
+    ssh_port: int | None = None
     notes: str | None = None
 
 

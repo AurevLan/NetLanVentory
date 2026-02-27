@@ -91,6 +91,7 @@ async function loadAssets() {
     const { items } = await api(`/assets?limit=500${activeOnly ? '&active_only=true' : ''}`);
     const filtered = items.filter(a =>
       !search ||
+      (a.name || '').toLowerCase().includes(search) ||
       (a.ip || '').includes(search) ||
       (a.mac || '').toLowerCase().includes(search) ||
       (a.hostname || '').toLowerCase().includes(search)
@@ -98,16 +99,17 @@ async function loadAssets() {
 
     const tbody = document.querySelector('#asset-table tbody');
     if (!filtered.length) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px">No assets found</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:30px">No assets found</td></tr>';
       return;
     }
 
     tbody.innerHTML = filtered.map(a => {
       const openPorts = (a.ports || []).filter(p => p.state === 'open');
-      const portList = openPorts.slice(0, 8).map(p => `<span class="mono">${p.port_number}/${p.protocol}</span>`).join(' ');
-      const morePorts = openPorts.length > 8 ? `<span class="badge badge-muted">+${openPorts.length - 8}</span>` : '';
+      const portList = openPorts.slice(0, 6).map(p => `<span class="mono">${p.port_number}/${p.protocol}</span>`).join(' ');
+      const morePorts = openPorts.length > 6 ? `<span class="badge badge-muted">+${openPorts.length - 6}</span>` : '';
       return `
-        <tr>
+        <tr class="clickable" onclick="openAssetModal('${a.id}')">
+          <td>${a.name ? `<strong>${escape(a.name)}</strong>` : '<span style="color:var(--muted)">—</span>'}</td>
           <td class="mono">${escape(a.ip || '—')}</td>
           <td class="mono">${escape(a.mac || '—')}</td>
           <td>${escape(a.hostname || '—')}</td>
@@ -120,6 +122,102 @@ async function loadAssets() {
     }).join('');
   } catch (e) {
     console.error('Assets error:', e);
+  }
+}
+
+// ── Asset detail / edit modal ─────────────────────────────────────────────────
+
+let _modalAssetId = null;
+
+async function openAssetModal(id) {
+  _modalAssetId = id;
+  const overlay = document.getElementById('asset-modal');
+  overlay.classList.remove('hidden');
+
+  // Reset save button
+  const saveBtn = document.getElementById('modal-save-btn');
+  saveBtn.disabled = false;
+  saveBtn.textContent = 'Save';
+
+  try {
+    const a = await api(`/assets/${id}`);
+    document.getElementById('modal-title').textContent =
+      a.name || a.hostname || a.ip || 'Asset';
+
+    // Read-only info grid
+    const infoEl = document.getElementById('modal-info');
+    const row = (k, v) =>
+      `<span class="detail-key">${k}</span><span class="detail-val">${escape(v || '—')}</span>`;
+    infoEl.innerHTML = [
+      row('IP', a.ip),
+      row('MAC', a.mac),
+      row('Hostname', a.hostname),
+      row('Vendor', a.vendor),
+      row('Device type', a.device_type),
+      row('OS', a.os_family ? `${a.os_family}${a.os_version ? ' ' + a.os_version : ''}` : null),
+      row('Last seen', a.last_seen ? new Date(a.last_seen).toLocaleString() : null),
+    ].join('');
+
+    // Editable fields
+    document.getElementById('modal-name').value = a.name || '';
+    document.getElementById('modal-ssh-user').value = a.ssh_user || '';
+    document.getElementById('modal-ssh-port').value = a.ssh_port || '';
+    document.getElementById('modal-notes').value = a.notes || '';
+
+    // Ports table
+    const openPorts = (a.ports || []).filter(p => p.state === 'open');
+    const portsTbody = document.querySelector('#modal-ports-table tbody');
+    if (!openPorts.length) {
+      portsTbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted)">No open ports detected</td></tr>';
+    } else {
+      portsTbody.innerHTML = openPorts.map(p => `
+        <tr>
+          <td class="mono">${p.port_number}</td>
+          <td>${escape(p.protocol)}</td>
+          <td>${badge(p.state, p.state === 'open' ? 'success' : 'muted')}</td>
+          <td>${escape(p.service_name || '—')}</td>
+          <td style="color:var(--muted);font-size:12px">${escape(p.version || '—')}</td>
+        </tr>`).join('');
+    }
+  } catch (e) {
+    document.getElementById('modal-info').innerHTML =
+      `<span class="detail-key">Error</span><span class="detail-val" style="color:var(--danger)">${escape(e.message)}</span>`;
+  }
+}
+
+function closeAssetModal(event) {
+  // Close only when clicking the overlay background or the close/cancel buttons
+  if (event && event.target !== document.getElementById('asset-modal')) return;
+  document.getElementById('asset-modal').classList.add('hidden');
+  _modalAssetId = null;
+}
+
+async function saveAssetModal() {
+  if (!_modalAssetId) return;
+  const saveBtn = document.getElementById('modal-save-btn');
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving…';
+
+  const sshPort = document.getElementById('modal-ssh-port').value;
+  const payload = {
+    name: document.getElementById('modal-name').value.trim() || null,
+    ssh_user: document.getElementById('modal-ssh-user').value.trim() || null,
+    ssh_port: sshPort ? parseInt(sshPort, 10) : null,
+    notes: document.getElementById('modal-notes').value.trim() || null,
+  };
+
+  try {
+    await api(`/assets/${_modalAssetId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    document.getElementById('asset-modal').classList.add('hidden');
+    _modalAssetId = null;
+    await loadAssets();
+  } catch (e) {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save';
+    alert(`Save failed: ${e.message}`);
   }
 }
 
