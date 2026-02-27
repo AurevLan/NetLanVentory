@@ -775,6 +775,37 @@ tbody tr.clickable:hover td:first-child { color: var(--accent); }
 }
 .cve-link:hover { text-decoration: underline; }
 
+/* ── Technology pills ──────────────────────────────────────────────────────── */
+.tech-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 28px;
+}
+.tech-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: default;
+}
+.tech-version {
+  opacity: 0.65;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 11px;
+  font-weight: 400;
+}
+.tech-server   { background: rgba(33,150,243,.1); border-color: rgba(33,150,243,.35); color: #1e88e5; }
+.tech-js       { background: rgba(255,193,7,.1);  border-color: rgba(255,193,7,.35);  color: #c8961e; }
+.tech-lang     { background: rgba(76,175,80,.1);  border-color: rgba(76,175,80,.35);  color: #388e3c; }
+.tech-fw       { background: rgba(156,39,176,.1); border-color: rgba(156,39,176,.35); color: #7b1fa2; }
+.tech-lib      { background: rgba(96,125,139,.1); border-color: rgba(96,125,139,.35); color: var(--text-muted); }
+
 /* ── Responsive tweaks ─────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar { width: 200px; }

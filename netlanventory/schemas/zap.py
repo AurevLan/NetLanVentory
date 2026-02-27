@@ -33,6 +33,15 @@ class ZapAlertOut(BaseModel):
     url: str | None = None
 
 
+# ── Detected technology ───────────────────────────────────────────────────────
+
+class TechDetectedOut(BaseModel):
+    name: str
+    version: str | None = None
+    category: str = "library"    # server / javascript / language / framework / library
+    alert_name: str | None = None
+
+
 # ── Report ────────────────────────────────────────────────────────────────────
 
 class ZapReportOut(BaseModel):
@@ -43,17 +52,20 @@ class ZapReportOut(BaseModel):
     target_url: str | None
     risk_summary: dict | None = None    # {high, medium, low, informational}
     alerts_count: int | None = None
+    technologies: list[TechDetectedOut] = []
     error_msg: str | None = None
     created_at: datetime
     updated_at: datetime
 
     @model_validator(mode="before")
     @classmethod
-    def _compute_alerts_count(cls, data: Any) -> Any:
-        """Derive alerts_count from the stored report JSON when loading from ORM."""
+    def _compute_fields(cls, data: Any) -> Any:
+        """Derive computed fields from the stored report JSON when loading from ORM."""
         if hasattr(data, "report") and data.report:
-            alerts = (data.report or {}).get("alerts", [])
+            report = data.report or {}
+            alerts = report.get("alerts", [])
             data.__dict__["alerts_count"] = len(alerts)
+            data.__dict__["technologies"] = report.get("technologies", [])
         return data
 
 

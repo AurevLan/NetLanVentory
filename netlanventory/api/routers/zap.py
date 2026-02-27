@@ -20,7 +20,13 @@ from netlanventory.models.asset import Asset
 from netlanventory.models.asset_cve import AssetCve
 from netlanventory.models.cve import Cve
 from netlanventory.models.zap_report import ZapReport
-from netlanventory.schemas.zap import ZapAlertOut, ZapReportDetail, ZapReportOut, ZapScanRequest
+from netlanventory.schemas.zap import (
+    TechDetectedOut,
+    ZapAlertOut,
+    ZapReportDetail,
+    ZapReportOut,
+    ZapScanRequest,
+)
 
 router = APIRouter(prefix="/assets/{asset_id}/zap", tags=["zap"])
 logger = get_logger(__name__)
@@ -31,6 +37,17 @@ DbDep = Annotated[AsyncSession, Depends(get_db)]
 _CVE_RE = re.compile(r"CVE-\d{4}-\d{4,}", re.IGNORECASE)
 # Matches "<name>/<version>" or "<name> <version>" in evidence strings
 _COMPONENT_RE = re.compile(r"([A-Za-z][A-Za-z0-9_\-\.]+)[/\s](\d[\d\.]+)", re.IGNORECASE)
+# Matches JS library filenames e.g. "jquery-1.6.4.min.js", "bootstrap-4.5.2.min.js"
+_JS_LIB_RE = re.compile(
+    r"([A-Za-z][A-Za-z0-9_\-\.]+)[_\-v](\d[\d\.]+)(?:\.min)?\.js",
+    re.IGNORECASE,
+)
+
+# Category detection patterns (first match wins)
+_CAT_SERVER    = re.compile(r"apache|nginx|iis|lighttpd|tomcat|jetty|gunicorn|uwsgi|caddy|openssl", re.I)
+_CAT_JS        = re.compile(r"jquery|angular|react|vue|bootstrap|ember|backbone|prototype|dojo|mootools", re.I)
+_CAT_LANG      = re.compile(r"\bphp\b|asp\.net|\bjava\b|\bpython\b|\bruby\b|\bperl\b|\bnode\b", re.I)
+_CAT_FRAMEWORK = re.compile(r"wordpress|drupal|joomla|django|flask|laravel|rails|spring|struts|express|symfony", re.I)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -93,13 +110,18 @@ async def get_zap_report(
     if not report:
         raise HTTPException(status_code=404, detail="ZAP report not found")
 
-    alerts = _parse_alerts_from_report(report.report or {})
+    stored = report.report or {}
+    alerts = _parse_alerts_from_report(stored)
+    technologies = [
+        TechDetectedOut(**t) for t in stored.get("technologies", [])
+    ]
     return ZapReportDetail(
         id=report.id,
         status=report.status,
         target_url=report.target_url,
         risk_summary=report.risk_summary,
         alerts_count=len(alerts),
+        technologies=technologies,
         error_msg=report.error_msg,
         created_at=report.created_at,
         updated_at=report.updated_at,
@@ -212,9 +234,12 @@ async def _run_zap_scan(
             # 6. Build risk summary
             risk_summary = _build_risk_summary(raw_alerts)
 
-            # 7. Update report
+            # 7. Extract technologies from all alerts (even those without CVE)
+            technologies = _extract_technologies(raw_alerts)
+
+            # 8. Update report
             report.status = "completed"
-            report.report = {"alerts": raw_alerts}
+            report.report = {"alerts": raw_alerts, "technologies": technologies}
             report.risk_summary = risk_summary
             await session.commit()
             logger.info(
@@ -332,6 +357,64 @@ async def _persist_cves(
             session.add(link)
 
     await session.commit()
+
+
+def _guess_category(name: str) -> str:
+    if _CAT_SERVER.search(name):    return "server"
+    if _CAT_JS.search(name):       return "javascript"
+    if _CAT_LANG.search(name):     return "language"
+    if _CAT_FRAMEWORK.search(name): return "framework"
+    return "library"
+
+
+def _extract_technologies(alerts: list[dict]) -> list[dict]:
+    """Extract unique detected technologies from ZAP alert evidence.
+
+    Checks both the evidence string (most reliable for server/lib versions)
+    and JS library filenames. Returns deduplicated list ordered by name.
+    """
+    seen: dict[str, dict] = {}  # key = component name (lowercase)
+
+    for alert in alerts:
+        evidence   = (alert.get("evidence")    or "").strip()
+        alert_name = (alert.get("alert")       or "").strip()
+
+        matched_name:    str | None = None
+        matched_version: str | None = None
+
+        # Priority 1: "<name>/<version>" or "<name> <version>" in evidence
+        m = _COMPONENT_RE.search(evidence)
+        if m:
+            matched_name    = m.group(1)
+            matched_version = m.group(2)
+
+        # Priority 2: JS filename pattern in evidence ("jquery-1.6.4.min.js")
+        if not matched_name:
+            m = _JS_LIB_RE.search(evidence)
+            if m:
+                matched_name    = m.group(1)
+                matched_version = m.group(2)
+
+        # Priority 3: version pattern in alert name itself
+        if not matched_name:
+            m = _COMPONENT_RE.search(alert_name)
+            if m:
+                matched_name    = m.group(1)
+                matched_version = m.group(2)
+
+        if not matched_name:
+            continue
+
+        key = matched_name.lower()
+        if key not in seen:
+            seen[key] = {
+                "name":       matched_name,
+                "version":    matched_version,
+                "category":   _guess_category(matched_name),
+                "alert_name": alert_name,
+            }
+
+    return sorted(seen.values(), key=lambda t: t["name"].lower())
 
 
 def _risk_to_severity(risk: str) -> str:

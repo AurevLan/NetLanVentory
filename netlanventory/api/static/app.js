@@ -367,7 +367,38 @@ function _renderSecurityTab(asset) {
     badge_el.style.display = 'none';
   }
 
-  // CVE table
+  // ── Technologies ─────────────────────────────────────────────────────────
+  // Use the most recent completed report that has technologies
+  let techs = [];
+  for (const r of zapReports) {
+    if (r.status === 'completed' && r.technologies && r.technologies.length) {
+      techs = r.technologies;
+      break;
+    }
+  }
+  const techPillsEl = document.getElementById('tech-pills');
+  const catCls = {
+    server:    'tech-server',
+    javascript:'tech-js',
+    language:  'tech-lang',
+    framework: 'tech-fw',
+    library:   'tech-lib',
+  };
+  if (!techs.length) {
+    techPillsEl.innerHTML =
+      '<span style="color:var(--text-muted);font-size:12px">No technologies detected yet — run a ZAP scan.</span>';
+  } else {
+    techPillsEl.innerHTML = techs.map(t =>
+      `<span class="tech-pill ${catCls[t.category] || 'tech-lib'}"
+             title="${escape(t.alert_name || t.category)}">
+        ${escape(t.name)}${t.version
+          ? `<span class="tech-version">${escape(t.version)}</span>`
+          : ''}
+      </span>`
+    ).join('');
+  }
+
+  // ── CVE table ─────────────────────────────────────────────────────────────
   const tbody = document.getElementById('cve-tbody');
   if (!cves.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:24px">No vulnerabilities detected yet</td></tr>';
@@ -390,7 +421,7 @@ function _renderSecurityTab(asset) {
     }).join('');
   }
 
-  // ZAP history
+  // ── ZAP history ───────────────────────────────────────────────────────────
   const histList = document.getElementById('zap-history-list');
   if (!zapReports.length) {
     histList.innerHTML = '<p style="color:var(--text-muted);font-size:12px">No scans run yet.</p>';
@@ -403,11 +434,16 @@ function _renderSecurityTab(asset) {
         .filter(([, v]) => v > 0)
         .map(([k, v]) => `<span class="badge badge-${k === 'high' ? 'error' : k === 'medium' ? 'warning' : 'info'}">${v} ${k}</span>`)
         .join(' ') : '';
+      const techCount = r.technologies ? r.technologies.length : 0;
+      const techBadge = techCount > 0
+        ? `<span class="badge badge-muted">${techCount} tech</span>`
+        : '';
       return `
         <div class="zap-history-item">
           ${badge(r.status, statusType)}
           <span class="zap-history-url">${escape(r.target_url || '—')}</span>
           ${riskPills}
+          ${techBadge}
           <span class="zap-history-date">${fmtDate(r.created_at)}</span>
         </div>`;
     }).join('');
