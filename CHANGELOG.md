@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+- **Docker**: bump base image `python:3.11-slim` → `python:3.14-slim`
+
+---
+
 ## [v0.4.0] — 2026-02-28
 
 ### Added
