@@ -2,7 +2,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/AurevLan/NetLanVentory)](https://github.com/AurevLan/NetLanVentory/releases)
 
-Modular network scanning and inventory tool. Discover hosts, scan ports, fingerprint services and operating systems, manage DNS associations, run ZAP web vulnerability scans, and browse everything through a REST API or a dark-theme web dashboard.
+Modular network scanning and inventory tool. Discover hosts, scan ports, fingerprint services and operating systems, manage DNS associations, run ZAP web vulnerability scans, audit Linux package CVEs via SSH, and browse everything through a REST API or a dark-theme web dashboard.
 
 ## Features
 
@@ -26,6 +26,13 @@ Modular network scanning and inventory tool. Discover hosts, scan ports, fingerp
 ### ZAP auto-scan settings
 - **Global master switch** — enable/disable auto-scan and set a default interval (minutes) from the admin panel → *ZAP Auto-scan* tab
 - **Per-asset override** — each asset can individually enable/disable auto-scan and override the global interval; `NULL` on an asset means "use global value"
+- **Target visibility** — the asset Details tab shows all computed scan targets (IP × DNS names × web ports) and the countdown to the next scheduled scan
+
+### SSH CVE scanning
+- **Encrypted credentials** — store a password **or** PEM private key per asset; values are Fernet-encrypted at rest (key derived from `SECRET_KEY`) and never returned in plain text
+- **Package audit** — connects via asyncssh, detects the Linux distro, and lists installed packages (Debian/Ubuntu `dpkg`, RHEL/CentOS `rpm`, Alpine `apk`)
+- **CVE lookup** — OSV.dev (primary, no key needed, batch 1 000 pkgs/req) + NVD NIST (fallback, requires `NVD_API_KEY`)
+- **Results** — CVEs persisted as `AssetCve` rows with `source="ssh"`, visible in the unified CVE table alongside ZAP findings
 
 ### Security & authentication
 - **JWT authentication** — all API endpoints require a valid Bearer token (except `/api/v1/auth/login`); `sub`, `exp`, and `iss` claims required; issuer verified as `netlanventory`
@@ -33,7 +40,7 @@ Modular network scanning and inventory tool. Discover hosts, scan ports, fingerp
 - **OIDC / SSO** — optional OpenID Connect provider configured via the admin panel
 - **User management** — create, activate/deactivate and delete users from the dashboard
 - **HTTP security headers** — every response includes `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, and `Content-Security-Policy`
-- **Rate limiting** — 10 req/min on login, 20 req/min on ZAP scan trigger, 200 req/min global default; returns HTTP 429 on breach
+- **Rate limiting** — 10 req/min on login, 20 req/min on ZAP scan trigger, 5 req/min on SSH scan trigger, 200 req/min global default; returns HTTP 429 on breach
 - **Input validation** — IP addresses, MAC addresses, SSH port range (1–65535), FQDNs (RFC-1123), and ZAP target URLs (http/https only) are validated at the API boundary
 
 ### Infrastructure
@@ -80,8 +87,9 @@ On first startup, a default admin account is automatically created if no users e
 ADMIN_EMAIL=your@email.com
 ADMIN_PASSWORD=a-strong-password
 JWT_SECRET_KEY=<openssl rand -hex 32>
-SECRET_KEY=<openssl rand -hex 32>
-ZAP_API_KEY=<your-zap-api-key>   # leave empty to disable ZAP API key
+SECRET_KEY=<openssl rand -hex 32>        # also used to derive the SSH credential encryption key
+ZAP_API_KEY=<your-zap-api-key>           # leave empty to disable ZAP API key
+NVD_API_KEY=<your-nvd-api-key>           # optional — enables NVD fallback for SSH CVE lookup
 ```
 
 > The bootstrap only runs once (when the `users` table is empty). If the stack is already running, change the password via the dashboard → **Users** tab, or recreate the database volume (`docker compose down -v && docker compose up --build`) to trigger a fresh bootstrap.
@@ -138,7 +146,7 @@ netlv --api-url http://my-server:8000 assets list
 | `GET` | `/api/v1/assets/{id}` | Get asset by UUID |
 | `GET` | `/api/v1/assets/by-ip/{ip}` | Get asset by IP address |
 | `POST` | `/api/v1/assets` | Create asset manually |
-| `PATCH` | `/api/v1/assets/{id}` | Update asset fields (hostname, os_family, os_version, device_type, zap_auto_scan_enabled, zap_scan_interval_minutes, …) |
+| `PATCH` | `/api/v1/assets/{id}` | Update asset fields (hostname, os_family, os_version, device_type, ssh_password, ssh_private_key, zap_auto_scan_enabled, …) |
 | `DELETE` | `/api/v1/assets/{id}` | Delete asset |
 
 ### DNS entries
@@ -159,6 +167,14 @@ netlv --api-url http://my-server:8000 assets list
 | `DELETE` | `/api/v1/scans/{id}` | Delete scan |
 | `GET` | `/api/v1/modules` | List registered modules |
 | `GET` | `/api/v1/modules/{name}` | Get module metadata + options schema |
+
+### SSH CVE scan
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/assets/{id}/ssh-scan` | Trigger an SSH package audit + CVE lookup (async, 202 Accepted) |
+| `GET` | `/api/v1/assets/{id}/ssh-scan` | List SSH scan reports (newest first) |
+| `GET` | `/api/v1/assets/{id}/ssh-scan/{report_id}` | Get a specific SSH scan report |
 
 ### ZAP
 
@@ -261,11 +277,12 @@ Restart the server — the module is auto-discovered and immediately available v
 NetLanVentory/
 ├── netlanventory/
 │   ├── core/          # config, async DB engine, structlog, module registry, scheduler
-│   ├── models/        # SQLAlchemy ORM (Asset, Scan, Port, ScanResult, AssetDns, GlobalSettings, ZapReport, …)
+│   ├── core/          # config, crypto (Fernet), async DB engine, structlog, module registry, scheduler
+│   ├── models/        # SQLAlchemy ORM (Asset, Scan, Port, ScanResult, AssetDns, GlobalSettings, ZapReport, SshScanReport, …)
 │   ├── schemas/       # Pydantic request/response schemas
 │   ├── modules/       # BaseModule ABC + built-in scanners
 │   ├── api/
-│   │   ├── routers/   # assets, scans, modules, zap, dns, auth, users, admin
+│   │   ├── routers/   # assets, scans, modules, zap, dns, ssh_scan, auth, users, admin
 │   │   └── static/    # Single-page dashboard (HTML + JS + CSS, no build step)
 │   └── cli/           # Click commands, Rich output helpers
 ├── alembic/           # Database migrations
