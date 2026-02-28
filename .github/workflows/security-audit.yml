@@ -1,0 +1,30 @@
+name: Dependency security audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Every Monday at 08:00 UTC
+    - cron: "0 8 * * 1"
+
+jobs:
+  pip-audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install project and pip-audit
+        run: |
+          pip install -e ".[dev]"
+          pip install pip-audit
+
+      - name: Audit installed packages for known CVEs
+        run: pip-audit
