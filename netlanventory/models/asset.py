@@ -32,9 +32,12 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # SSH access (used by future ssh_audit module)
+    # SSH access
     ssh_user: Mapped[str | None] = mapped_column(String(100), nullable=True)
     ssh_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Encrypted credentials — never returned in plain text via API
+    ssh_password_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ssh_private_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Free-text notes
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -61,6 +64,9 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     dns_entries: Mapped[list["AssetDns"]] = relationship(  # noqa: F821
         "AssetDns", back_populates="asset", cascade="all, delete-orphan"
+    )
+    ssh_scan_reports: Mapped[list["SshScanReport"]] = relationship(  # noqa: F821
+        "SshScanReport", back_populates="asset", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

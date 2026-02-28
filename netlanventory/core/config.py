@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     oidc_client_id: str | None = Field(default=None)
     oidc_client_secret: str | None = Field(default=None)
 
+    # CVE lookup
+    nvd_api_key: str = Field(
+        default="",
+        description="NVD NIST API key for fallback CVE lookup (optional)",
+    )
+
     # ZAP web scanner
     zap_api_url: str = Field(
         default="http://localhost:8080",

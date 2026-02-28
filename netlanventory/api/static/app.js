@@ -10,8 +10,54 @@ let _overviewChart = null;
 let _currentReportId = null;
 let _assetDns = [];
 let _vocabulary = { os_family: [], device_type: [] };
+let _globalSettings = null;  // Loaded once on init, used for ZAP target computation
 const HTTP_PORTS  = new Set([80, 8080, 8000, 3000, 8888]);
 const HTTPS_PORTS = new Set([443, 8443, 4443]);
+
+// ── ZAP auto-scan visibility helpers ─────────────────────────────────────────
+
+/** Return list of {url, port, source} objects that the scheduler would scan for this asset. */
+function _computeZapTargets(asset) {
+  const openPorts = (asset.ports || []).filter(p => p.state === 'open');
+  const targets = [];
+
+  const addTargets = (port, scheme) => {
+    const defaultPort = scheme === 'https' ? 443 : 80;
+    const portSuffix = port === defaultPort ? '' : `:${port}`;
+
+    if (asset.ip) {
+      targets.push({ url: `${scheme}://${asset.ip}${portSuffix}`, port, source: 'IP' });
+    }
+    for (const dns of (asset.dns_entries || [])) {
+      targets.push({ url: `${scheme}://${dns.fqdn}${portSuffix}`, port, source: dns.fqdn });
+    }
+  };
+
+  for (const p of openPorts) {
+    if (HTTP_PORTS.has(p.port_number))  addTargets(p.port_number, 'http');
+    if (HTTPS_PORTS.has(p.port_number)) addTargets(p.port_number, 'https');
+  }
+
+  return targets;
+}
+
+/** Return minutes until next auto-scan, or null if auto-scan is not enabled. */
+function _computeNextScan(asset) {
+  // Determine effective interval
+  const assetEnabled = asset.zap_auto_scan_enabled;
+  const globalEnabled = _globalSettings?.zap_auto_scan_enabled;
+  const effectiveEnabled = assetEnabled != null ? assetEnabled : globalEnabled;
+  if (!effectiveEnabled) return null;
+
+  const interval = asset.zap_scan_interval_minutes
+    ?? _globalSettings?.zap_scan_interval_minutes
+    ?? 60;
+
+  if (!asset.zap_last_auto_scan_at) return 0; // never scanned → due now
+
+  const nextAt = new Date(asset.zap_last_auto_scan_at).getTime() + interval * 60_000;
+  return Math.max(0, Math.round((nextAt - Date.now()) / 60_000));
+}
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
@@ -349,6 +395,13 @@ async function openAssetModal(id) {
     document.getElementById('modal-os-version').value = a.os_version || '';
     document.getElementById('modal-ssh-user').value = a.ssh_user || '';
     document.getElementById('modal-ssh-port').value = a.ssh_port || '';
+    // SSH credentials (write-only; show presence hints)
+    document.getElementById('modal-ssh-password').value = '';
+    document.getElementById('modal-ssh-key').value = '';
+    const pwHint = document.getElementById('modal-ssh-password-hint');
+    const keyHint = document.getElementById('modal-ssh-key-hint');
+    if (pwHint) pwHint.textContent = a.has_ssh_password ? 'Mot de passe enregistré — laisser vide pour conserver' : '';
+    if (keyHint) keyHint.textContent = a.has_ssh_key ? 'Clé privée enregistrée — laisser vide pour conserver' : '';
     document.getElementById('modal-notes').value = a.notes || '';
 
     // DNS entries
@@ -380,10 +433,20 @@ async function openAssetModal(id) {
         </tr>`).join('');
     }
 
-    // ── Overview + Failles tabs ───────────────────────────────────────
+    // ── ZAP auto-scan target visibility (Details tab) ──────────────────
+    _renderZapTargets(a);
+
+    // ── Overview + Sécurité tabs ────────────────────────────────────────
     _renderOverviewTab(a);
     _renderFlawsTab(a);
     _autoTriggerZap(a);
+
+    // ── SSH CVE section ─────────────────────────────────────────────────
+    let sshReports = [];
+    try {
+      sshReports = await api(`/assets/${id}/ssh-scan`) || [];
+    } catch (_) { /* SSH endpoint might return 404 if no reports */ }
+    _renderSshSection(a, sshReports);
 
   } catch (e) {
     document.getElementById('modal-info').innerHTML =
@@ -795,6 +858,11 @@ async function saveAssetModal() {
     zap_scan_interval_minutes: zapIntervalRaw ? parseInt(zapIntervalRaw, 10) : null,
     notes: document.getElementById('modal-notes').value.trim() || null,
   };
+  // Only include SSH credentials if the user typed something (never send empty strings)
+  const sshPwd = document.getElementById('modal-ssh-password').value;
+  const sshKey = document.getElementById('modal-ssh-key').value.trim();
+  if (sshPwd) payload.ssh_password = sshPwd;
+  if (sshKey) payload.ssh_private_key = sshKey;
 
   try {
     await api(`/assets/${_modalAssetId}`, {
@@ -859,6 +927,138 @@ async function removeDnsEntry(dnsId) {
     _renderDnsTags();
   } catch (e) {
     showToast(`Erreur suppression DNS: ${e.message}`, 'error');
+  }
+}
+
+// ── ZAP auto-scan target visibility renderer ──────────────────────────────────
+
+function _renderZapTargets(asset) {
+  const section = document.getElementById('zap-targets-section');
+  const listEl = document.getElementById('zap-targets-list');
+  const nextEl = document.getElementById('zap-next-scan');
+  if (!section || !listEl || !nextEl) return;
+
+  const targets = _computeZapTargets(asset);
+  if (!targets.length) {
+    section.style.display = 'none';
+    return;
+  }
+
+  section.style.display = '';
+  listEl.innerHTML = targets.map(t =>
+    `<span style="font-size:12px;font-family:monospace;color:var(--text-muted)">
+      <span class="badge badge-muted" style="margin-right:6px">${escape(String(t.port))}</span>
+      <a href="${escape(t.url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${escape(t.url)}</a>
+      <span style="color:var(--text-muted);margin-left:4px">${t.source === 'IP' ? '' : '· DNS'}</span>
+    </span>`
+  ).join('');
+
+  const nextMin = _computeNextScan(asset);
+  if (nextMin === null) {
+    nextEl.textContent = 'Auto-scan désactivé pour cet asset.';
+  } else if (nextMin === 0) {
+    nextEl.textContent = 'Prochain scan : dû maintenant (en attente du scheduler).';
+  } else {
+    nextEl.textContent = `Prochain scan dans : ${nextMin} min`;
+  }
+}
+
+// ── SSH CVE section renderer + scan trigger ───────────────────────────────────
+
+function _renderSshSection(asset, sshReports) {
+  const statusEl = document.getElementById('ssh-conn-status');
+  const bodyEl = document.getElementById('ssh-scan-body');
+  if (!bodyEl) return;
+
+  const hasCreds = asset.has_ssh_password || asset.has_ssh_key;
+
+  if (statusEl) {
+    statusEl.textContent = hasCreds
+      ? (asset.ssh_user ? `${asset.ssh_user}@${asset.ip || '?'}` : asset.ip || '')
+      : 'Aucun credential SSH';
+    statusEl.style.color = hasCreds ? 'var(--text-muted)' : 'var(--danger)';
+  }
+
+  if (!hasCreds) {
+    bodyEl.innerHTML = '<p class="ssh-no-creds">Aucun credential SSH configuré — ajoutez un mot de passe ou une clé privée dans l\'onglet Détails pour activer le scan CVE système.</p>';
+    return;
+  }
+
+  // Build history
+  let histHtml = '';
+  if (!sshReports.length) {
+    histHtml = '<p style="color:var(--text-muted);font-size:12px;margin-top:10px">Aucun scan SSH exécuté.</p>';
+  } else {
+    histHtml = '<div style="margin-top:12px">' + sshReports.map(r => {
+      const stType = r.status === 'completed' ? 'success' : r.status === 'failed' ? 'error' : 'warning';
+      const summary = r.status === 'completed'
+        ? ` — ${r.packages_found ?? '?'} paquets · ${r.cves_found ?? 0} CVE${r.os_type ? ` · ${r.os_type}` : ''}`
+        : (r.error_msg ? ` — ${r.error_msg}` : '');
+      return `<div class="ssh-history-item">
+        ${badge(r.status, stType)}
+        <span style="flex:1;color:var(--text-muted)">Scan du ${fmtDate(r.created_at)}${summary}</span>
+      </div>`;
+    }).join('') + '</div>';
+  }
+
+  bodyEl.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px">
+      <button class="btn btn-primary btn-sm" id="ssh-scan-btn" onclick="runSshScan()">
+        &#9654; Analyser les paquets
+      </button>
+      <span id="ssh-scan-status" style="font-size:12px;color:var(--text-muted)"></span>
+    </div>
+    ${histHtml}`;
+}
+
+async function runSshScan() {
+  if (!_modalAssetId) return;
+  const btn = document.getElementById('ssh-scan-btn');
+  const statusEl = document.getElementById('ssh-scan-status');
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Démarrage du scan SSH…';
+
+  try {
+    const report = await api(`/assets/${_modalAssetId}/ssh-scan`, { method: 'POST' });
+    if (!report) return;
+
+    if (statusEl) statusEl.textContent = 'Scan en cours…';
+
+    // Poll until done
+    let done = false;
+    while (!done && _modalAssetId) {
+      await new Promise(r => setTimeout(r, 3000));
+      if (!_modalAssetId) break;
+
+      const updated = await api(`/assets/${_modalAssetId}/ssh-scan/${report.id}`);
+      if (!updated) break;
+
+      if (['completed', 'failed'].includes(updated.status)) {
+        done = true;
+        if (updated.status === 'completed') {
+          if (statusEl) statusEl.textContent = `Terminé — ${updated.cves_found ?? 0} CVE trouvées.`;
+          showToast(`SSH scan : ${updated.cves_found ?? 0} CVE sur ${updated.packages_found ?? 0} paquets.`, 'success');
+        } else {
+          if (statusEl) statusEl.textContent = `Échec : ${updated.error_msg || 'erreur inconnue'}`;
+          showToast(`SSH scan échoué : ${updated.error_msg || ''}`, 'error');
+        }
+
+        // Refresh asset & SSH reports
+        const [asset, reports] = await Promise.all([
+          api(`/assets/${_modalAssetId}`),
+          api(`/assets/${_modalAssetId}/ssh-scan`),
+        ]);
+        if (asset && _modalAssetId) {
+          _renderFlawsTab(asset);  // Refresh CVE table
+          _renderSshSection(asset, reports || []);
+        }
+      }
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `Erreur : ${e.message}`;
+    showToast(`SSH scan : ${e.message}`, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1413,6 +1613,11 @@ async function _initAppData() {
   initNav();
   initSubTabs();
   _initModalTabs();
+
+  // Load global ZAP settings once for visibility computations
+  try {
+    _globalSettings = await api('/admin/zap-settings');
+  } catch (_) { /* non-admin users may not have access */ }
 
   await loadModuleCheckboxes();
   await loadVocabulary();

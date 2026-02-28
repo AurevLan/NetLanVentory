@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from netlanventory.api.dependencies import get_db
+from netlanventory.core.crypto import encrypt
 from netlanventory.models.asset import Asset
 from netlanventory.models.asset_cve import AssetCve
 from netlanventory.models.asset_dns import AssetDns
@@ -101,9 +102,19 @@ async def get_asset_by_ip(ip: str, db: DbDep) -> Asset:
     return asset
 
 
+def _apply_ssh_credentials(data: dict, asset: Asset) -> None:
+    """Pop write-only SSH credential fields and store their encrypted versions."""
+    if pw := data.pop("ssh_password", None):
+        asset.ssh_password_enc = encrypt(pw)
+    if key := data.pop("ssh_private_key", None):
+        asset.ssh_private_key_enc = encrypt(key)
+
+
 @router.post("", response_model=AssetOut, status_code=status.HTTP_201_CREATED)
 async def create_asset(payload: AssetCreate, db: DbDep) -> Asset:
-    asset = Asset(**payload.model_dump(exclude_none=True))
+    data = payload.model_dump(exclude_none=True)
+    asset = Asset(**{k: v for k, v in data.items() if k not in ("ssh_password", "ssh_private_key")})
+    _apply_ssh_credentials(data, asset)
     db.add(asset)
     await db.flush()
     result = await db.execute(
@@ -119,7 +130,9 @@ async def update_asset(asset_id: uuid.UUID, payload: AssetUpdate, db: DbDep) -> 
     if not asset:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    _apply_ssh_credentials(data, asset)
+    for field, value in data.items():
         setattr(asset, field, value)
 
     await db.flush()

@@ -984,6 +984,70 @@ tbody tr.clickable:hover td:first-child { color: var(--accent); }
   opacity: 1;
 }
 
+/* ── Scan sections (Sécurité tab) ───────────────────────────────────────────── */
+.scan-section {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--surface);
+}
+
+.scan-section + .scan-section {
+  margin-top: 20px;
+}
+
+.scan-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.scan-type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.scan-type-badge.dast {
+  background: rgba(88, 166, 255, 0.15);
+  color: #58a6ff;
+  border: 1px solid rgba(88, 166, 255, 0.3);
+}
+
+.scan-type-badge.ssh {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+  border: 1px solid rgba(63, 185, 80, 0.3);
+}
+
+.ssh-no-creds {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 12px 0;
+}
+
+.ssh-history-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.ssh-history-item:last-child {
+  border-bottom: none;
+}
+
 /* ── Responsive tweaks ─────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar { width: 200px; }

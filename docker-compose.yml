@@ -103,6 +103,7 @@ services:
       ADMIN_EMAIL:       ${ADMIN_EMAIL:-admin@localhost}
       ADMIN_PASSWORD:    ${ADMIN_PASSWORD:-changeme}
       ZAP_API_KEY:       ${ZAP_API_KEY:-}
+      NVD_API_KEY:       ${NVD_API_KEY:-}
     cap_add:
       - NET_ADMIN   # Required for ARP manipulation
       - NET_RAW     # Required for raw socket access (scapy / nmap)

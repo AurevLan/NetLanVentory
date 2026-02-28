@@ -41,6 +41,10 @@ dependencies = [
     # Async utilities
     "anyio>=4.6.0",
     "httpx>=0.28.0",
+    # SSH connectivity (SSH CVE scan)
+    "asyncssh>=2.14.0",
+    # Symmetric encryption (SSH credential storage)
+    "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]

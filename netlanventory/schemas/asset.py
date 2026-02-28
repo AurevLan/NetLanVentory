@@ -70,6 +70,9 @@ class AssetBase(BaseModel):
     ssh_user: str | None = None
     ssh_port: int | None = Field(default=None, ge=1, le=65535)
     notes: str | None = None
+    # Write-only SSH credentials — accepted on create/update, never echoed back
+    ssh_password: str | None = Field(default=None, exclude=True)
+    ssh_private_key: str | None = Field(default=None, exclude=True)
 
     @field_validator("ip", mode="before")
     @classmethod
@@ -116,6 +119,10 @@ class AssetOut(AssetBase):
     zap_scan_interval_minutes: int | None = None
     zap_last_auto_scan_at: datetime | None = None
 
+    # SSH credential presence flags — never expose the ciphertext
+    has_ssh_password: bool = False
+    has_ssh_key: bool = False
+
     # Relationships
     ports: list[PortOut] = []
     cves: list[AssetCveOut] = []
@@ -124,12 +131,16 @@ class AssetOut(AssetBase):
 
     @model_validator(mode="before")
     @classmethod
-    def _flatten_cves(cls, data: Any) -> Any:
-        """Convert ORM AssetCve instances to AssetCveOut (flattening the .cve relation)."""
+    def _prepare_orm(cls, data: Any) -> Any:
+        """Flatten ORM AssetCve relations and compute SSH credential presence flags."""
         if hasattr(data, "cves"):
             data.__dict__["cves"] = [
                 AssetCveOut.from_orm_with_cve(c) for c in (data.cves or [])
             ]
+        if hasattr(data, "ssh_password_enc"):
+            data.__dict__["has_ssh_password"] = bool(data.ssh_password_enc)
+        if hasattr(data, "ssh_private_key_enc"):
+            data.__dict__["has_ssh_key"] = bool(data.ssh_private_key_enc)
         return data
 
 

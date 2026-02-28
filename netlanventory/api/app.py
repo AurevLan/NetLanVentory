@@ -18,6 +18,7 @@ from netlanventory.api.routers import assets, modules, scans
 from netlanventory.api.routers import admin as admin_router
 from netlanventory.api.routers import auth as auth_router
 from netlanventory.api.routers import dns as dns_router
+from netlanventory.api.routers import ssh_scan as ssh_scan_router
 from netlanventory.api.routers import users as users_router
 from netlanventory.api.routers import zap as zap_router
 from netlanventory.core.auth import hash_password
@@ -161,6 +162,7 @@ def create_app() -> FastAPI:
     app.include_router(modules.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(zap_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(dns_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(ssh_scan_router.router, prefix=api_prefix, dependencies=_auth)
 
     # Serve static dashboard if the directory exists
     if STATIC_DIR.exists():

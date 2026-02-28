@@ -425,7 +425,7 @@
           <span class="modal-tab-badge" id="modal-auto-badge" style="display:none;background:var(--accent)">Auto</span>
         </button>
         <button class="modal-tab" data-modaltab="flaws">
-          Failles
+          Sécurité
           <span class="modal-tab-badge" id="modal-cve-badge" style="display:none"></span>
         </button>
       </div>
@@ -469,6 +469,16 @@
               <label class="field-label">SSH Port</label>
               <input id="modal-ssh-port" type="number" placeholder="22" min="1" max="65535" />
             </div>
+            <div class="field-group">
+              <label class="field-label">SSH Password</label>
+              <input id="modal-ssh-password" type="password" placeholder="••••••••" autocomplete="new-password" />
+              <span class="field-hint" id="modal-ssh-password-hint"></span>
+            </div>
+            <div class="field-group">
+              <label class="field-label">SSH Private Key (PEM)</label>
+              <textarea id="modal-ssh-key" rows="3" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----" style="font-family:monospace;font-size:11px"></textarea>
+              <span class="field-hint" id="modal-ssh-key-hint"></span>
+            </div>
             <!-- DNS entries -->
             <div class="field-group">
               <label class="field-label">DNS associés</label>
@@ -490,6 +500,12 @@
             <div class="field-group">
               <label class="field-label">Intervalle auto-scan (min, vide = global)</label>
               <input id="modal-zap-interval" type="number" placeholder="60" min="1" max="10080" />
+            </div>
+            <!-- ZAP auto-scan target visibility -->
+            <div id="zap-targets-section" style="display:none">
+              <p class="field-label" style="margin-bottom:8px">Cibles auto-scan ZAP calculées</p>
+              <div id="zap-targets-list" class="tag-list" style="flex-direction:column;gap:4px"></div>
+              <div id="zap-next-scan" style="margin-top:8px;color:var(--text-muted);font-size:12px"></div>
             </div>
             <div class="field-group">
               <label class="field-label">Notes</label>
@@ -551,42 +567,56 @@
 
         </div><!-- /.modal-tab-panel overview -->
 
-        <!-- ── Failles tab ────────────────────────────────────────────── -->
+        <!-- ── Sécurité tab ───────────────────────────────────────────── -->
         <div class="modal-tab-panel" id="mtab-flaws">
 
-          <!-- ZAP scan launcher -->
-          <div class="zap-launcher">
-            <div class="field-group" style="flex:1">
-              <label class="field-label">Target URL for ZAP scan</label>
-              <input id="zap-target-url" type="text" placeholder="http://192.168.1.1" />
+          <!-- ── DAST section ────────────────────────────────────────── -->
+          <div class="scan-section" id="section-dast">
+            <div class="scan-section-header">
+              <span class="scan-type-badge dast">DAST</span>
+              <span>OWASP ZAP — Web Vulnerability Scanner</span>
             </div>
-            <button class="btn btn-primary" id="zap-scan-btn" onclick="runZapScan()">
-              &#9654; Scan ZAP
-            </button>
-          </div>
-          <div id="zap-status" class="status-bar hidden" style="margin-top:12px"></div>
 
-          <!-- Risk summary -->
-          <div id="zap-risk-summary" class="risk-pills hidden"></div>
-
-          <!-- Report selector (visible if multiple completed scans) -->
-          <div id="zap-report-selector" style="margin-top:14px;display:none">
-            <label class="field-label" style="margin-bottom:6px;display:block">Rapport</label>
-            <select id="zap-report-select" class="form-select" style="max-width:340px"
-                    onchange="loadZapReportDetail(this.value)"></select>
-          </div>
-
-          <!-- Alerts list -->
-          <div style="margin-top:20px">
-            <p class="field-label" style="margin-bottom:10px">Alertes ZAP</p>
-            <div id="flaws-list">
-              <p style="color:var(--text-muted);font-size:12px">Aucun rapport disponible — lancez un scan ZAP.</p>
+            <!-- ZAP scan launcher -->
+            <div class="zap-launcher">
+              <div class="field-group" style="flex:1">
+                <label class="field-label">Target URL for ZAP scan</label>
+                <input id="zap-target-url" type="text" placeholder="http://192.168.1.1" />
+              </div>
+              <button class="btn btn-primary" id="zap-scan-btn" onclick="runZapScan()">
+                &#9654; Scan ZAP
+              </button>
             </div>
-          </div>
+            <div id="zap-status" class="status-bar hidden" style="margin-top:12px"></div>
 
-          <!-- CVE table -->
+            <!-- Risk summary -->
+            <div id="zap-risk-summary" class="risk-pills hidden"></div>
+
+            <!-- Report selector (visible if multiple completed scans) -->
+            <div id="zap-report-selector" style="margin-top:14px;display:none">
+              <label class="field-label" style="margin-bottom:6px;display:block">Rapport</label>
+              <select id="zap-report-select" class="form-select" style="max-width:340px"
+                      onchange="loadZapReportDetail(this.value)"></select>
+            </div>
+
+            <!-- Alerts list -->
+            <div style="margin-top:20px">
+              <p class="field-label" style="margin-bottom:10px">Alertes ZAP</p>
+              <div id="flaws-list">
+                <p style="color:var(--text-muted);font-size:12px">Aucun rapport disponible — lancez un scan ZAP.</p>
+              </div>
+            </div>
+
+            <!-- ZAP reports history -->
+            <div id="zap-history" style="margin-top:20px">
+              <p class="field-label" style="margin-bottom:10px">ZAP scan history</p>
+              <div id="zap-history-list"></div>
+            </div>
+          </div><!-- /.scan-section dast -->
+
+          <!-- ── CVE table (all sources) ─────────────────────────────── -->
           <div id="cve-section" style="margin-top:20px">
-            <p class="field-label" style="margin-bottom:10px">Vulnerabilities (CVE)</p>
+            <p class="field-label" style="margin-bottom:10px">Vulnerabilities (CVE) — toutes sources</p>
             <div class="table-wrap">
               <table id="cve-table">
                 <thead>
@@ -604,11 +634,17 @@
             </div>
           </div>
 
-          <!-- ZAP reports history -->
-          <div id="zap-history" style="margin-top:20px">
-            <p class="field-label" style="margin-bottom:10px">ZAP scan history</p>
-            <div id="zap-history-list"></div>
-          </div>
+          <!-- ── SSH CVE section ────────────────────────────────────── -->
+          <div class="scan-section" id="section-ssh" style="margin-top:20px">
+            <div class="scan-section-header">
+              <span class="scan-type-badge ssh">SSH</span>
+              <span>CVE Système — Audit de paquets</span>
+              <span id="ssh-conn-status" style="margin-left:auto;font-size:12px;color:var(--text-muted)"></span>
+            </div>
+            <div id="ssh-scan-body">
+              <!-- Populated by _renderSshSection() -->
+            </div>
+          </div><!-- /.scan-section ssh -->
 
         </div><!-- /.modal-tab-panel flaws -->
       </div><!-- /.modal-body -->
