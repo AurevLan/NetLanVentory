@@ -6,13 +6,13 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
 
 
 # ── Request ───────────────────────────────────────────────────────────────────
 
 class ZapScanRequest(BaseModel):
-    target_url: str = Field(..., description="URL to scan (e.g. http://192.168.1.1)")
+    target_url: AnyHttpUrl = Field(..., description="URL to scan (e.g. http://192.168.1.1)")
     spider: bool = Field(True, description="Run ZAP spider before passive scan")
 
 

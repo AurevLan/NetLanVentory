@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+import ipaddress
+import re as _re
 import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from netlanventory.schemas.zap import AssetCveOut, ZapReportOut  # noqa: F401 (re-exported)
+
+# RFC-1123 hostname label: each label is 1-63 alnum chars, may contain hyphens (not at start/end)
+_FQDN_RE = _re.compile(
+    r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*"
+    r"[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$"
+)
+_MAC_RE = _re.compile(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
 
 
 class PortOut(BaseModel):
@@ -36,6 +45,13 @@ class AssetDnsOut(BaseModel):
 class AssetDnsCreate(BaseModel):
     fqdn: str = Field(..., min_length=1, max_length=255)
 
+    @field_validator("fqdn")
+    @classmethod
+    def _validate_fqdn(cls, v: str) -> str:
+        if not _FQDN_RE.match(v):
+            raise ValueError(f"Invalid FQDN: {v!r}")
+        return v
+
 
 class AssetVocabularyOut(BaseModel):
     os_family: list[str] = []
@@ -52,8 +68,28 @@ class AssetBase(BaseModel):
     os_family: str | None = None
     os_version: str | None = None
     ssh_user: str | None = None
-    ssh_port: int | None = None
+    ssh_port: int | None = Field(default=None, ge=1, le=65535)
     notes: str | None = None
+
+    @field_validator("ip", mode="before")
+    @classmethod
+    def _validate_ip(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        try:
+            ipaddress.ip_address(v)
+        except ValueError:
+            raise ValueError(f"Invalid IP address: {v!r}")
+        return v
+
+    @field_validator("mac", mode="before")
+    @classmethod
+    def _validate_mac(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not _MAC_RE.match(v):
+            raise ValueError(f"Invalid MAC address (expected XX:XX:XX:XX:XX:XX): {v!r}")
+        return v
 
 
 class AssetCreate(AssetBase):

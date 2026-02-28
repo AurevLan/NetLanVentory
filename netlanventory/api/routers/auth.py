@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netlanventory.api.dependencies import get_current_active_user, get_db
 from netlanventory.core.auth import create_access_token, verify_password
+from netlanventory.core.limiter import limiter
 from netlanventory.models.user import User
 from netlanventory.schemas.user import TokenOut, UserOut
 
@@ -20,7 +21,9 @@ DbDep = Annotated[AsyncSession, Depends(get_db)]
 
 
 @router.post("/login", response_model=TokenOut)
+@limiter.limit("10/minute")
 async def login(
+    request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: DbDep,
 ) -> TokenOut:

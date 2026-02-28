@@ -99,6 +99,10 @@ services:
       APP_DEBUG:         ${APP_DEBUG:-false}
       LOG_LEVEL:         ${LOG_LEVEL:-INFO}
       SECRET_KEY:        ${SECRET_KEY:-change-me-in-production}
+      JWT_SECRET_KEY:    ${JWT_SECRET_KEY:-change-me-jwt-secret}
+      ADMIN_EMAIL:       ${ADMIN_EMAIL:-admin@localhost}
+      ADMIN_PASSWORD:    ${ADMIN_PASSWORD:-changeme}
+      ZAP_API_KEY:       ${ZAP_API_KEY:-}
     cap_add:
       - NET_ADMIN   # Required for ARP manipulation
       - NET_RAW     # Required for raw socket access (scapy / nmap)

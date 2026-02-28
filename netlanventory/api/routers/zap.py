@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from netlanventory.api.dependencies import get_db
 from netlanventory.core.config import get_settings
+from netlanventory.core.limiter import limiter
 from netlanventory.core.logging import get_logger
 from netlanventory.models.asset import Asset
 from netlanventory.models.asset_cve import AssetCve
@@ -32,6 +33,17 @@ router = APIRouter(prefix="/assets/{asset_id}/zap", tags=["zap"])
 logger = get_logger(__name__)
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
+
+# Semaphore to bound concurrent ZAP scans (initialised lazily on first use)
+_zap_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_zap_semaphore() -> asyncio.Semaphore:
+    global _zap_semaphore
+    if _zap_semaphore is None:
+        _zap_semaphore = asyncio.Semaphore(get_settings().max_concurrent_scans)
+    return _zap_semaphore
+
 
 # Matches CVE-YYYY-NNNNN (4+ digit suffix)
 _CVE_RE = re.compile(r"CVE-\d{4}-\d{4,}", re.IGNORECASE)
@@ -53,7 +65,9 @@ _CAT_FRAMEWORK = re.compile(r"wordpress|drupal|joomla|django|flask|laravel|rails
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("", response_model=ZapReportOut, status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("20/minute")
 async def start_zap_scan(
+    request: Request,
     asset_id: uuid.UUID,
     payload: ZapScanRequest,
     background_tasks: BackgroundTasks,
@@ -62,10 +76,11 @@ async def start_zap_scan(
     """Trigger a ZAP scan for an asset. The scan runs in the background."""
     asset = await _get_asset_or_404(asset_id, db)
 
+    target_url_str = str(payload.target_url)
     report = ZapReport(
         asset_id=asset.id,
         status="pending",
-        target_url=payload.target_url,
+        target_url=target_url_str,
     )
     db.add(report)
     await db.commit()
@@ -75,10 +90,10 @@ async def start_zap_scan(
         _run_zap_scan,
         report_id=report.id,
         asset_id=asset.id,
-        target_url=payload.target_url,
+        target_url=target_url_str,
         spider=payload.spider,
     )
-    logger.info("ZAP scan queued", report_id=str(report.id), target=payload.target_url)
+    logger.info("ZAP scan queued", report_id=str(report.id), target=target_url_str)
     return report
 
 
@@ -191,80 +206,82 @@ async def _run_zap_scan(
 
     settings = get_settings()
     factory = get_session_factory()
+    api_key = settings.zap_api_key
 
-    async with factory() as session:
-        # Mark as running
-        report = await _fetch_report(session, report_id)
-        if not report:
-            return
-        report.status = "running"
-        await session.commit()
-
-        try:
-            async with httpx.AsyncClient(
-                base_url=settings.zap_api_url, timeout=30.0
-            ) as zap:
-                # 1. Fresh session
-                await zap.get("/JSON/core/action/newSession/", params={"apikey": ""})
-
-                # 2. Spider
-                if spider:
-                    resp = await zap.get(
-                        "/JSON/spider/action/scan/",
-                        params={"url": target_url, "apikey": ""},
-                    )
-                    spider_id = resp.json().get("scan", "0")
-                    await _poll_spider(zap, spider_id)
-
-                # 3. Passive scan
-                await _poll_passive_scan(zap)
-
-                # 4. Fetch alerts
-                resp = await zap.get(
-                    "/JSON/core/view/alerts/",
-                    params={"baseurl": target_url, "start": "0", "count": "1000"},
-                )
-                raw_alerts: list[dict] = resp.json().get("alerts", [])
-
-            # 5. Persist CVEs — returns count of unique CVEs found in this scan
+    async with _get_zap_semaphore():
+        async with factory() as session:
+            # Mark as running
             report = await _fetch_report(session, report_id)
             if not report:
                 return
-            cve_count = await _persist_cves(session, asset_id, raw_alerts)
-
-            # 6. Build risk summary
-            risk_summary = _build_risk_summary(raw_alerts)
-
-            # 7. Extract technologies from all alerts (even those without CVE)
-            technologies = _extract_technologies(raw_alerts)
-
-            # 8. Update report
-            report.status = "completed"
-            report.report = {"alerts": raw_alerts, "technologies": technologies}
-            report.risk_summary = risk_summary
-            report.cve_count = cve_count
-
-            # 9. Update asset's last auto-scan timestamp
-            asset_result = await session.execute(
-                select(Asset).where(Asset.id == asset_id)
-            )
-            asset_row = asset_result.scalar_one_or_none()
-            if asset_row:
-                asset_row.zap_last_auto_scan_at = datetime.now(timezone.utc)
-
+            report.status = "running"
             await session.commit()
-            logger.info(
-                "ZAP scan completed",
-                report_id=str(report_id),
-                alerts=len(raw_alerts),
-                cves=cve_count,
-            )
 
-        except httpx.ConnectError as exc:
-            await _fail_report(session, report_id, f"ZAP unreachable: {exc}")
-        except Exception as exc:
-            logger.error("ZAP scan failed", report_id=str(report_id), error=str(exc), exc_info=True)
-            await _fail_report(session, report_id, str(exc))
+            try:
+                async with httpx.AsyncClient(
+                    base_url=settings.zap_api_url, timeout=30.0
+                ) as zap:
+                    # 1. Fresh session
+                    await zap.get("/JSON/core/action/newSession/", params={"apikey": api_key})
+
+                    # 2. Spider
+                    if spider:
+                        resp = await zap.get(
+                            "/JSON/spider/action/scan/",
+                            params={"url": target_url, "apikey": api_key},
+                        )
+                        spider_id = resp.json().get("scan", "0")
+                        await _poll_spider(zap, spider_id, api_key=api_key)
+
+                    # 3. Passive scan
+                    await _poll_passive_scan(zap, api_key=api_key)
+
+                    # 4. Fetch alerts
+                    resp = await zap.get(
+                        "/JSON/core/view/alerts/",
+                        params={"baseurl": target_url, "start": "0", "count": "1000", "apikey": api_key},
+                    )
+                    raw_alerts: list[dict] = resp.json().get("alerts", [])
+
+                # 5. Persist CVEs — returns count of unique CVEs found in this scan
+                report = await _fetch_report(session, report_id)
+                if not report:
+                    return
+                cve_count = await _persist_cves(session, asset_id, raw_alerts)
+
+                # 6. Build risk summary
+                risk_summary = _build_risk_summary(raw_alerts)
+
+                # 7. Extract technologies from all alerts (even those without CVE)
+                technologies = _extract_technologies(raw_alerts)
+
+                # 8. Update report
+                report.status = "completed"
+                report.report = {"alerts": raw_alerts, "technologies": technologies}
+                report.risk_summary = risk_summary
+                report.cve_count = cve_count
+
+                # 9. Update asset's last auto-scan timestamp
+                asset_result = await session.execute(
+                    select(Asset).where(Asset.id == asset_id)
+                )
+                asset_row = asset_result.scalar_one_or_none()
+                if asset_row:
+                    asset_row.zap_last_auto_scan_at = datetime.now(timezone.utc)
+
+                await session.commit()
+                logger.info(
+                    "ZAP scan completed",
+                    report_id=str(report_id),
+                    alerts=len(raw_alerts),
+                    cves=cve_count,
+                )
+
+            except httpx.ConnectError as exc:
+                await _fail_report(session, report_id, f"ZAP unreachable: {exc}")
+            except Exception as exc:
+                logger.error("ZAP scan failed", report_id=str(report_id), error=str(exc), exc_info=True)
+                await _fail_report(session, report_id, str(exc))
 
 
 async def _fetch_report(session: AsyncSession, report_id: uuid.UUID) -> ZapReport | None:
@@ -280,12 +297,13 @@ async def _fail_report(session: AsyncSession, report_id: uuid.UUID, msg: str) ->
         await session.commit()
 
 
-async def _poll_spider(zap: httpx.AsyncClient, spider_id: str, max_wait: int = 120) -> None:
-    import asyncio
+async def _poll_spider(
+    zap: httpx.AsyncClient, spider_id: str, *, api_key: str = "", max_wait: int = 120
+) -> None:
     for _ in range(max_wait // 3):
         await asyncio.sleep(3)
         resp = await zap.get(
-            "/JSON/spider/view/status/", params={"scanId": spider_id}
+            "/JSON/spider/view/status/", params={"scanId": spider_id, "apikey": api_key}
         )
         pct = int(resp.json().get("status", 0))
         if pct >= 100:
@@ -293,11 +311,12 @@ async def _poll_spider(zap: httpx.AsyncClient, spider_id: str, max_wait: int = 1
     logger.warning("Spider did not finish within timeout", spider_id=spider_id)
 
 
-async def _poll_passive_scan(zap: httpx.AsyncClient, max_wait: int = 60) -> None:
-    import asyncio
+async def _poll_passive_scan(
+    zap: httpx.AsyncClient, *, api_key: str = "", max_wait: int = 60
+) -> None:
     for _ in range(max_wait // 3):
         await asyncio.sleep(3)
-        resp = await zap.get("/JSON/pscan/view/recordsToScan/")
+        resp = await zap.get("/JSON/pscan/view/recordsToScan/", params={"apikey": api_key})
         remaining = int(resp.json().get("recordsToScan", 0))
         if remaining == 0:
             return
