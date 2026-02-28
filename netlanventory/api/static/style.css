@@ -947,6 +947,43 @@ tbody tr.clickable:hover td:first-child { color: var(--accent); }
   word-break: break-all;
 }
 
+/* ── DNS tag list ───────────────────────────────────────────────────────────── */
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.dns-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px 10px 3px 12px;
+  font-size: 12px;
+  color: var(--text);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+.dns-tag-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--danger);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.dns-tag-remove:hover {
+  opacity: 1;
+}
+
 /* ── Responsive tweaks ─────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar { width: 200px; }

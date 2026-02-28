@@ -1,4 +1,4 @@
-"""Schemas for Asset and Port resources."""
+"""Schemas for Asset, Port, and DNS resources."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from netlanventory.schemas.zap import AssetCveOut, ZapReportOut  # noqa: F401 (re-exported)
 
@@ -23,6 +23,23 @@ class PortOut(BaseModel):
     banner: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class AssetDnsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    fqdn: str
+    created_at: datetime
+
+
+class AssetDnsCreate(BaseModel):
+    fqdn: str = Field(..., min_length=1, max_length=255)
+
+
+class AssetVocabularyOut(BaseModel):
+    os_family: list[str] = []
+    device_type: list[str] = []
 
 
 class AssetBase(BaseModel):
@@ -45,6 +62,8 @@ class AssetCreate(AssetBase):
 
 class AssetUpdate(AssetBase):
     is_active: bool | None = None
+    zap_auto_scan_enabled: bool | None = None
+    zap_scan_interval_minutes: int | None = None
 
 
 class AssetOut(AssetBase):
@@ -55,9 +74,17 @@ class AssetOut(AssetBase):
     last_seen: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    # ZAP auto-scan settings
+    zap_auto_scan_enabled: bool | None = None
+    zap_scan_interval_minutes: int | None = None
+    zap_last_auto_scan_at: datetime | None = None
+
+    # Relationships
     ports: list[PortOut] = []
     cves: list[AssetCveOut] = []
     zap_reports: list[ZapReportOut] = []
+    dns_entries: list[AssetDnsOut] = []
 
     @model_validator(mode="before")
     @classmethod

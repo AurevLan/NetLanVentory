@@ -52,6 +52,7 @@ class ZapReportOut(BaseModel):
     target_url: str | None
     risk_summary: dict | None = None    # {high, medium, low, informational}
     alerts_count: int | None = None
+    cve_count: int = 0
     technologies: list[TechDetectedOut] = []
     error_msg: str | None = None
     created_at: datetime

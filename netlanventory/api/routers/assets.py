@@ -6,14 +6,21 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from netlanventory.api.dependencies import get_db
 from netlanventory.models.asset import Asset
 from netlanventory.models.asset_cve import AssetCve
-from netlanventory.schemas.asset import AssetCreate, AssetList, AssetOut, AssetUpdate
+from netlanventory.models.asset_dns import AssetDns
+from netlanventory.schemas.asset import (
+    AssetCreate,
+    AssetList,
+    AssetOut,
+    AssetUpdate,
+    AssetVocabularyOut,
+)
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -23,6 +30,7 @@ _ASSET_OPTIONS = [
     selectinload(Asset.ports),
     selectinload(Asset.zap_reports),
     selectinload(Asset.cves).selectinload(AssetCve.cve),
+    selectinload(Asset.dns_entries),
 ]
 
 
@@ -49,6 +57,22 @@ async def list_assets(
     assets = result.scalars().all()
 
     return AssetList(total=total, items=list(assets))
+
+
+# NOTE: /vocabulary must be defined before /{asset_id} to avoid UUID parse conflicts
+@router.get("/vocabulary", response_model=AssetVocabularyOut)
+async def get_vocabulary(db: DbDep) -> AssetVocabularyOut:
+    """Return distinct non-null values for editable dropdown fields."""
+    os_result = await db.execute(
+        select(distinct(Asset.os_family)).where(Asset.os_family.isnot(None))
+    )
+    device_result = await db.execute(
+        select(distinct(Asset.device_type)).where(Asset.device_type.isnot(None))
+    )
+    return AssetVocabularyOut(
+        os_family=sorted([r for r in os_result.scalars().all() if r]),
+        device_type=sorted([r for r in device_result.scalars().all() if r]),
+    )
 
 
 @router.get("/{asset_id}", response_model=AssetOut)

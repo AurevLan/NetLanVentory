@@ -226,6 +226,13 @@
               </svg>
               OIDC Connector
             </button>
+            <button class="subnav-item" data-subtab="admin-zap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+              ZAP Auto-scan
+            </button>
           </nav>
 
           <!-- Sub-panel content -->
@@ -333,6 +340,43 @@
               </div>
             </div>
 
+            <!-- ZAP Auto-scan sub-panel -->
+            <div class="sub-panel" id="sub-admin-zap">
+              <div class="sub-panel-header">
+                <h2>ZAP Auto-scan</h2>
+              </div>
+              <div class="settings-card" style="max-width:480px">
+                <div class="modal-fields">
+                  <label class="toggle-row">
+                    <input type="checkbox" id="zap-global-enabled" />
+                    <div>
+                      <div class="toggle-label-text">Activer le scan ZAP automatique global</div>
+                      <div class="toggle-hint">
+                        Scanne automatiquement les assets actifs ayant l'auto-scan activé
+                      </div>
+                    </div>
+                  </label>
+                  <div class="field-group">
+                    <label class="field-label">Intervalle par défaut (minutes)</label>
+                    <input id="zap-global-interval" type="number" min="1" max="10080" value="60"
+                           placeholder="60" />
+                    <span class="field-hint">
+                      Peut être surchargé individuellement par asset. Max 7 jours (10 080 min).
+                    </span>
+                  </div>
+                </div>
+                <div class="settings-actions">
+                  <button class="btn btn-primary" onclick="saveZapSettings()">Sauvegarder</button>
+                </div>
+                <p style="color:var(--text-muted);font-size:12px;margin-top:16px;line-height:1.5">
+                  Le scheduler vérifie toutes les 60 s les assets éligibles. Pour chaque asset actif
+                  ayant l'auto-scan activé, il scanne les ports web ouverts (80, 443, 8080, 8443…)
+                  en utilisant l'IP et tous les DNS associés à l'asset.
+                </p>
+                <div id="zap-settings-status" class="status-bar hidden" style="margin-top:12px"></div>
+              </div>
+            </div>
+
           </div><!-- /.admin-content -->
         </div><!-- /.admin-layout -->
       </section>
@@ -390,12 +434,32 @@
 
         <!-- ── Details tab ──────────────────────────────────────────── -->
         <div class="modal-tab-panel active" id="mtab-details">
+          <!-- Read-only identifiers -->
           <div class="detail-grid" id="modal-info"></div>
           <hr class="modal-divider" />
           <div class="modal-fields">
+            <!-- Editable fields -->
             <div class="field-group">
               <label class="field-label">Name / Label</label>
               <input id="modal-name" type="text" placeholder="e.g. Main Router" />
+            </div>
+            <div class="field-group">
+              <label class="field-label">Hostname</label>
+              <input id="modal-hostname" type="text" placeholder="e.g. router.local" />
+            </div>
+            <div class="field-group">
+              <label class="field-label">Device type</label>
+              <input id="modal-device-type" type="text" placeholder="e.g. Router" list="dl-device-type" />
+              <datalist id="dl-device-type"></datalist>
+            </div>
+            <div class="field-group">
+              <label class="field-label">OS</label>
+              <input id="modal-os-family" type="text" placeholder="e.g. Linux" list="dl-os-family" />
+              <datalist id="dl-os-family"></datalist>
+            </div>
+            <div class="field-group">
+              <label class="field-label">OS version</label>
+              <input id="modal-os-version" type="text" placeholder="e.g. Ubuntu 22.04" />
             </div>
             <div class="field-group">
               <label class="field-label">SSH User</label>
@@ -404,6 +468,28 @@
             <div class="field-group">
               <label class="field-label">SSH Port</label>
               <input id="modal-ssh-port" type="number" placeholder="22" min="1" max="65535" />
+            </div>
+            <!-- DNS entries -->
+            <div class="field-group">
+              <label class="field-label">DNS associés</label>
+              <div id="dns-tags" class="tag-list"></div>
+              <div style="display:flex;gap:8px;margin-top:6px">
+                <input id="dns-input" type="text" placeholder="ex: monserveur.local" style="flex:1"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();addDnsEntry();}" />
+                <button class="btn btn-sm" onclick="addDnsEntry()">+ Ajouter</button>
+              </div>
+            </div>
+            <!-- ZAP auto-scan per-asset -->
+            <label class="toggle-row">
+              <input type="checkbox" id="modal-zap-auto" />
+              <div>
+                <div class="toggle-label-text">ZAP auto-scan (surcharge globale)</div>
+                <div class="toggle-hint">Active ou désactive le scan automatique pour cet asset</div>
+              </div>
+            </label>
+            <div class="field-group">
+              <label class="field-label">Intervalle auto-scan (min, vide = global)</label>
+              <input id="modal-zap-interval" type="number" placeholder="60" min="1" max="10080" />
             </div>
             <div class="field-group">
               <label class="field-label">Notes</label>

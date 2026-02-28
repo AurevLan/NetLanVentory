@@ -121,6 +121,7 @@ async def get_zap_report(
         target_url=report.target_url,
         risk_summary=report.risk_summary,
         alerts_count=len(alerts),
+        cve_count=report.cve_count,
         technologies=technologies,
         error_msg=report.error_msg,
         created_at=report.created_at,
@@ -225,11 +226,11 @@ async def _run_zap_scan(
                 )
                 raw_alerts: list[dict] = resp.json().get("alerts", [])
 
-            # 5. Persist CVEs
+            # 5. Persist CVEs — returns count of unique CVEs found in this scan
             report = await _fetch_report(session, report_id)
             if not report:
                 return
-            await _persist_cves(session, asset_id, raw_alerts)
+            cve_count = await _persist_cves(session, asset_id, raw_alerts)
 
             # 6. Build risk summary
             risk_summary = _build_risk_summary(raw_alerts)
@@ -241,11 +242,22 @@ async def _run_zap_scan(
             report.status = "completed"
             report.report = {"alerts": raw_alerts, "technologies": technologies}
             report.risk_summary = risk_summary
+            report.cve_count = cve_count
+
+            # 9. Update asset's last auto-scan timestamp
+            asset_result = await session.execute(
+                select(Asset).where(Asset.id == asset_id)
+            )
+            asset_row = asset_result.scalar_one_or_none()
+            if asset_row:
+                asset_row.zap_last_auto_scan_at = datetime.now(timezone.utc)
+
             await session.commit()
             logger.info(
                 "ZAP scan completed",
                 report_id=str(report_id),
                 alerts=len(raw_alerts),
+                cves=cve_count,
             )
 
         except httpx.ConnectError as exc:
@@ -302,8 +314,12 @@ def _build_risk_summary(alerts: list[dict]) -> dict[str, int]:
 
 async def _persist_cves(
     session: AsyncSession, asset_id: uuid.UUID, alerts: list[dict]
-) -> None:
-    """Upsert Cve rows and create AssetCve links for each ZAP alert with CVE refs."""
+) -> int:
+    """Upsert Cve rows and create AssetCve links for each ZAP alert with CVE refs.
+
+    Returns the total number of unique CVE IDs found across all alerts.
+    """
+    all_cve_ids: set[str] = set()
     for alert in alerts:
         ref = (alert.get("reference") or "") + (alert.get("description") or "")
         cve_ids = list({cve.upper() for cve in _CVE_RE.findall(ref)})
@@ -321,6 +337,7 @@ async def _persist_cves(
                 break
 
         severity = _risk_to_severity(alert.get("risk", ""))
+        all_cve_ids.update(cve_ids)
 
         for cve_id_str in cve_ids:
             # Upsert Cve
@@ -357,6 +374,7 @@ async def _persist_cves(
             session.add(link)
 
     await session.commit()
+    return len(all_cve_ids)
 
 
 def _guess_category(name: str) -> str:

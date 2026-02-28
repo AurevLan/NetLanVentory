@@ -12,9 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from netlanventory.api.dependencies import get_db, require_admin
 from netlanventory.core.config import get_settings
 from netlanventory.core.logging import get_logger
+from netlanventory.models.global_settings import GlobalSettings
 from netlanventory.models.oidc_provider import OidcProvider
 from netlanventory.schemas.admin import (
     AuthSettingsOut,
+    GlobalSettingsOut,
+    GlobalSettingsUpdate,
     OidcProviderOut,
     OidcProviderUpdate,
     OidcTestResult,
@@ -123,3 +126,41 @@ async def test_oidc_connection(db: DbDep) -> OidcTestResult:
         discovery_url=discovery_url,
         endpoints=endpoints,
     )
+
+
+# ── Global ZAP auto-scan settings ────────────────────────────────────────────
+
+async def _get_or_create_global_settings(db: AsyncSession) -> GlobalSettings:
+    result = await db.execute(select(GlobalSettings).where(GlobalSettings.id == 1))
+    settings_row = result.scalar_one_or_none()
+    if not settings_row:
+        settings_row = GlobalSettings(id=1)
+        db.add(settings_row)
+        await db.flush()
+        await db.refresh(settings_row)
+    return settings_row
+
+
+@router.get("/zap-settings", response_model=GlobalSettingsOut,
+            dependencies=[Depends(require_admin)])
+async def get_zap_settings(db: DbDep) -> GlobalSettingsOut:
+    """Return global ZAP auto-scan configuration."""
+    row = await _get_or_create_global_settings(db)
+    return GlobalSettingsOut.model_validate(row)
+
+
+@router.put("/zap-settings", response_model=GlobalSettingsOut,
+            dependencies=[Depends(require_admin)])
+async def update_zap_settings(payload: GlobalSettingsUpdate, db: DbDep) -> GlobalSettingsOut:
+    """Update global ZAP auto-scan configuration."""
+    row = await _get_or_create_global_settings(db)
+    row.zap_auto_scan_enabled = payload.zap_auto_scan_enabled
+    row.zap_scan_interval_minutes = payload.zap_scan_interval_minutes
+    await db.flush()
+    await db.refresh(row)
+    logger.info(
+        "ZAP auto-scan settings updated",
+        enabled=row.zap_auto_scan_enabled,
+        interval=row.zap_scan_interval_minutes,
+    )
+    return GlobalSettingsOut.model_validate(row)

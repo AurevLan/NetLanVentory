@@ -57,3 +57,15 @@ class OidcTestResult(BaseModel):
     message: str
     discovery_url: str | None = None
     endpoints: dict | None = None
+
+
+class GlobalSettingsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    zap_auto_scan_enabled: bool
+    zap_scan_interval_minutes: int
+
+
+class GlobalSettingsUpdate(BaseModel):
+    zap_auto_scan_enabled: bool = False
+    zap_scan_interval_minutes: int = Field(default=60, ge=1, le=10080)

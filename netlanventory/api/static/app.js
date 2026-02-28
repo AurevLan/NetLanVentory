@@ -8,6 +8,8 @@ let _token = localStorage.getItem('nlv_token') || null;
 let _me = null;
 let _overviewChart = null;
 let _currentReportId = null;
+let _assetDns = [];
+let _vocabulary = { os_family: [], device_type: [] };
 const HTTP_PORTS  = new Set([80, 8080, 8000, 3000, 8888]);
 const HTTPS_PORTS = new Set([443, 8443, 4443]);
 
@@ -188,6 +190,22 @@ function _initLoginForm() {
   });
 }
 
+// ── Vocabulary (OS, device type datalists) ────────────────────────────────────
+
+async function loadVocabulary() {
+  try {
+    const v = await api('/assets/vocabulary');
+    if (!v) return;
+    _vocabulary = v;
+    const dlOs = document.getElementById('dl-os-family');
+    const dlDt = document.getElementById('dl-device-type');
+    if (dlOs) dlOs.innerHTML = (_vocabulary.os_family || []).map(s => `<option value="${escape(s)}">`).join('');
+    if (dlDt) dlDt.innerHTML = (_vocabulary.device_type || []).map(s => `<option value="${escape(s)}">`).join('');
+  } catch (e) {
+    console.error('Vocabulary error:', e);
+  }
+}
+
 // ── Module checkboxes ─────────────────────────────────────────────────────────
 
 async function loadModuleCheckboxes() {
@@ -320,17 +338,28 @@ async function openAssetModal(id) {
     infoEl.innerHTML = [
       row('IP', a.ip),
       row('MAC', a.mac),
-      row('Hostname', a.hostname),
       row('Vendor', a.vendor),
-      row('Device type', a.device_type),
-      row('OS', a.os_family ? `${a.os_family}${a.os_version ? ' ' + a.os_version : ''}` : null),
       row('Last seen', a.last_seen ? new Date(a.last_seen).toLocaleString() : null),
     ].join('');
 
     document.getElementById('modal-name').value = a.name || '';
+    document.getElementById('modal-hostname').value = a.hostname || '';
+    document.getElementById('modal-device-type').value = a.device_type || '';
+    document.getElementById('modal-os-family').value = a.os_family || '';
+    document.getElementById('modal-os-version').value = a.os_version || '';
     document.getElementById('modal-ssh-user').value = a.ssh_user || '';
     document.getElementById('modal-ssh-port').value = a.ssh_port || '';
     document.getElementById('modal-notes').value = a.notes || '';
+
+    // DNS entries
+    _assetDns = a.dns_entries || [];
+    _renderDnsTags();
+
+    // ZAP auto-scan per-asset settings
+    const zapAutoEl = document.getElementById('modal-zap-auto');
+    const zapIntervalEl = document.getElementById('modal-zap-interval');
+    if (zapAutoEl) zapAutoEl.checked = a.zap_auto_scan_enabled === true;
+    if (zapIntervalEl) zapIntervalEl.value = a.zap_scan_interval_minutes || '';
 
     // Pre-fill ZAP URL
     document.getElementById('zap-target-url').value = a.ip ? `http://${a.ip}` : '';
@@ -368,8 +397,13 @@ function _renderOverviewTab(asset) {
   const zapReports = asset.zap_reports || [];
   const cves = asset.cves || [];
 
-  const lastCompleted = zapReports.find(r => r.status === 'completed');
-  const hasData = !!lastCompleted;
+  // Completed scans sorted oldest → newest for the chart
+  const completed = zapReports
+    .filter(r => r.status === 'completed')
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  const lastCompleted = completed.length ? completed[completed.length - 1] : null;
+  const hasData = completed.length > 0;
 
   const risk = lastCompleted?.risk_summary || {};
   const totalAlerts = hasData
@@ -396,34 +430,100 @@ function _renderOverviewTab(asset) {
 
     const ctx = document.getElementById('overview-chart')?.getContext('2d');
     if (ctx && window.Chart) {
-      _overviewChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: ['High', 'Medium', 'Low', 'Info'],
-          datasets: [{
-            data: [risk.high || 0, risk.medium || 0, risk.low || 0, risk.informational || 0],
-            backgroundColor: ['#e53935', '#fb8c00', '#fdd835', '#90a4ae'],
-            borderRadius: 4,
-          }],
-        },
-        options: {
-          indexAxis: 'y',
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: {
-              beginAtZero: true,
-              ticks: { color: '#8b949e', font: { size: 11 }, precision: 0 },
-              grid: { color: '#30363d' },
-            },
-            y: {
-              ticks: { color: '#8b949e', font: { size: 12 } },
-              grid: { display: false },
+      const labels = completed.map(r => fmtDate(r.created_at));
+      const getR = (r, k) => (r.risk_summary || {})[k] || 0;
+
+      if (completed.length === 1) {
+        // Single scan: horizontal bar by severity (original view)
+        const r = completed[0].risk_summary || {};
+        _overviewChart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: ['High', 'Medium', 'Low', 'Info'],
+            datasets: [{
+              data: [r.high || 0, r.medium || 0, r.low || 0, r.informational || 0],
+              backgroundColor: ['#e53935', '#fb8c00', '#fdd835', '#90a4ae'],
+              borderRadius: 4,
+            }],
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { beginAtZero: true, ticks: { color: '#8b949e', font: { size: 11 }, precision: 0 }, grid: { color: '#30363d' } },
+              y: { ticks: { color: '#8b949e', font: { size: 12 } }, grid: { display: false } },
             },
           },
-        },
-      });
+        });
+      } else {
+        // Multiple scans: time-series mixed chart (stacked bars + CVE line)
+        _overviewChart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [
+              {
+                type: 'bar', label: 'High',
+                data: completed.map(r => getR(r, 'high')),
+                backgroundColor: '#e53935', stack: 'alerts', borderRadius: 2,
+              },
+              {
+                type: 'bar', label: 'Medium',
+                data: completed.map(r => getR(r, 'medium')),
+                backgroundColor: '#fb8c00', stack: 'alerts', borderRadius: 2,
+              },
+              {
+                type: 'bar', label: 'Low',
+                data: completed.map(r => getR(r, 'low')),
+                backgroundColor: '#fdd835', stack: 'alerts', borderRadius: 2,
+              },
+              {
+                type: 'bar', label: 'Info',
+                data: completed.map(r => getR(r, 'informational')),
+                backgroundColor: '#90a4ae', stack: 'alerts', borderRadius: 2,
+              },
+              {
+                type: 'line', label: 'CVEs',
+                data: completed.map(r => r.cve_count || 0),
+                borderColor: '#7c4dff', backgroundColor: 'rgba(124,77,255,0.15)',
+                pointRadius: 4, pointBackgroundColor: '#7c4dff',
+                tension: 0.3, yAxisID: 'yCve', fill: false,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                display: true,
+                labels: { color: '#8b949e', font: { size: 11 }, boxWidth: 12 },
+              },
+            },
+            scales: {
+              x: {
+                stacked: true,
+                ticks: { color: '#8b949e', font: { size: 10 }, maxRotation: 30 },
+                grid: { color: '#30363d' },
+              },
+              y: {
+                stacked: true, beginAtZero: true,
+                ticks: { color: '#8b949e', font: { size: 11 }, precision: 0 },
+                grid: { color: '#30363d' },
+                title: { display: true, text: 'Alertes', color: '#8b949e', font: { size: 11 } },
+              },
+              yCve: {
+                position: 'right', beginAtZero: true,
+                ticks: { color: '#7c4dff', font: { size: 11 }, precision: 0 },
+                grid: { drawOnChartArea: false },
+                title: { display: true, text: 'CVEs', color: '#7c4dff', font: { size: 11 } },
+              },
+            },
+          },
+        });
+      }
     }
   }
 
@@ -672,6 +772,7 @@ function closeAssetModal(event) {
   if (event && event.target !== document.getElementById('asset-modal')) return;
   document.getElementById('asset-modal').classList.add('hidden');
   _modalAssetId = null;
+  _assetDns = [];
 }
 
 async function saveAssetModal() {
@@ -681,10 +782,17 @@ async function saveAssetModal() {
   saveBtn.textContent = 'Saving…';
 
   const sshPort = document.getElementById('modal-ssh-port').value;
+  const zapIntervalRaw = document.getElementById('modal-zap-interval').value;
   const payload = {
     name: document.getElementById('modal-name').value.trim() || null,
+    hostname: document.getElementById('modal-hostname').value.trim() || null,
+    device_type: document.getElementById('modal-device-type').value.trim() || null,
+    os_family: document.getElementById('modal-os-family').value.trim() || null,
+    os_version: document.getElementById('modal-os-version').value.trim() || null,
     ssh_user: document.getElementById('modal-ssh-user').value.trim() || null,
     ssh_port: sshPort ? parseInt(sshPort, 10) : null,
+    zap_auto_scan_enabled: document.getElementById('modal-zap-auto').checked,
+    zap_scan_interval_minutes: zapIntervalRaw ? parseInt(zapIntervalRaw, 10) : null,
     notes: document.getElementById('modal-notes').value.trim() || null,
   };
 
@@ -701,6 +809,56 @@ async function saveAssetModal() {
     saveBtn.disabled = false;
     saveBtn.textContent = 'Save';
     showToast(`Save failed: ${e.message}`, 'error');
+  }
+}
+
+// ── DNS entries ───────────────────────────────────────────────────────────────
+
+function _renderDnsTags() {
+  const container = document.getElementById('dns-tags');
+  if (!container) return;
+  if (!_assetDns.length) {
+    container.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Aucun DNS associé.</span>';
+    return;
+  }
+  container.innerHTML = _assetDns.map(d =>
+    `<span class="dns-tag">
+      ${escape(d.fqdn)}
+      <button class="dns-tag-remove" title="Supprimer" onclick="removeDnsEntry('${d.id}')">×</button>
+    </span>`
+  ).join('');
+}
+
+async function addDnsEntry() {
+  if (!_modalAssetId) return;
+  const input = document.getElementById('dns-input');
+  const fqdn = (input?.value || '').trim();
+  if (!fqdn) return;
+
+  try {
+    const entry = await api(`/assets/${_modalAssetId}/dns`, {
+      method: 'POST',
+      body: JSON.stringify({ fqdn }),
+    });
+    if (!entry) return;
+    _assetDns.push(entry);
+    _renderDnsTags();
+    if (input) input.value = '';
+    // Refresh vocabulary in background
+    loadVocabulary();
+  } catch (e) {
+    showToast(`Erreur DNS: ${e.message}`, 'error');
+  }
+}
+
+async function removeDnsEntry(dnsId) {
+  if (!_modalAssetId) return;
+  try {
+    await api(`/assets/${_modalAssetId}/dns/${dnsId}`, { method: 'DELETE' });
+    _assetDns = _assetDns.filter(d => d.id !== dnsId);
+    _renderDnsTags();
+  } catch (e) {
+    showToast(`Erreur suppression DNS: ${e.message}`, 'error');
   }
 }
 
@@ -966,6 +1124,7 @@ function initSubTabs() {
       if (tab.dataset.subtab === 'admin-auth') loadAuthSettings();
       if (tab.dataset.subtab === 'admin-oidc') loadOidcConfig();
       if (tab.dataset.subtab === 'admin-users') loadUsers();
+      if (tab.dataset.subtab === 'admin-zap') loadZapSettings();
     });
   });
 }
@@ -1098,6 +1257,53 @@ async function deleteUser(id, email) {
   }
 }
 
+// ── ZAP global settings (admin) ───────────────────────────────────────────────
+
+async function loadZapSettings() {
+  try {
+    const s = await api('/admin/zap-settings');
+    if (!s) return;
+    const enabledEl = document.getElementById('zap-global-enabled');
+    const intervalEl = document.getElementById('zap-global-interval');
+    if (enabledEl) enabledEl.checked = s.zap_auto_scan_enabled;
+    if (intervalEl) intervalEl.value = s.zap_scan_interval_minutes;
+  } catch (e) {
+    console.error('ZAP settings load error:', e);
+  }
+}
+
+async function saveZapSettings() {
+  const btn = document.querySelector('[onclick="saveZapSettings()"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sauvegarde…'; }
+  const statusEl = document.getElementById('zap-settings-status');
+
+  try {
+    const intervalVal = parseInt(document.getElementById('zap-global-interval').value, 10);
+    await api('/admin/zap-settings', {
+      method: 'PUT',
+      body: JSON.stringify({
+        zap_auto_scan_enabled: document.getElementById('zap-global-enabled').checked,
+        zap_scan_interval_minutes: isNaN(intervalVal) ? 60 : intervalVal,
+      }),
+    });
+    if (statusEl) {
+      statusEl.className = 'status-bar success';
+      statusEl.textContent = 'Paramètres ZAP sauvegardés.';
+      statusEl.classList.remove('hidden');
+    }
+    showToast('Paramètres ZAP sauvegardés.', 'success');
+  } catch (e) {
+    if (statusEl) {
+      statusEl.className = 'status-bar error';
+      statusEl.textContent = `Erreur: ${e.message}`;
+      statusEl.classList.remove('hidden');
+    }
+    showToast(`Erreur: ${e.message}`, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder'; }
+  }
+}
+
 // ── Auth settings ─────────────────────────────────────────────────────────────
 
 async function loadAuthSettings() {
@@ -1209,6 +1415,7 @@ async function _initAppData() {
   _initModalTabs();
 
   await loadModuleCheckboxes();
+  await loadVocabulary();
   await refreshStats();
   await loadAssets();
   await loadScans();

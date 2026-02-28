@@ -39,6 +39,13 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Free-text notes
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # ZAP auto-scan (None = inherit global setting)
+    zap_auto_scan_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    zap_scan_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    zap_last_auto_scan_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Relationships
     ports: Mapped[list["Port"]] = relationship(  # noqa: F821
         "Port", back_populates="asset", cascade="all, delete-orphan"
@@ -51,6 +58,9 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     zap_reports: Mapped[list["ZapReport"]] = relationship(  # noqa: F821
         "ZapReport", back_populates="asset", cascade="all, delete-orphan"
+    )
+    dns_entries: Mapped[list["AssetDns"]] = relationship(  # noqa: F821
+        "AssetDns", back_populates="asset", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

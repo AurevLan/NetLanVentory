@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import ForeignKey, JSON, String, Text
+from sqlalchemy import ForeignKey, Integer, JSON, String, Text
 from sqlalchemy import Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,6 +41,9 @@ class ZapReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # e.g. {"high": 2, "medium": 5, "low": 12, "informational": 8}
     risk_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Count of CVEs found during this scan (populated by _persist_cves)
+    cve_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
 
     error_msg: Mapped[str | None] = mapped_column(Text, nullable=True)
 

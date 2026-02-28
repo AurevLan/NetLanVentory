@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from netlanventory.api.routers import assets, modules, scans
 from netlanventory.api.routers import admin as admin_router
 from netlanventory.api.routers import auth as auth_router
+from netlanventory.api.routers import dns as dns_router
 from netlanventory.api.routers import users as users_router
 from netlanventory.api.routers import zap as zap_router
 from netlanventory.core.auth import hash_password
@@ -20,6 +22,7 @@ from netlanventory.core.config import get_settings
 from netlanventory.core.database import close_engine, get_engine, get_session_factory
 from netlanventory.core.logging import configure_logging, get_logger
 from netlanventory.core.registry import get_registry
+from netlanventory.core.scheduler import scheduler_loop
 
 logger = get_logger(__name__)
 
@@ -43,7 +46,17 @@ async def lifespan(app: FastAPI):
     # Bootstrap: create default admin if no users exist
     await _bootstrap_admin(settings)
 
+    # Start ZAP auto-scan scheduler
+    _sched_task = asyncio.create_task(scheduler_loop(), name="zap-scheduler")
+
     yield
+
+    # Stop scheduler
+    _sched_task.cancel()
+    try:
+        await _sched_task
+    except asyncio.CancelledError:
+        pass
 
     # Cleanup
     await close_engine()
@@ -116,6 +129,7 @@ def create_app() -> FastAPI:
     app.include_router(scans.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(modules.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(zap_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(dns_router.router, prefix=api_prefix, dependencies=_auth)
 
     # Serve static dashboard if the directory exists
     if STATIC_DIR.exists():
