@@ -1,5 +1,5 @@
 # ── Stage 1: Builder ──────────────────────────────────────────────────────────
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /build
 
@@ -17,7 +17,7 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir --prefix=/install ".[dev]"
 
 # ── Stage 2: Test runner ──────────────────────────────────────────────────────
-FROM python:3.11-slim AS test
+FROM python:3.14-slim AS test
 
 WORKDIR /app
 
@@ -37,7 +37,7 @@ ENV PYTHONUNBUFFERED=1 \
 CMD ["pytest", "tests/", "-v", "--tb=short"]
 
 # ── Stage 3: Runtime ──────────────────────────────────────────────────────────
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 LABEL org.opencontainers.image.title="NetLanVentory"
 LABEL org.opencontainers.image.description="Modular network scanning and inventory tool"
