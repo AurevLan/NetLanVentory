@@ -1,5 +1,7 @@
 # NetLanVentory
 
+[![Latest release](https://img.shields.io/github/v/release/AurevLan/NetLanVentory)](https://github.com/AurevLan/NetLanVentory/releases)
+
 Modular network scanning and inventory tool. Discover hosts, scan ports, fingerprint services and operating systems, manage DNS associations, run ZAP web vulnerability scans, and browse everything through a REST API or a dark-theme web dashboard.
 
 ## Features
@@ -26,10 +28,13 @@ Modular network scanning and inventory tool. Discover hosts, scan ports, fingerp
 - **Per-asset override** — each asset can individually enable/disable auto-scan and override the global interval; `NULL` on an asset means "use global value"
 
 ### Security & authentication
-- **JWT authentication** — all API endpoints require a valid Bearer token (except `/api/v1/auth/login`)
+- **JWT authentication** — all API endpoints require a valid Bearer token (except `/api/v1/auth/login`); `sub`, `exp`, and `iss` claims required; issuer verified as `netlanventory`
 - **Role-based access** — `admin` role required for user management and global settings
 - **OIDC / SSO** — optional OpenID Connect provider configured via the admin panel
 - **User management** — create, activate/deactivate and delete users from the dashboard
+- **HTTP security headers** — every response includes `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, and `Content-Security-Policy`
+- **Rate limiting** — 10 req/min on login, 20 req/min on ZAP scan trigger, 200 req/min global default; returns HTTP 429 on breach
+- **Input validation** — IP addresses, MAC addresses, SSH port range (1–65535), FQDNs (RFC-1123), and ZAP target URLs (http/https only) are validated at the API boundary
 
 ### Infrastructure
 - **REST API** — FastAPI with OpenAPI docs at `/docs`
@@ -75,6 +80,8 @@ On first startup, a default admin account is automatically created if no users e
 ADMIN_EMAIL=your@email.com
 ADMIN_PASSWORD=a-strong-password
 JWT_SECRET_KEY=<openssl rand -hex 32>
+SECRET_KEY=<openssl rand -hex 32>
+ZAP_API_KEY=<your-zap-api-key>   # leave empty to disable ZAP API key
 ```
 
 > The bootstrap only runs once (when the `users` table is empty). If the stack is already running, change the password via the dashboard → **Users** tab, or recreate the database volume (`docker compose down -v && docker compose up --build`) to trigger a fresh bootstrap.
@@ -286,9 +293,14 @@ Tests use SQLite in-memory — no PostgreSQL required.
 | Migrations | Alembic |
 | Scanning | scapy, python-nmap |
 | Web vulnerability scanning | OWASP ZAP |
+| Rate limiting | slowapi |
 | CLI | Click + Rich |
 | Logging | structlog |
 | Container | Docker Compose |
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 ## License
 
