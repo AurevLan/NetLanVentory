@@ -6,10 +6,13 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from netlanventory.api.routers import assets, modules, scans
 from netlanventory.api.routers import admin as admin_router
@@ -20,6 +23,7 @@ from netlanventory.api.routers import zap as zap_router
 from netlanventory.core.auth import hash_password
 from netlanventory.core.config import get_settings
 from netlanventory.core.database import close_engine, get_engine, get_session_factory
+from netlanventory.core.limiter import limiter
 from netlanventory.core.logging import configure_logging, get_logger
 from netlanventory.core.registry import get_registry
 from netlanventory.core.scheduler import scheduler_loop
@@ -27,6 +31,27 @@ from netlanventory.core.scheduler import scheduler_loop
 logger = get_logger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Inject ANSSI-recommended security headers into every response."""
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        response = await call_next(request)
+        h = response.headers
+        h["X-Content-Type-Options"] = "nosniff"
+        h["X-Frame-Options"] = "DENY"
+        h["X-XSS-Protection"] = "0"
+        h["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        h["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        h["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'"
+        )
+        return response
 
 
 @asynccontextmanager
@@ -102,11 +127,17 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS (permissive for local dashboard)
+    # Rate limiter state + 429 handler
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    # Security headers (added first = runs outermost in LIFO middleware stack)
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # CORS — allow_credentials must NOT be combined with allow_origins=["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=settings.cors_allowed_origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )

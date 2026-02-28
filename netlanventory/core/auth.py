@@ -59,6 +59,8 @@ def decode_access_token(token: str) -> dict:
             token,
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
+            options={"require": ["sub", "exp", "iss"]},
+            issuer="netlanventory",
         )
     except jwt.ExpiredSignatureError:
         raise HTTPException(

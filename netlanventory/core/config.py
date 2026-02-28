@@ -1,10 +1,19 @@
 """Application configuration via Pydantic BaseSettings."""
 
+import logging
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_log = logging.getLogger(__name__)
+
+_DEFAULT_SECRETS = {
+    "jwt_secret_key": "change-me-jwt-secret",
+    "secret_key": "change-me-in-production",
+    "admin_password": "changeme",
+}
 
 
 class Settings(BaseSettings):
@@ -52,6 +61,16 @@ class Settings(BaseSettings):
         default="http://localhost:8080",
         description="Base URL of the OWASP ZAP REST API daemon",
     )
+    zap_api_key: str = Field(
+        default="",
+        description="OWASP ZAP API key (empty string = API key disabled in ZAP)",
+    )
+
+    # CORS
+    cors_allowed_origins: list[str] = Field(
+        default=["*"],
+        description="Allowed CORS origins (configure via CORS_ALLOWED_ORIGINS env var)",
+    )
 
     # Scanning defaults
     scan_timeout: int = Field(default=300, description="Default scan timeout in seconds")
@@ -62,6 +81,18 @@ class Settings(BaseSettings):
     def sync_database_url(self) -> str:
         """Synchronous DB URL (for Alembic migrations)."""
         return self.database_url.replace("+asyncpg", "")
+
+    @model_validator(mode="after")
+    def _warn_default_secrets(self) -> "Settings":
+        """Emit a warning when production-dangerous default secrets are detected."""
+        if not self.app_debug:
+            for field, default in _DEFAULT_SECRETS.items():
+                if getattr(self, field) == default:
+                    _log.warning(
+                        "Default secret detected for '%s' — change before deploying to production!",
+                        field,
+                    )
+        return self
 
 
 @lru_cache
