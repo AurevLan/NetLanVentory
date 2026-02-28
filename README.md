@@ -4,6 +4,30 @@
 
 Modular network scanning and inventory tool. Discover hosts, scan ports, fingerprint services and operating systems, manage DNS associations, run ZAP web vulnerability scans, audit Linux package CVEs via SSH, and browse everything through a REST API or a dark-theme web dashboard.
 
+## Screenshots
+
+| Login | Asset list |
+|-------|-----------|
+| ![Login](docs/screenshots/01_login.png) | ![Assets](docs/screenshots/02_assets.png) |
+
+| Asset — Details tab | Asset — Ports tab |
+|--------------------|------------------|
+| ![Details](docs/screenshots/07_modal_details.png) | ![Ports](docs/screenshots/08_modal_ports.png) |
+
+| Asset — Overview (CVE histogram) | Asset — Sécurité tab (DAST + SSH CVE) |
+|----------------------------------|--------------------------------------|
+| ![Overview](docs/screenshots/09_modal_overview.png) | ![Sécurité](docs/screenshots/10_modal_securite.png) |
+
+| Scans | Modules |
+|-------|---------|
+| ![Scans](docs/screenshots/03_scans.png) | ![Modules](docs/screenshots/04_modules.png) |
+
+| Admin — Users | Admin — ZAP Auto-scan |
+|--------------|----------------------|
+| ![Admin](docs/screenshots/05_admin.png) | ![ZAP Auto-scan](docs/screenshots/06_admin_zap.png) |
+
+---
+
 ## Features
 
 ### Network discovery & scanning
