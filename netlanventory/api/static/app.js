@@ -1020,24 +1020,25 @@ function _renderSshSection(asset, sshReports) {
 
 async function runSshScan() {
   if (!_modalAssetId) return;
+  const assetId = _modalAssetId;
   const btn = document.getElementById('ssh-scan-btn');
   const statusEl = document.getElementById('ssh-scan-status');
   if (btn) btn.disabled = true;
   if (statusEl) statusEl.textContent = 'Démarrage du scan SSH…';
 
   try {
-    const report = await api(`/assets/${_modalAssetId}/ssh-scan`, { method: 'POST' });
+    const report = await api(`/assets/${assetId}/ssh-scan`, { method: 'POST' });
     if (!report) return;
 
     if (statusEl) statusEl.textContent = 'Scan en cours…';
 
     // Poll until done
     let done = false;
-    while (!done && _modalAssetId) {
+    while (!done && _modalAssetId === assetId) {
       await new Promise(r => setTimeout(r, 3000));
-      if (!_modalAssetId) break;
+      if (_modalAssetId !== assetId) break;
 
-      const updated = await api(`/assets/${_modalAssetId}/ssh-scan/${report.id}`);
+      const updated = await api(`/assets/${assetId}/ssh-scan/${report.id}`);
       if (!updated) break;
 
       if (['completed', 'failed'].includes(updated.status)) {
@@ -1052,11 +1053,11 @@ async function runSshScan() {
 
         // Refresh asset & SSH reports
         const [asset, reports] = await Promise.all([
-          api(`/assets/${_modalAssetId}`),
-          api(`/assets/${_modalAssetId}/ssh-scan`),
+          api(`/assets/${assetId}`),
+          api(`/assets/${assetId}/ssh-scan`),
         ]);
-        if (asset && _modalAssetId) {
-          _renderFlawsTab(asset);  // Refresh CVE table
+        if (asset && _modalAssetId === assetId) {
+          _renderFlawsTab(asset);
           _renderSshSection(asset, reports || []);
         }
       }
@@ -1189,23 +1190,24 @@ function _renderNucleiSection(asset, nucleiReports) {
 
 async function runNucleiScan() {
   if (!_modalAssetId) return;
+  const assetId = _modalAssetId;
   const btn = document.getElementById('nuclei-scan-btn');
   const statusEl = document.getElementById('nuclei-scan-status');
   if (btn) btn.disabled = true;
   if (statusEl) statusEl.textContent = 'Démarrage du scan Nuclei…';
 
   try {
-    const report = await api(`/assets/${_modalAssetId}/nuclei`, { method: 'POST' });
+    const report = await api(`/assets/${assetId}/nuclei`, { method: 'POST' });
     if (!report) return;
 
     if (statusEl) statusEl.textContent = 'Scan en cours…';
 
     let done = false;
-    while (!done && _modalAssetId) {
+    while (!done && _modalAssetId === assetId) {
       await new Promise(r => setTimeout(r, 3000));
-      if (!_modalAssetId) break;
+      if (_modalAssetId !== assetId) break;
 
-      const updated = await api(`/assets/${_modalAssetId}/nuclei/${report.id}`);
+      const updated = await api(`/assets/${assetId}/nuclei/${report.id}`);
       if (!updated) break;
 
       if (['completed', 'failed'].includes(updated.status)) {
@@ -1222,10 +1224,10 @@ async function runNucleiScan() {
 
         // Refresh asset + all sections
         const [asset, nucleiReports] = await Promise.all([
-          api(`/assets/${_modalAssetId}`),
-          api(`/assets/${_modalAssetId}/nuclei`),
+          api(`/assets/${assetId}`),
+          api(`/assets/${assetId}/nuclei`),
         ]);
-        if (asset && _modalAssetId) {
+        if (asset && _modalAssetId === assetId) {
           _renderFlawsTab(asset);
           _renderNucleiSection(asset, nucleiReports || []);
         }
