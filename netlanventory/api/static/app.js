@@ -448,6 +448,13 @@ async function openAssetModal(id) {
     } catch (_) { /* SSH endpoint might return 404 if no reports */ }
     _renderSshSection(a, sshReports);
 
+    // ── Nuclei section ──────────────────────────────────────────────────
+    let nucleiReports = [];
+    try {
+      nucleiReports = await api(`/assets/${id}/nuclei`) || [];
+    } catch (_) { /* Nuclei reports might not exist yet */ }
+    _renderNucleiSection(a, nucleiReports);
+
   } catch (e) {
     document.getElementById('modal-info').innerHTML =
       `<span class="detail-key">Error</span><span class="detail-val" style="color:var(--danger)">${escape(e.message)}</span>`;
@@ -661,7 +668,7 @@ function _renderFlawsTab(asset) {
           <td class="mono">${escape(c.package_version || '—')}</td>
           <td>${c.severity ? badge(c.severity, sevType) : '—'}</td>
           <td>${c.cvss_score != null ? c.cvss_score.toFixed(1) : '—'}</td>
-          <td>${badge(c.source || '?', 'muted')}</td>
+          <td>${_renderSourceBadges(c.source)}</td>
         </tr>`;
     }).join('');
   }
@@ -1060,6 +1067,256 @@ async function runSshScan() {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+// ── Source badges (multi-value support: "zap,nuclei") ─────────────────────────
+
+function _renderSourceBadges(source) {
+  if (!source) return badge('?', 'muted');
+  const srcColorMap = { zap: 'info', ssh: 'success', nuclei: 'warning' };
+  return source.split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(s => badge(s, srcColorMap[s] || 'muted'))
+    .join(' ');
+}
+
+// ── Nuclei target preview (computed client-side from open ports) ───────────────
+
+const NUCLEI_WEB_HTTPS = new Set([443, 8443, 4443, 9443]);
+const NUCLEI_WEB_HTTP  = new Set([80, 8080, 3000, 8000, 8888, 9090]);
+const NUCLEI_SVC_MAP   = {
+  21: 'ftp', 990: 'ftp', 25: 'smtp', 465: 'smtp', 587: 'smtp',
+  139: 'smb', 445: 'smb', 3306: 'mysql', 5432: 'postgresql',
+  6379: 'redis', 27017: 'mongodb', 3389: 'rdp', 53: 'dns', 11211: 'memcached',
+};
+
+function _computeNucleiTargets(asset) {
+  const openPorts = (asset.ports || []).filter(p => p.state === 'open');
+  const targets = [];
+  let hasWeb = false;
+
+  for (const p of openPorts) {
+    const pn = p.port_number;
+    const svc = (p.service_name || '').toLowerCase();
+
+    if (NUCLEI_WEB_HTTPS.has(pn) || svc.includes('https') || svc.includes('ssl')) {
+      targets.push({ label: `https://${asset.ip}:${pn}`, type: 'web' });
+      hasWeb = true;
+    } else if (NUCLEI_WEB_HTTP.has(pn) || svc === 'http' || svc === 'www') {
+      targets.push({ label: `http://${asset.ip}:${pn}`, type: 'web' });
+      hasWeb = true;
+    } else if (pn === 53 || svc === 'domain') {
+      targets.push({ label: asset.ip, type: 'dns' });
+    } else if (NUCLEI_SVC_MAP[pn] || Object.values(NUCLEI_SVC_MAP).includes(svc)) {
+      const tag = NUCLEI_SVC_MAP[pn] || svc;
+      targets.push({ label: `${asset.ip}:${pn}`, type: tag });
+    }
+  }
+
+  if (hasWeb) {
+    for (const dns of (asset.dns_entries || [])) {
+      targets.push({ label: dns.fqdn, type: 'fqdn' });
+    }
+  }
+
+  if (!targets.length && asset.ip) {
+    targets.push({ label: asset.ip, type: 'ip' });
+  }
+
+  return targets;
+}
+
+// ── Nuclei section renderer ───────────────────────────────────────────────────
+
+function _renderNucleiSection(asset, nucleiReports) {
+  const bodyEl = document.getElementById('nuclei-scan-body');
+  if (!bodyEl) return;
+
+  // Auto-detected targets preview
+  const targets = _computeNucleiTargets(asset);
+  const targetsHtml = targets.length
+    ? `<div class="nuclei-targets-list">
+        ${targets.map(t => `
+          <span style="font-size:12px;font-family:monospace;color:var(--text-muted)">
+            <span class="badge badge-muted" style="margin-right:6px">${escape(t.type)}</span>
+            <span style="color:var(--accent)">${escape(t.label)}</span>
+          </span>`).join('')}
+       </div>`
+    : '<p style="color:var(--text-muted);font-size:12px;margin-top:6px">Aucun port ouvert détecté — l\'IP sera utilisée comme cible.</p>';
+
+  // History
+  let histHtml = '';
+  if (!nucleiReports.length) {
+    histHtml = '<p style="color:var(--text-muted);font-size:12px;margin-top:10px">Aucun scan Nuclei exécuté.</p>';
+  } else {
+    histHtml = '<div style="margin-top:12px">' + nucleiReports.map(r => {
+      const stType = r.status === 'completed' ? 'success' : r.status === 'failed' ? 'error' : 'warning';
+      const riskPills = r.risk_summary ? Object.entries(r.risk_summary)
+        .filter(([, v]) => v > 0)
+        .map(([k, v]) => {
+          const pillCls = k === 'critical' ? 'error' : k === 'high' ? 'error' : k === 'medium' ? 'warning' : 'info';
+          return `<span class="badge badge-${pillCls}">${v} ${k}</span>`;
+        }).join(' ') : '';
+      const findingsLabel = r.status === 'completed'
+        ? ` — ${r.findings_count ?? 0} résultats · ${r.cve_count ?? 0} CVE` : '';
+      const loadBtn = r.status === 'completed'
+        ? `<button class="btn btn-sm" style="margin-left:auto" onclick="loadNucleiReportDetail('${escape(r.id)}')">Voir</button>` : '';
+      return `<div class="nuclei-history-item">
+        ${badge(r.status, stType)}
+        <span style="flex:1;color:var(--text-muted)">Scan du ${fmtDate(r.created_at)}${findingsLabel}</span>
+        ${riskPills}
+        ${loadBtn}
+      </div>`;
+    }).join('') + '</div>';
+  }
+
+  bodyEl.innerHTML = `
+    <div style="margin-bottom:12px">
+      <p class="field-label" style="margin-bottom:6px">Cibles détectées automatiquement</p>
+      ${targetsHtml}
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button class="btn btn-primary btn-sm" id="nuclei-scan-btn" onclick="runNucleiScan()">
+        &#9654; Lancer scan Nuclei
+      </button>
+      <span id="nuclei-scan-status" style="font-size:12px;color:var(--text-muted)"></span>
+    </div>
+    <div id="nuclei-risk-summary" class="risk-pills hidden" style="margin-top:12px"></div>
+    <div id="nuclei-findings-list" style="margin-top:16px"></div>
+    ${histHtml}`;
+}
+
+async function runNucleiScan() {
+  if (!_modalAssetId) return;
+  const btn = document.getElementById('nuclei-scan-btn');
+  const statusEl = document.getElementById('nuclei-scan-status');
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Démarrage du scan Nuclei…';
+
+  try {
+    const report = await api(`/assets/${_modalAssetId}/nuclei`, { method: 'POST' });
+    if (!report) return;
+
+    if (statusEl) statusEl.textContent = 'Scan en cours…';
+
+    let done = false;
+    while (!done && _modalAssetId) {
+      await new Promise(r => setTimeout(r, 3000));
+      if (!_modalAssetId) break;
+
+      const updated = await api(`/assets/${_modalAssetId}/nuclei/${report.id}`);
+      if (!updated) break;
+
+      if (['completed', 'failed'].includes(updated.status)) {
+        done = true;
+        if (updated.status === 'completed') {
+          if (statusEl) statusEl.textContent = `Terminé — ${updated.findings_count ?? 0} résultats · ${updated.cve_count ?? 0} CVE.`;
+          showToast(`Nuclei : ${updated.findings_count ?? 0} résultats, ${updated.cve_count ?? 0} CVE.`, 'success');
+          _renderNucleiRiskSummary(updated.risk_summary);
+          _renderNucleiFindingsList(updated.findings || []);
+        } else {
+          if (statusEl) statusEl.textContent = `Échec : ${updated.error_msg || 'erreur inconnue'}`;
+          showToast(`Nuclei scan échoué : ${updated.error_msg || ''}`, 'error');
+        }
+
+        // Refresh asset + all sections
+        const [asset, nucleiReports] = await Promise.all([
+          api(`/assets/${_modalAssetId}`),
+          api(`/assets/${_modalAssetId}/nuclei`),
+        ]);
+        if (asset && _modalAssetId) {
+          _renderFlawsTab(asset);
+          _renderNucleiSection(asset, nucleiReports || []);
+        }
+      }
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `Erreur : ${e.message}`;
+    showToast(`Nuclei scan : ${e.message}`, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function loadNucleiReportDetail(reportId) {
+  if (!_modalAssetId || !reportId) return;
+  try {
+    const detail = await api(`/assets/${_modalAssetId}/nuclei/${reportId}`);
+    if (!detail) return;
+    _renderNucleiRiskSummary(detail.risk_summary);
+    _renderNucleiFindingsList(detail.findings || []);
+  } catch (e) {
+    console.error('Nuclei report detail error:', e);
+  }
+}
+
+function _renderNucleiRiskSummary(riskSummary) {
+  const el = document.getElementById('nuclei-risk-summary');
+  if (!el) return;
+  if (!riskSummary) { el.classList.add('hidden'); return; }
+  const items = [
+    { key: 'critical', label: 'Critical', cls: 'risk-high' },
+    { key: 'high',     label: 'High',     cls: 'risk-high' },
+    { key: 'medium',   label: 'Medium',   cls: 'risk-medium' },
+    { key: 'low',      label: 'Low',      cls: 'risk-low' },
+    { key: 'info',     label: 'Info',     cls: 'risk-info' },
+  ];
+  el.innerHTML = items
+    .filter(i => riskSummary[i.key] > 0)
+    .map(i => `
+      <div class="risk-pill ${i.cls}">
+        <span class="risk-pill-num">${riskSummary[i.key]}</span>
+        <span class="risk-pill-label">${i.label}</span>
+      </div>`).join('');
+  el.classList.remove('hidden');
+}
+
+function _renderNucleiFindingsList(findings) {
+  const container = document.getElementById('nuclei-findings-list');
+  if (!container) return;
+
+  if (!findings || !findings.length) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:12px">Aucun résultat pour ce rapport.</p>';
+    return;
+  }
+
+  const sevOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  const sorted = [...findings].sort((a, b) =>
+    (sevOrder[(a.severity || 'info').toLowerCase()] ?? 9) -
+    (sevOrder[(b.severity || 'info').toLowerCase()] ?? 9)
+  );
+
+  container.innerHTML = sorted.map(f => {
+    const sev = (f.severity || 'info').toLowerCase();
+    const riskCls = sev === 'critical' || sev === 'high' ? 'risk-high'
+      : sev === 'medium' ? 'risk-medium'
+      : sev === 'low' ? 'risk-low' : 'risk-info';
+
+    const cveLinks = (f.cve_ids || []).map(cve =>
+      `<a class="cve-link" href="https://nvd.nist.gov/vuln/detail/${escape(cve)}"
+         target="_blank" rel="noopener">${escape(cve)}</a>`
+    ).join(' ');
+
+    const tags = (f.tags || []).map(t => badge(t, 'muted')).join(' ');
+
+    return `
+      <div class="flaw-item ${riskCls}">
+        <div class="flaw-header" onclick="toggleFlaw(this)">
+          <span class="flaw-arrow">▶</span>
+          <span class="flaw-risk-badge">${escape(f.severity || 'info')}</span>
+          <span class="flaw-name">${escape(f.name || f.template_id || '—')}</span>
+          <span class="badge badge-muted" style="margin-left:auto;font-size:10px">${escape(f.type || '?')}</span>
+        </div>
+        <div class="flaw-body">
+          ${f.description ? `<p style="margin-bottom:10px;font-size:12px;color:var(--text-muted)">${escape(f.description)}</p>` : ''}
+          ${cveLinks ? `<div style="margin-top:8px;font-size:12px">CVE : ${cveLinks}</div>` : ''}
+          ${f.cvss_score != null ? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">CVSS : ${f.cvss_score.toFixed(1)}</div>` : ''}
+          ${f.matched_at ? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted)">Matched : <span class="mono">${escape(f.matched_at)}</span></div>` : ''}
+          ${tags ? `<div style="margin-top:8px;font-size:11px">${tags}</div>` : ''}
+        </div>
+      </div>`;
+  }).join('');
 }
 
 // ── ZAP scan ──────────────────────────────────────────────────────────────────

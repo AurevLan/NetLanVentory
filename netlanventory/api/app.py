@@ -18,6 +18,7 @@ from netlanventory.api.routers import assets, modules, scans
 from netlanventory.api.routers import admin as admin_router
 from netlanventory.api.routers import auth as auth_router
 from netlanventory.api.routers import dns as dns_router
+from netlanventory.api.routers import nuclei as nuclei_router
 from netlanventory.api.routers import ssh_scan as ssh_scan_router
 from netlanventory.api.routers import users as users_router
 from netlanventory.api.routers import zap as zap_router
@@ -71,6 +72,18 @@ async def lifespan(app: FastAPI):
 
     # Bootstrap: create default admin if no users exist
     await _bootstrap_admin(settings)
+
+    # Check Nuclei binary availability
+    import shutil
+    nuclei_bin = settings.nuclei_binary
+    if shutil.which(nuclei_bin):
+        logger.info("Nuclei binary found", path=shutil.which(nuclei_bin))
+    else:
+        logger.warning(
+            "Nuclei binary not found",
+            binary=nuclei_bin,
+            hint="Ensure 'nuclei' is installed in the container PATH to use Nuclei scanning.",
+        )
 
     # Start ZAP auto-scan scheduler
     _sched_task = asyncio.create_task(scheduler_loop(), name="zap-scheduler")
@@ -163,6 +176,7 @@ def create_app() -> FastAPI:
     app.include_router(zap_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(dns_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(ssh_scan_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(nuclei_router.router, prefix=api_prefix, dependencies=_auth)
 
     # Serve static dashboard if the directory exists
     if STATIC_DIR.exists():

@@ -78,9 +78,31 @@ class Settings(BaseSettings):
         description="Allowed CORS origins (configure via CORS_ALLOWED_ORIGINS env var)",
     )
 
+    # Nuclei scanner
+    nuclei_binary: str = Field(
+        default="nuclei",
+        description="Path to the Nuclei binary (must be in PATH or absolute path)",
+    )
+    nuclei_templates_dir: str = Field(
+        default="",
+        description="Custom Nuclei templates directory (empty = default ~/.nuclei-templates)",
+    )
+    nuclei_rate_limit: int = Field(
+        default=150,
+        description="Nuclei requests per second rate limit",
+    )
+    nuclei_timeout: int = Field(
+        default=30,
+        description="Nuclei per-host timeout in seconds",
+    )
+    max_concurrent_nuclei_scans: int = Field(
+        default=2,
+        description="Max simultaneous Nuclei scans",
+    )
+
     # Scanning defaults
     scan_timeout: int = Field(default=300, description="Default scan timeout in seconds")
-    max_concurrent_scans: int = Field(default=3, description="Max simultaneous scans")
+    max_concurrent_scans: int = Field(default=3, description="Max simultaneous ZAP scans")
 
     @computed_field
     @property

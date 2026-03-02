@@ -68,6 +68,9 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     ssh_scan_reports: Mapped[list["SshScanReport"]] = relationship(  # noqa: F821
         "SshScanReport", back_populates="asset", cascade="all, delete-orphan"
     )
+    nuclei_reports: Mapped[list["NucleiReport"]] = relationship(  # noqa: F821
+        "NucleiReport", back_populates="asset", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Asset ip={self.ip!r} mac={self.mac!r}>"
