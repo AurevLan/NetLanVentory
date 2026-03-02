@@ -2,7 +2,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/AurevLan/NetLanVentory)](https://github.com/AurevLan/NetLanVentory/releases)
 
-Modular network scanning and inventory tool. Discover hosts, scan ports, fingerprint services and operating systems, manage DNS associations, run ZAP web vulnerability scans, audit Linux package CVEs via SSH, and browse everything through a REST API or a dark-theme web dashboard.
+Modular network scanning and inventory tool. Discover hosts, scan ports, fingerprint services and operating systems, manage DNS associations, run ZAP web vulnerability scans, run Nuclei multi-protocol scans, audit Linux package CVEs via SSH, and browse everything through a REST API or a dark-theme web dashboard.
 
 ## Screenshots
 
@@ -52,11 +52,21 @@ Modular network scanning and inventory tool. Discover hosts, scan ports, fingerp
 - **Per-asset override** — each asset can individually enable/disable auto-scan and override the global interval; `NULL` on an asset means "use global value"
 - **Target visibility** — the asset Details tab shows all computed scan targets (IP × DNS names × web ports) and the countdown to the next scheduled scan
 
+### Nuclei multi-protocol scanning
+- **Auto-target detection** — scan targets are determined automatically from the asset's open ports and services; no manual URL needed
+  - HTTP/HTTPS ports → web scan targets (IP + all associated FQDNs for virtual-host templates)
+  - Port 53 → DNS resolver scan
+  - FTP, SMTP, SMB, MySQL, PostgreSQL, Redis, MongoDB, RDP → service-specific templates
+- **Template tags** — Nuclei template tags are selected to match detected services (e.g. `http`, `smb`, `dns`); always includes `cve`, `misconfig`, `exposure`
+- **Multi-source CVE deduplication** — a CVE found by both ZAP and Nuclei appears as a single row in the CVE table with source shown as `zap + nuclei`
+- **Bundled binary** — the Nuclei binary is copied into the Docker image at build time (`projectdiscovery/nuclei:latest`); templates are persisted in a named Docker volume to avoid re-downloading on restart
+- **Results** — findings stored as `NucleiReport` with JSONL output, risk summary (critical/high/medium/low/info), and CVE count
+
 ### SSH CVE scanning
 - **Encrypted credentials** — store a password **or** PEM private key per asset; values are Fernet-encrypted at rest (key derived from `SECRET_KEY`) and never returned in plain text
 - **Package audit** — connects via asyncssh, detects the Linux distro, and lists installed packages (Debian/Ubuntu `dpkg`, RHEL/CentOS `rpm`, Alpine `apk`)
 - **CVE lookup** — OSV.dev (primary, no key needed, batch 1 000 pkgs/req) + NVD NIST (fallback, requires `NVD_API_KEY`)
-- **Results** — CVEs persisted as `AssetCve` rows with `source="ssh"`, visible in the unified CVE table alongside ZAP findings
+- **Results** — CVEs persisted as `AssetCve` rows with `source="ssh"`, visible in the unified CVE table alongside ZAP and Nuclei findings
 
 ### Security & authentication
 - **JWT authentication** — all API endpoints require a valid Bearer token (except `/api/v1/auth/login`); `sub`, `exp`, and `iss` claims required; issuer verified as `netlanventory`
@@ -64,7 +74,7 @@ Modular network scanning and inventory tool. Discover hosts, scan ports, fingerp
 - **OIDC / SSO** — optional OpenID Connect provider configured via the admin panel
 - **User management** — create, activate/deactivate and delete users from the dashboard
 - **HTTP security headers** — every response includes `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, and `Content-Security-Policy`
-- **Rate limiting** — 10 req/min on login, 20 req/min on ZAP scan trigger, 5 req/min on SSH scan trigger, 200 req/min global default; returns HTTP 429 on breach
+- **Rate limiting** — 10 req/min on login, 20 req/min on ZAP trigger, 10 req/min on Nuclei trigger, 5 req/min on SSH trigger, 200 req/min global default; returns HTTP 429 on breach
 - **Input validation** — IP addresses, MAC addresses, SSH port range (1–65535), FQDNs (RFC-1123), and ZAP target URLs (http/https only) are validated at the API boundary
 
 ### Infrastructure
@@ -114,6 +124,9 @@ JWT_SECRET_KEY=<openssl rand -hex 32>
 SECRET_KEY=<openssl rand -hex 32>        # also used to derive the SSH credential encryption key
 ZAP_API_KEY=<your-zap-api-key>           # leave empty to disable ZAP API key
 NVD_API_KEY=<your-nvd-api-key>           # optional — enables NVD fallback for SSH CVE lookup
+NUCLEI_RATE_LIMIT=150                    # optional — Nuclei requests/s (default 150)
+NUCLEI_TIMEOUT=30                        # optional — Nuclei per-host timeout in seconds (default 30)
+MAX_CONCURRENT_NUCLEI_SCANS=2           # optional — max simultaneous Nuclei scans (default 2)
 ```
 
 > The bootstrap only runs once (when the `users` table is empty). If the stack is already running, change the password via the dashboard → **Users** tab, or recreate the database volume (`docker compose down -v && docker compose up --build`) to trigger a fresh bootstrap.
@@ -199,6 +212,14 @@ netlv --api-url http://my-server:8000 assets list
 | `POST` | `/api/v1/assets/{id}/ssh-scan` | Trigger an SSH package audit + CVE lookup (async, 202 Accepted) |
 | `GET` | `/api/v1/assets/{id}/ssh-scan` | List SSH scan reports (newest first) |
 | `GET` | `/api/v1/assets/{id}/ssh-scan/{report_id}` | Get a specific SSH scan report |
+
+### Nuclei
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/assets/{id}/nuclei` | Trigger a Nuclei scan (targets auto-determined from open ports, async, 202 Accepted) |
+| `GET` | `/api/v1/assets/{id}/nuclei` | List Nuclei reports for an asset (newest first) |
+| `GET` | `/api/v1/assets/{id}/nuclei/{report_id}` | Get a specific Nuclei report with full findings list |
 
 ### ZAP
 
@@ -302,11 +323,11 @@ NetLanVentory/
 ├── netlanventory/
 │   ├── core/          # config, async DB engine, structlog, module registry, scheduler
 │   ├── core/          # config, crypto (Fernet), async DB engine, structlog, module registry, scheduler
-│   ├── models/        # SQLAlchemy ORM (Asset, Scan, Port, ScanResult, AssetDns, GlobalSettings, ZapReport, SshScanReport, …)
+│   ├── models/        # SQLAlchemy ORM (Asset, Scan, Port, ScanResult, AssetDns, GlobalSettings, ZapReport, SshScanReport, NucleiReport, …)
 │   ├── schemas/       # Pydantic request/response schemas
 │   ├── modules/       # BaseModule ABC + built-in scanners
 │   ├── api/
-│   │   ├── routers/   # assets, scans, modules, zap, dns, ssh_scan, auth, users, admin
+│   │   ├── routers/   # assets, scans, modules, zap, dns, ssh_scan, nuclei, auth, users, admin
 │   │   └── static/    # Single-page dashboard (HTML + JS + CSS, no build step)
 │   └── cli/           # Click commands, Rich output helpers
 ├── alembic/           # Database migrations
@@ -334,6 +355,7 @@ Tests use SQLite in-memory — no PostgreSQL required.
 | Migrations | Alembic |
 | Scanning | scapy, python-nmap |
 | Web vulnerability scanning | OWASP ZAP |
+| Multi-protocol vulnerability scanning | ProjectDiscovery Nuclei |
 | Rate limiting | slowapi |
 | CLI | Click + Rich |
 | Logging | structlog |
