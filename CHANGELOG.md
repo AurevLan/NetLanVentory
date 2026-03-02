@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+---
+
+## [v0.5.0] — 2026-03-02
+
 ### Added
 - **Nuclei multi-protocol scanner**: scan assets with [ProjectDiscovery Nuclei](https://github.com/projectdiscovery/nuclei) directly from the Sécurité tab
   - Targets are **auto-determined** from discovered open ports and services: HTTP/HTTPS, DNS, FTP, SMTP, SMB, MySQL, PostgreSQL, Redis, MongoDB, RDP — no manual URL required
