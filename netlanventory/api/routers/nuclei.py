@@ -384,7 +384,7 @@ async def _run_nuclei_scan(
                     settings.nuclei_binary,
                     "-list", targets_file,
                     "-tags", ",".join(tags),
-                    "-json",
+                    "-jsonl",
                     "-timeout", str(settings.nuclei_timeout),
                     "-rate-limit", str(settings.nuclei_rate_limit),
                     "-silent",
