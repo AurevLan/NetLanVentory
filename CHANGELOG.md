@@ -7,6 +7,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Nuclei multi-protocol scanner**: scan assets with [ProjectDiscovery Nuclei](https://github.com/projectdiscovery/nuclei) directly from the Sécurité tab
+  - Targets are **auto-determined** from discovered open ports and services: HTTP/HTTPS, DNS, FTP, SMTP, SMB, MySQL, PostgreSQL, Redis, MongoDB, RDP — no manual URL required
+  - DNS entries (FQDNs) are automatically included for web targets so virtual-host templates fire
+  - API: `POST /api/v1/assets/{id}/nuclei`, `GET /api/v1/assets/{id}/nuclei`, `GET /api/v1/assets/{id}/nuclei/{report_id}`
+  - Rate limit: 10 req/min; max 2 concurrent scans via semaphore (configurable via `MAX_CONCURRENT_NUCLEI_SCANS`)
+  - `NucleiReport` model stores targets, tags, parsed findings (JSONL), risk summary, and CVE count
+  - Alembic migration `0008` creates `nuclei_reports` table
+- **Multi-source CVE tracking**: a CVE found by multiple scanners now appears as a single row in the CVE table with all sources listed (e.g. "zap + nuclei")
+  - `asset_cves.source` column widened to `VARCHAR(50)` to hold comma-separated values
+  - ZAP, SSH, and Nuclei persistence functions all use the same append-source pattern
+- **Nuclei binary bundled** in Docker image via multi-stage build (`projectdiscovery/nuclei:latest`)
+  - Nuclei templates persisted in a dedicated `nuclei_templates` Docker volume to avoid re-downloading on restart
+  - Configurable via `NUCLEI_RATE_LIMIT`, `NUCLEI_TIMEOUT`, `MAX_CONCURRENT_NUCLEI_SCANS` env vars
+
 ### Changed
 - **Docker**: bump base image `python:3.11-slim` → `python:3.14-slim`
 

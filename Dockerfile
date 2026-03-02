@@ -1,3 +1,6 @@
+# ── Stage 0: Nuclei binary ────────────────────────────────────────────────────
+FROM projectdiscovery/nuclei:latest AS nuclei-bin
+
 # ── Stage 1: Builder ──────────────────────────────────────────────────────────
 FROM python:3.14-slim AS builder
 
@@ -53,6 +56,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-ping \
     net-tools \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy Nuclei binary from dedicated stage
+COPY --from=nuclei-bin /usr/local/bin/nuclei /usr/local/bin/nuclei
 
 # Copy installed Python packages from builder
 COPY --from=builder /install /usr/local

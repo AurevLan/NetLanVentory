@@ -381,17 +381,21 @@ async def _persist_ssh_cves(
                 session.add(cve_row)
                 await session.flush()
 
-            # Upsert AssetCve link
+            # Upsert AssetCve link — append "ssh" to sources if already exists
             existing = (
                 await session.execute(
                     select(AssetCve).where(
                         AssetCve.asset_id == asset_id,
                         AssetCve.cve_id == cve_row.id,
-                        AssetCve.source == "ssh",
                     )
                 )
             ).scalar_one_or_none()
-            if not existing:
+            if existing:
+                sources = [s for s in (existing.source or "").split(",") if s]
+                if "ssh" not in sources:
+                    existing.source = ",".join(sources + ["ssh"])
+                    cve_count += 1
+            else:
                 link = AssetCve(
                     asset_id=asset_id,
                     cve_id=cve_row.id,

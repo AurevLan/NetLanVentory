@@ -6,6 +6,7 @@ networks:
 # ── Volumes ───────────────────────────────────────────────────────────────────
 volumes:
   postgres_data:
+  nuclei_templates:   # Persists downloaded Nuclei templates across container restarts
 
 # ── Services ──────────────────────────────────────────────────────────────────
 services:
@@ -104,6 +105,9 @@ services:
       ADMIN_PASSWORD:    ${ADMIN_PASSWORD:-changeme}
       ZAP_API_KEY:       ${ZAP_API_KEY:-}
       NVD_API_KEY:       ${NVD_API_KEY:-}
+      NUCLEI_RATE_LIMIT: ${NUCLEI_RATE_LIMIT:-150}
+      NUCLEI_TIMEOUT:    ${NUCLEI_TIMEOUT:-30}
+      MAX_CONCURRENT_NUCLEI_SCANS: ${MAX_CONCURRENT_NUCLEI_SCANS:-2}
     cap_add:
       - NET_ADMIN   # Required for ARP manipulation
       - NET_RAW     # Required for raw socket access (scapy / nmap)
@@ -115,6 +119,8 @@ services:
     volumes:
       # Optional: mount .env for local overrides
       - ./.env:/app/.env:ro
+      # Persist Nuclei templates so they are not re-downloaded on every container start
+      - nuclei_templates:/root/nuclei-templates
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]

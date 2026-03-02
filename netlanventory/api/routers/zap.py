@@ -373,24 +373,27 @@ async def _persist_cves(
                 session.add(cve)
                 await session.flush()
 
-            # Skip if AssetCve already exists for this asset+cve
-            existing = await session.execute(
+            # Upsert AssetCve link — append "zap" to sources if already exists
+            existing_result = await session.execute(
                 select(AssetCve).where(
                     AssetCve.asset_id == asset_id,
                     AssetCve.cve_id == cve.id,
                 )
             )
-            if existing.scalar_one_or_none():
-                continue
-
-            link = AssetCve(
-                asset_id=asset_id,
-                cve_id=cve.id,
-                source="zap",
-                package_name=pkg_name,
-                package_version=pkg_version,
-            )
-            session.add(link)
+            existing_link = existing_result.scalar_one_or_none()
+            if existing_link:
+                sources = [s for s in (existing_link.source or "").split(",") if s]
+                if "zap" not in sources:
+                    existing_link.source = ",".join(sources + ["zap"])
+            else:
+                link = AssetCve(
+                    asset_id=asset_id,
+                    cve_id=cve.id,
+                    source="zap",
+                    package_name=pkg_name,
+                    package_version=pkg_version,
+                )
+                session.add(link)
 
     await session.commit()
     return len(all_cve_ids)
