@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.5.1] — 2026-03-02
+
+### Fixed
+- **Nuclei v3 output flag**: replace `-json` with `-jsonl` (flag renamed in Nuclei v3); the old flag caused silent failure (exit 0, empty stdout) resulting in zero findings
+- **Scan polling race condition** (Nuclei & SSH): `_modalAssetId` could change between `await` calls in the polling loop when the user switched asset modals during a running scan, causing cross-asset HTTP 404 errors ("report not found"); fix captures the asset ID at scan start and guards the loop with `_modalAssetId === assetId`
+
+---
+
 ## [v0.5.0] — 2026-03-02
 
 ### Added
@@ -105,6 +113,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Administration panel**: user management, auth settings
 - **Dashboard UI**: sidebar navigation, asset list, Security tab with ZAP reports and CVE display, Overview and Failles tabs
 
+[v0.5.1]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.5.1
+[v0.5.0]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.5.0
 [v0.4.0]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.4.0
 [v0.3.0]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.3.0
 [v0.2.0]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.2.0
