@@ -13,8 +13,8 @@ from netlanventory.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 class Cve(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "cves"
 
-    # Official CVE identifier (e.g. "CVE-2024-12345")
-    cve_id: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
+    # Official CVE identifier (e.g. "CVE-2024-12345" or "UBUNTU-CVE-2022-23491")
+    cve_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
 
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 

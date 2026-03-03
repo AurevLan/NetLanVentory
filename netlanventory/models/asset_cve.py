@@ -38,6 +38,7 @@ class AssetCve(Base):
     # Package that carries the vulnerability (SSH source)
     package_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     package_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    fixed_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     discovered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

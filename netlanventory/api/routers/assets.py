@@ -113,6 +113,11 @@ def _apply_ssh_credentials(data: dict, asset: Asset) -> None:
 @router.post("", response_model=AssetOut, status_code=status.HTTP_201_CREATED)
 async def create_asset(payload: AssetCreate, db: DbDep) -> Asset:
     data = payload.model_dump(exclude_none=True)
+    # ssh_password/ssh_private_key are Field(exclude=True) so model_dump() omits them
+    if payload.ssh_password:
+        data["ssh_password"] = payload.ssh_password
+    if payload.ssh_private_key:
+        data["ssh_private_key"] = payload.ssh_private_key
     asset = Asset(**{k: v for k, v in data.items() if k not in ("ssh_password", "ssh_private_key")})
     _apply_ssh_credentials(data, asset)
     db.add(asset)
@@ -131,6 +136,11 @@ async def update_asset(asset_id: uuid.UUID, payload: AssetUpdate, db: DbDep) -> 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
 
     data = payload.model_dump(exclude_unset=True)
+    # ssh_password/ssh_private_key are Field(exclude=True) so model_dump() omits them
+    if payload.ssh_password:
+        data["ssh_password"] = payload.ssh_password
+    if payload.ssh_private_key:
+        data["ssh_private_key"] = payload.ssh_private_key
     _apply_ssh_credentials(data, asset)
     for field, value in data.items():
         setattr(asset, field, value)

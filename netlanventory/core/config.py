@@ -99,6 +99,10 @@ class Settings(BaseSettings):
         default=2,
         description="Max simultaneous Nuclei scans",
     )
+    nuclei_scan_timeout: int = Field(
+        default=1800,
+        description="Overall Nuclei scan wall-clock timeout in seconds (default 30 min)",
+    )
 
     # Scanning defaults
     scan_timeout: int = Field(default=300, description="Default scan timeout in seconds")

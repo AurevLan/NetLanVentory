@@ -17,7 +17,8 @@ from typing import Annotated
 
 import asyncssh
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from netlanventory.core.cve_enrichment import enrich_cves
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,6 +59,7 @@ def _get_ssh_semaphore() -> asyncio.Semaphore:
 async def trigger_ssh_scan(
     request: Request,
     asset_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     db: DbDep,
     _current_user: Annotated[object, Depends(get_current_active_user)],
 ) -> SshScanReport:
@@ -79,16 +81,11 @@ async def trigger_ssh_scan(
 
     report = SshScanReport(asset_id=asset_id, status="pending")
     db.add(report)
-    await db.flush()
-    report_id = report.id
-
-    # Detach report from session before handing off to the background task
+    await db.commit()
     await db.refresh(report)
 
-    asyncio.create_task(
-        _run_ssh_scan(report_id, asset_id),
-        name=f"ssh-scan-{report_id}",
-    )
+    background_tasks.add_task(_run_ssh_scan, report_id=report.id, asset_id=asset_id)
+    logger.info("SSH scan queued", report_id=str(report.id), asset_id=str(asset_id))
 
     return report
 
@@ -135,9 +132,10 @@ async def _run_ssh_scan(report_id: uuid.UUID, asset_id: uuid.UUID) -> None:
     """Background task: SSH into the asset, detect packages, lookup CVEs."""
     factory = get_session_factory()
 
+    # Phase 1 — SSH connection + CVE persistence (holds the semaphore)
+    cve_ids_to_enrich: list[str] = []
     async with _get_ssh_semaphore():
         async with factory() as session:
-            # Reload report and asset
             report = (
                 await session.execute(select(SshScanReport).where(SshScanReport.id == report_id))
             ).scalar_one()
@@ -158,7 +156,7 @@ async def _run_ssh_scan(report_id: uuid.UUID, asset_id: uuid.UUID) -> None:
                     host,
                     port=port,
                     username=user,
-                    known_hosts=None,       # Trust-on-first-use for inventory scanning
+                    known_hosts=None,
                     **ssh_kwargs,
                 ) as conn:
                     os_type, ecosystem = await _detect_os(conn)
@@ -166,7 +164,6 @@ async def _run_ssh_scan(report_id: uuid.UUID, asset_id: uuid.UUID) -> None:
 
                 cve_data = await _lookup_cves_osv(packages, ecosystem)
 
-                # NVD fallback for packages that returned no OSV results
                 settings = get_settings()
                 if settings.nvd_api_key:
                     resolved = {p for p, cves in cve_data.items() if cves}
@@ -177,6 +174,16 @@ async def _run_ssh_scan(report_id: uuid.UUID, asset_id: uuid.UUID) -> None:
                             cve_data.setdefault(pkg_name, []).extend(cves)
 
                 cve_count = await _persist_ssh_cves(session, asset_id, packages, cve_data)
+
+                # Collect CVE IDs for enrichment (runs after semaphore release)
+                for vuln_list in cve_data.values():
+                    for vuln in vuln_list:
+                        candidates = (
+                            [vuln.get("id", "")]
+                            + vuln.get("aliases", [])
+                            + vuln.get("upstream", [])
+                        )
+                        cve_ids_to_enrich.extend(v for v in candidates if v)
 
                 report.status = "completed"
                 report.os_type = os_type
@@ -192,6 +199,14 @@ async def _run_ssh_scan(report_id: uuid.UUID, asset_id: uuid.UUID) -> None:
                 report.status = "failed"
                 report.error_msg = f"Unexpected error: {exc}"
 
+            await session.commit()
+    # Semaphore released — other scans can now start
+
+    # Phase 2 — CVE enrichment (independent session, no semaphore held)
+    if cve_ids_to_enrich:
+        settings = get_settings()
+        async with factory() as session:
+            await enrich_cves(session, cve_ids_to_enrich, nvd_api_key=settings.nvd_api_key)
             await session.commit()
 
 
@@ -349,7 +364,27 @@ async def _persist_ssh_cves(
     packages: list[tuple[str, str]],
     cve_data: dict[str, list[dict]],
 ) -> int:
-    """Upsert CVE rows and link them to the asset. Returns count of CVEs linked."""
+    """Upsert CVE rows and link them to the asset. Returns count of CVEs linked.
+
+    Each call represents a fresh SSH scan: existing "ssh" source entries for this
+    asset are cleared first so the result always reflects the current scan state.
+    Multi-source links (e.g. "zap,ssh") have "ssh" removed from their source list
+    rather than being deleted outright.
+    """
+    # ── Clear previous SSH findings for this asset ────────────────────────────
+    existing_all = (
+        await session.execute(
+            select(AssetCve).where(AssetCve.asset_id == asset_id)
+        )
+    ).scalars().all()
+    for link in existing_all:
+        sources = [s for s in (link.source or "").split(",") if s and s != "ssh"]
+        if not sources:
+            await session.delete(link)
+        else:
+            link.source = ",".join(sources)
+    await session.flush()
+
     version_map = {name: ver for name, ver in packages}
     cve_count = 0
     now = datetime.now(timezone.utc)
@@ -362,24 +397,36 @@ async def _persist_ssh_cves(
             if not cve_id:
                 continue
 
-            # Resolve actual CVE ID (OSV may use GHSA-... as primary id)
+            # Resolve actual CVE ID (OSV may use GHSA-... or UBUNTU-CVE-... as primary)
             aliases: list[str] = vuln.get("aliases", [])
-            cve_ids = [cve_id] + aliases
+            upstream: list[str] = vuln.get("upstream", [])
+            cve_ids = [cve_id] + aliases + upstream
             real_cve = next((a for a in cve_ids if a.startswith("CVE-")), cve_id)
 
-            # Upsert Cve row
+            # Extract fixed version from OSV affected ranges
+            fixed_version: str | None = _osv_fixed_version(vuln, pkg_version)
+
+            # Upsert Cve row — create or enrich existing
+            new_severity = _osv_severity(vuln)
+            new_description = vuln.get("summary", "") or ""
             cve_row = (
                 await session.execute(select(Cve).where(Cve.cve_id == real_cve))
             ).scalar_one_or_none()
             if not cve_row:
                 cve_row = Cve(
                     cve_id=real_cve,
-                    description=vuln.get("summary", "") or "",
-                    severity=_osv_severity(vuln),
+                    description=new_description,
+                    severity=new_severity,
                     cvss_score=None,
                 )
                 session.add(cve_row)
                 await session.flush()
+            else:
+                # Enrich fields that were previously unknown or empty
+                if (not cve_row.severity or cve_row.severity == "Unknown") and new_severity != "Unknown":
+                    cve_row.severity = new_severity
+                if not cve_row.description and new_description:
+                    cve_row.description = new_description
 
             # Upsert AssetCve link — append "ssh" to sources if already exists
             existing = (
@@ -395,6 +442,13 @@ async def _persist_ssh_cves(
                 if "ssh" not in sources:
                     existing.source = ",".join(sources + ["ssh"])
                     cve_count += 1
+                # Enrich link fields that were previously missing
+                if not existing.fixed_version and fixed_version:
+                    existing.fixed_version = fixed_version
+                if not existing.package_name and pkg_name:
+                    existing.package_name = pkg_name
+                if not existing.package_version and pkg_version:
+                    existing.package_version = pkg_version
             else:
                 link = AssetCve(
                     asset_id=asset_id,
@@ -402,6 +456,7 @@ async def _persist_ssh_cves(
                     source="ssh",
                     package_name=pkg_name,
                     package_version=pkg_version,
+                    fixed_version=fixed_version,
                     discovered_at=now,
                 )
                 session.add(link)
@@ -411,20 +466,41 @@ async def _persist_ssh_cves(
     return cve_count
 
 
+def _osv_fixed_version(vuln: dict, installed_version: str) -> str | None:
+    """Extract the fixed version from OSV affected ranges for the installed package version.
+
+    OSV structure: affected[].ranges[].events = [{"introduced": "0"}, {"fixed": "x.y.z"}]
+    We return the first fixed version we find across all affected entries.
+    """
+    for affected in (vuln.get("affected") or []):
+        for rng in (affected.get("ranges") or []):
+            if rng.get("type") not in ("ECOSYSTEM", "SEMVER"):
+                continue
+            for event in (rng.get("events") or []):
+                fv = event.get("fixed")
+                if fv:
+                    return fv
+    return None
+
+
 def _osv_severity(vuln: dict) -> str:
-    """Map OSV severity to our internal scale (Critical/High/Medium/Low/Unknown)."""
-    severity_list = vuln.get("severity", [])
-    if not severity_list:
-        return "Unknown"
-    score_str = severity_list[0].get("score", "")
-    try:
-        score = float(score_str)
-    except (ValueError, TypeError):
-        return "Unknown"
-    if score >= 9.0:
-        return "Critical"
-    if score >= 7.0:
-        return "High"
-    if score >= 4.0:
-        return "Medium"
-    return "Low"
+    """Map OSV severity to our internal scale (Critical/High/Medium/Low/Unknown).
+
+    OSV severity entries come in two forms:
+    - Text label: {"type": "Ubuntu", "score": "medium"} — used by distro advisories
+    - CVSS vector: {"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/..."} — not a number
+    We prefer text labels; CVSS vectors require a full parser so we skip them.
+    """
+    _TEXT_MAP = {
+        "critical": "Critical",
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low",
+        "negligible": "Low",
+        "unimportant": "Low",
+    }
+    for entry in (vuln.get("severity") or []):
+        score = entry.get("score", "").lower()
+        if score in _TEXT_MAP:
+            return _TEXT_MAP[score]
+    return "Unknown"
