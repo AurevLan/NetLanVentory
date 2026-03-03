@@ -68,6 +68,13 @@ Modular network scanning and inventory tool. Discover hosts, scan ports, fingerp
 - **CVE lookup** — OSV.dev (primary, no key needed, batch 1 000 pkgs/req) + NVD NIST (fallback, requires `NVD_API_KEY`)
 - **Results** — CVEs persisted as `AssetCve` rows with `source="ssh"`, visible in the unified CVE table alongside ZAP and Nuclei findings
 
+### CVE library
+- **Cross-asset CVE view** — sidebar navigation panel listing all known CVEs across the fleet, with severity filter (Critical / High / Medium / Low / Unknown) and free-text search
+- **Non-standard advisory IDs** — `UBUNTU-CVE-*`, `USN-*`, and `GHSA-*` IDs are fully supported; each ID links to its canonical upstream advisory source (NVD, ubuntu.com, GitHub Security Advisories, OSV.dev)
+- **Fix version tracking** — `fixed_version` column in `asset_cves` records the version that patches each CVE; shown as a "Version corrigée" column in the dashboard
+- **On-demand enrichment** — "Enrichir" button triggers a global background enrichment pass via OSV.dev and NVD for any CVE still missing CVSS score or description
+- **CVE detail view** — `GET /api/v1/cves/{id}` returns CVSS score, severity, description, published date, and the full list of affected assets
+
 ### Security & authentication
 - **JWT authentication** — all API endpoints require a valid Bearer token (except `/api/v1/auth/login`); `sub`, `exp`, and `iss` claims required; issuer verified as `netlanventory`
 - **Role-based access** — `admin` role required for user management and global settings
@@ -230,6 +237,14 @@ netlv --api-url http://my-server:8000 assets list
 | `GET` | `/api/v1/zap/reports/{id}` | Get full ZAP report with alerts and CVE count |
 | `DELETE` | `/api/v1/zap/reports/{id}` | Delete a ZAP report |
 
+### CVE library
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/cves` | List all CVEs (`?severity`, `?search`, `?skip`, `?limit`) |
+| `GET` | `/api/v1/cves/{cve_id}` | Get CVE detail with list of affected assets |
+| `POST` | `/api/v1/cves/enrich` | Trigger global CVE enrichment (OSV + NVD, background) |
+
 ### Admin
 
 | Method | Endpoint | Description |
@@ -321,13 +336,12 @@ Restart the server — the module is auto-discovered and immediately available v
 ```
 NetLanVentory/
 ├── netlanventory/
-│   ├── core/          # config, async DB engine, structlog, module registry, scheduler
-│   ├── core/          # config, crypto (Fernet), async DB engine, structlog, module registry, scheduler
+│   ├── core/          # config, crypto (Fernet), cve_enrichment, async DB engine, structlog, module registry, scheduler
 │   ├── models/        # SQLAlchemy ORM (Asset, Scan, Port, ScanResult, AssetDns, GlobalSettings, ZapReport, SshScanReport, NucleiReport, …)
 │   ├── schemas/       # Pydantic request/response schemas
 │   ├── modules/       # BaseModule ABC + built-in scanners
 │   ├── api/
-│   │   ├── routers/   # assets, scans, modules, zap, dns, ssh_scan, nuclei, auth, users, admin
+│   │   ├── routers/   # assets, scans, modules, zap, dns, ssh_scan, nuclei, cves, auth, users, admin
 │   │   └── static/    # Single-page dashboard (HTML + JS + CSS, no build step)
 │   └── cli/           # Click commands, Rich output helpers
 ├── alembic/           # Database migrations

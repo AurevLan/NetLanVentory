@@ -17,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from netlanventory.api.routers import assets, modules, scans
 from netlanventory.api.routers import admin as admin_router
 from netlanventory.api.routers import auth as auth_router
+from netlanventory.api.routers import cves as cves_router
 from netlanventory.api.routers import dns as dns_router
 from netlanventory.api.routers import nuclei as nuclei_router
 from netlanventory.api.routers import ssh_scan as ssh_scan_router
@@ -85,6 +86,9 @@ async def lifespan(app: FastAPI):
             hint="Ensure 'nuclei' is installed in the container PATH to use Nuclei scanning.",
         )
 
+    # Reset orphaned scans left in running/pending state from a previous crash
+    await _reset_orphaned_scans()
+
     # Start ZAP auto-scan scheduler
     _sched_task = asyncio.create_task(scheduler_loop(), name="zap-scheduler")
 
@@ -100,6 +104,30 @@ async def lifespan(app: FastAPI):
     # Cleanup
     await close_engine()
     logger.info("NetLanVentory stopped")
+
+
+async def _reset_orphaned_scans() -> None:
+    """Mark running/pending scans as failed on startup (background tasks don't survive restarts)."""
+    from sqlalchemy import update
+    from netlanventory.models.nuclei_report import NucleiReport
+    from netlanventory.models.ssh_scan_report import SshScanReport
+    from netlanventory.core.database import get_session_factory
+
+    factory = get_session_factory()
+    async with factory() as session:
+        for model in (NucleiReport, SshScanReport):
+            result = await session.execute(
+                update(model)
+                .where(model.status.in_(["running", "pending"]))
+                .values(status="failed", error_msg="Interrupted by app restart")
+            )
+            if result.rowcount:
+                logger.warning(
+                    "Reset orphaned scans",
+                    model=model.__tablename__,
+                    count=result.rowcount,
+                )
+        await session.commit()
 
 
 async def _bootstrap_admin(settings) -> None:
@@ -135,7 +163,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="NetLanVentory",
         description="Modular network scanning and inventory API",
-        version="0.1.0",
+        version="0.6.0",
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=lifespan,
@@ -177,6 +205,7 @@ def create_app() -> FastAPI:
     app.include_router(dns_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(ssh_scan_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(nuclei_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(cves_router.router, prefix=api_prefix, dependencies=_auth)
 
     # Serve static dashboard if the directory exists
     if STATIC_DIR.exists():
@@ -188,7 +217,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health", tags=["health"])
     async def health() -> dict[str, str]:
-        return {"status": "ok", "version": "0.1.0"}
+        return {"status": "ok", "version": "0.6.0"}
 
     return app
 

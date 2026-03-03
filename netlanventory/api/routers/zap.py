@@ -359,7 +359,8 @@ async def _persist_cves(
         all_cve_ids.update(cve_ids)
 
         for cve_id_str in cve_ids:
-            # Upsert Cve
+            # Upsert Cve row — create or enrich existing
+            new_description = alert.get("description")
             cve_result = await session.execute(
                 select(Cve).where(Cve.cve_id == cve_id_str)
             )
@@ -368,10 +369,16 @@ async def _persist_cves(
                 cve = Cve(
                     cve_id=cve_id_str,
                     severity=severity,
-                    description=alert.get("description"),
+                    description=new_description,
                 )
                 session.add(cve)
                 await session.flush()
+            else:
+                # Enrich fields that were previously unknown or empty
+                if (not cve.severity or cve.severity == "Unknown") and severity and severity != "Unknown":
+                    cve.severity = severity
+                if not cve.description and new_description:
+                    cve.description = new_description
 
             # Upsert AssetCve link — append "zap" to sources if already exists
             existing_result = await session.execute(
@@ -385,6 +392,10 @@ async def _persist_cves(
                 sources = [s for s in (existing_link.source or "").split(",") if s]
                 if "zap" not in sources:
                     existing_link.source = ",".join(sources + ["zap"])
+                if not existing_link.package_name and pkg_name:
+                    existing_link.package_name = pkg_name
+                if not existing_link.package_version and pkg_version:
+                    existing_link.package_version = pkg_version
             else:
                 link = AssetCve(
                     asset_id=asset_id,

@@ -78,7 +78,7 @@ def _parse_nuclei_finding(raw: dict) -> NucleiFindingOut:
 
     # Collect CVE IDs from classification (most reliable) and template-id
     cve_ids: list[str] = []
-    raw_cve_ids = classification.get("cve-id", [])
+    raw_cve_ids = classification.get("cve-id") or []
     if isinstance(raw_cve_ids, str):
         raw_cve_ids = [raw_cve_ids]
     cve_ids.extend(raw_cve_ids)
@@ -101,7 +101,7 @@ def _parse_nuclei_finding(raw: dict) -> NucleiFindingOut:
             pass
 
     # Tags
-    raw_tags = info.get("tags", [])
+    raw_tags = info.get("tags") or []
     if isinstance(raw_tags, str):
         raw_tags = [t.strip() for t in raw_tags.split(",")]
 

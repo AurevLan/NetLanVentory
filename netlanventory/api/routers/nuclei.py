@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from netlanventory.api.dependencies import get_db
 from netlanventory.core.config import get_settings
+from netlanventory.core.cve_enrichment import enrich_cves
 from netlanventory.core.limiter import limiter
 from netlanventory.core.logging import get_logger
 from netlanventory.models.asset import Asset
@@ -72,7 +73,10 @@ def _build_nuclei_targets_and_tags(asset: Asset) -> tuple[list[str], list[str]]:
         tags:    List of Nuclei template tag strings.
     """
     targets: list[str] = []
-    tags: set[str] = {"cve", "misconfig", "exposure"}
+    # Base tags: misconfig and exposure are scoped (fast); "cve" is intentionally
+    # omitted here — it matches ~13 000 templates and makes every scan time out.
+    # Service-specific tags (http, smb, ssl …) already include their own CVE templates.
+    tags: set[str] = {"misconfig", "exposure"}
     has_web = False
 
     for port in (asset.ports or []):
@@ -276,7 +280,7 @@ async def _persist_nuclei_cves(
         classification = info.get("classification", {})
 
         # Most reliable source: info.classification.cve-id
-        raw_cve_ids = classification.get("cve-id", [])
+        raw_cve_ids = classification.get("cve-id") or []
         if isinstance(raw_cve_ids, str):
             raw_cve_ids = [raw_cve_ids]
         cve_ids = {c.upper() for c in raw_cve_ids if c}
@@ -287,7 +291,7 @@ async def _persist_nuclei_cves(
             cve_ids.add(template_id.upper())
 
         # Fallback: scan references in info.reference
-        references = info.get("reference", [])
+        references = info.get("reference") or []
         if isinstance(references, str):
             references = [references]
         for ref in references:
@@ -309,7 +313,7 @@ async def _persist_nuclei_cves(
         all_cve_ids.update(cve_ids)
 
         for cve_id_str in cve_ids:
-            # Upsert Cve row
+            # Upsert Cve row — create or enrich existing
             cve_result = await session.execute(
                 select(Cve).where(Cve.cve_id == cve_id_str)
             )
@@ -323,6 +327,14 @@ async def _persist_nuclei_cves(
                 )
                 session.add(cve)
                 await session.flush()
+            else:
+                # Enrich fields that were previously unknown or empty
+                if (not cve.severity or cve.severity == "Unknown") and severity and severity != "Unknown":
+                    cve.severity = severity
+                if not cve.description and description:
+                    cve.description = description
+                if cve.cvss_score is None and cvss_score is not None:
+                    cve.cvss_score = cvss_score
 
             # Check for existing AssetCve link (any source)
             existing_result = await session.execute(
@@ -365,6 +377,8 @@ async def _run_nuclei_scan(
     factory = get_session_factory()
 
     targets_file: str | None = None
+    output_file: str | None = None
+    cve_ids_to_enrich: list[str] = []
 
     async with _get_nuclei_semaphore():
         async with factory() as session:
@@ -380,13 +394,21 @@ async def _run_nuclei_scan(
                 with os.fdopen(fd, "w") as f:
                     f.write("\n".join(targets))
 
+                # Write findings to a temp file so partial results survive a timeout
+                out_fd, output_file = tempfile.mkstemp(
+                    suffix=".jsonl", prefix="nuclei-out-"
+                )
+                os.close(out_fd)
+
                 cmd: list[str] = [
                     settings.nuclei_binary,
                     "-list", targets_file,
                     "-tags", ",".join(tags),
+                    "-output", output_file,  # write JSONL findings to file
                     "-jsonl",
                     "-timeout", str(settings.nuclei_timeout),
                     "-rate-limit", str(settings.nuclei_rate_limit),
+                    "-no-interactsh",  # disable OAST callbacks (useless on internal networks)
                     "-silent",
                     "-no-color",
                 ]
@@ -402,30 +424,26 @@ async def _run_nuclei_scan(
 
                 proc = await asyncio.create_subprocess_exec(
                     *cmd,
-                    stdout=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL,  # findings go to output_file
                     stderr=asyncio.subprocess.PIPE,
                 )
 
+                timed_out = False
+                scan_timeout = settings.nuclei_scan_timeout
                 try:
-                    stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    _, stderr_bytes = await asyncio.wait_for(
                         proc.communicate(),
-                        timeout=600,  # 10 minutes max
+                        timeout=scan_timeout,
                     )
                 except TimeoutError:
                     proc.kill()
-                    await proc.communicate()
-                    raise RuntimeError("Nuclei scan timed out after 600 seconds")
-
-                # Parse JSONL output (one JSON object per line)
-                findings: list[dict] = []
-                for line in stdout_bytes.decode("utf-8", errors="replace").splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        findings.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass  # Skip non-JSON lines (e.g. nuclei banner even with -silent)
+                    _, stderr_bytes = await proc.communicate()
+                    timed_out = True
+                    logger.warning(
+                        "Nuclei scan timed out — using partial results",
+                        report_id=str(report_id),
+                        timeout=scan_timeout,
+                    )
 
                 if stderr_bytes:
                     stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
@@ -436,28 +454,61 @@ async def _run_nuclei_scan(
                             stderr=stderr_text[:500],
                         )
 
+                # Parse JSONL output file (findings written incrementally by Nuclei)
+                findings: list[dict] = []
+                if output_file and os.path.exists(output_file):
+                    with open(output_file, encoding="utf-8", errors="replace") as fh:
+                        for line in fh:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                findings.append(json.loads(line))
+                            except json.JSONDecodeError:
+                                pass
+
                 # Persist CVEs with multi-source support
                 report = await _fetch_report(session, report_id)
                 if not report:
                     return
                 cve_count = await _persist_nuclei_cves(session, asset_id, findings)
 
+                # Collect CVE IDs for post-semaphore enrichment
+                for finding in findings:
+                    info = finding.get("info", {})
+                    classification = info.get("classification", {})
+                    raw_ids = classification.get("cve-id") or []
+                    if isinstance(raw_ids, str):
+                        raw_ids = [raw_ids]
+                    cve_ids_to_enrich.extend(c.upper() for c in raw_ids if c)
+                    tid = finding.get("template-id", "")
+                    if tid.upper().startswith("CVE-"):
+                        cve_ids_to_enrich.append(tid.upper())
+
                 # Build risk summary
                 risk_summary = _build_nuclei_risk_summary(findings)
 
-                # Update report
+                # Update report (partial results are still saved on timeout)
                 report.status = "completed"
                 report.report = {"findings": findings}
                 report.risk_summary = risk_summary
                 report.cve_count = cve_count
                 report.findings_count = len(findings)
+                if timed_out:
+                    report.error_msg = (
+                        f"Scan stopped after {scan_timeout}s — "
+                        f"{len(findings)} partial results saved."
+                    )
 
                 await session.commit()
+
+            # Semaphore released here — other scans can start immediately
                 logger.info(
                     "Nuclei scan completed",
                     report_id=str(report_id),
                     findings=len(findings),
                     cves=cve_count,
+                    partial=timed_out,
                 )
 
             except Exception as exc:
@@ -471,6 +522,15 @@ async def _run_nuclei_scan(
             finally:
                 if targets_file and os.path.exists(targets_file):
                     os.unlink(targets_file)
+                if output_file and os.path.exists(output_file):
+                    os.unlink(output_file)
+    # Semaphore released — other scans can start
+
+    # Phase 2 — CVE enrichment (independent session, no semaphore held)
+    if cve_ids_to_enrich:
+        async with factory() as session:
+            await enrich_cves(session, list(set(cve_ids_to_enrich)), nvd_api_key=settings.nvd_api_key)
+            await session.commit()
 
 
 async def _fetch_report(session: AsyncSession, report_id: uuid.UUID) -> NucleiReport | None:

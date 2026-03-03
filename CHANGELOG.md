@@ -9,6 +9,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.6.0] — 2026-03-03
+
+### Added
+- **Global CVE library** (`GET /api/v1/cves`, `GET /api/v1/cves/{id}`, `POST /api/v1/cves/enrich`)
+  - Cross-asset CVE view: list all known CVEs with severity filter, free-text search, and pagination
+  - Each CVE detail shows all affected assets and their package/version information
+  - "Enrichir" button triggers a global background enrichment pass for CVEs still missing CVSS scores or descriptions
+  - Sidebar navigation with CVE count badge; accessible via the shield icon
+- **CVE fix version tracking** — `asset_cves.fixed_version` column stores the version that patches a given CVE (extracted from OSV `affected[].ranges[].events[fixed]`); shown as a "Version corrigée" column in the CVE table
+- **Non-standard CVE ID support** — complete handling of Ubuntu / Debian advisory IDs throughout the stack:
+  - `UBUNTU-CVE-YYYY-NNNNN` → looks up the canonical `CVE-YYYY-NNNNN` on OSV.dev; link routes to `ubuntu.com/security/`
+  - `USN-XXXX-X` → queries OSV directly (OSV indexes Ubuntu Security Notices); link routes to `ubuntu.com/security/notices/`
+  - `GHSA-XXXX-XXXX-XXXX` → queries OSV directly; link routes to `github.com/advisories/`
+  - Standard `CVE-YYYY-NNNNN` IDs continue to link to NVD as before
+  - `cves.cve_id` column widened to `VARCHAR(50)` (migration `0009`) to accommodate longer advisory IDs
+- **Live CVE data updates** — all three scanners (ZAP, SSH, Nuclei) now update existing CVE rows in the database when they encounter a known ID; if severity, description, CVSS score, published date, or fixed version is missing, it is enriched on the next scan
+- **Two-phase scan architecture** — CVE enrichment (OSV + NVD API calls) now runs *after* releasing the scan semaphore, so long enrichment passes (up to 6 min for 60 CVEs without NVD key) no longer block new scan requests
+- **Stale-source cleanup** — SSH and Nuclei scanners now remove their previous CVE attributions at the start of each new scan, ensuring the CVE table reflects only current findings (no stale rows from old scans)
+
+### Fixed
+- **SSH scan `BackgroundTasks` lifecycle** — changed from `asyncio.create_task()` (task silently dies when the request scope ends) to FastAPI `BackgroundTasks.add_task()` with an explicit `db.commit()` before scheduling; SSH scans no longer get stuck in `pending` state after the first request
+- **OSV severity parsing** — `_osv_severity()` previously called `float(score_str)` which always raised `ValueError` on CVSS vector strings returned by OSV; severity now correctly reads text labels (`"critical"`, `"high"`, `"medium"`, `"low"`) from the `{"type": "...", "score": "..."}` structure
+- **NVD link for non-CVE advisory IDs** — clicking any advisory ID in the CVE table now routes to the correct upstream source via `cveUrl()` instead of always going to NVD (which returns 404 for `UBUNTU-CVE-*` / `USN-*`)
+- **Scan polling race condition** — captured `const assetId = _modalAssetId` at poll-loop start; prevents cross-asset 404 errors when the user switches modals during a running scan (same fix applied to SSH and Nuclei pollers)
+
+### Changed
+- **Alembic migration `0009`** — `cves.cve_id` VARCHAR(20) → VARCHAR(50)
+- **Alembic migration `0010`** — adds `asset_cves.fixed_version VARCHAR(100)`
+- **CVE table column** — "Source" badges split by `,` and rendered as individual `<span>` pills; new "Version corrigée" column added
+- **SSH test container** — removed `ssh-target` service and `Dockerfile.ssh-target` from the repository (was a development-only artefact, not needed in production)
+
+### Security
+- **Dependency audit** — all runtime dependencies verified up to date as of 2026-03-03 (fastapi 0.135.1, sqlalchemy 2.0.48, cryptography 46.0.5, pyjwt 2.10.1, asyncssh 2.20.0, httpx 0.28.1)
+- **Known limitation (CSP)** — `script-src` still includes `'unsafe-inline'` due to inline `onclick` handlers in the dashboard HTML; migrating to `addEventListener`-based event binding is tracked as a future improvement (impact is low: the dashboard is served only to authenticated users)
+
+---
+
 ## [v0.5.1] — 2026-03-02
 
 ### Fixed
@@ -113,6 +150,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Administration panel**: user management, auth settings
 - **Dashboard UI**: sidebar navigation, asset list, Security tab with ZAP reports and CVE display, Overview and Failles tabs
 
+[v0.6.0]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.6.0
 [v0.5.1]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.5.1
 [v0.5.0]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.5.0
 [v0.4.0]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.4.0

@@ -135,6 +135,7 @@ function switchToView(viewName) {
 
   // Load data for the panel if needed
   if (viewName === 'admin') loadUsers();
+  if (viewName === 'cves') loadCves();
 }
 
 function initNav() {
@@ -654,7 +655,7 @@ function _renderFlawsTab(asset) {
   // CVE table
   const tbody = document.getElementById('cve-tbody');
   if (!cves.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:24px">No vulnerabilities detected yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-muted);text-align:center;padding:24px">No vulnerabilities detected yet</td></tr>';
   } else {
     tbody.innerHTML = cves.map(c => {
       const sev = (c.severity || '').toLowerCase();
@@ -662,10 +663,11 @@ function _renderFlawsTab(asset) {
         : sev === 'medium' ? 'warning' : sev === 'low' ? 'info' : 'muted';
       return `
         <tr>
-          <td><a class="cve-link" href="https://nvd.nist.gov/vuln/detail/${escape(c.cve_id_str)}"
+          <td><a class="cve-link" href="${cveUrl(c.cve_id_str)}"
                target="_blank" rel="noopener">${escape(c.cve_id_str)}</a></td>
           <td>${escape(c.package_name || '—')}</td>
           <td class="mono">${escape(c.package_version || '—')}</td>
+          <td class="mono">${escape(c.fixed_version || '—')}</td>
           <td>${c.severity ? badge(c.severity, sevType) : '—'}</td>
           <td>${c.cvss_score != null ? c.cvss_score.toFixed(1) : '—'}</td>
           <td>${_renderSourceBadges(c.source)}</td>
@@ -739,7 +741,7 @@ function _renderFlawsList(alerts) {
       : risk === 'low' ? 'risk-low' : 'risk-info';
 
     const cveLinks = (alert.cve_ids || []).map(cve =>
-      `<a class="cve-link" href="https://nvd.nist.gov/vuln/detail/${escape(cve)}"
+      `<a class="cve-link" href="${cveUrl(cve)}"
          target="_blank" rel="noopener">${escape(cve)}</a>`
     ).join(' ');
 
@@ -1070,6 +1072,26 @@ async function runSshScan() {
   }
 }
 
+// ── CVE advisory URL — routes to the right source depending on ID format ──────
+//   CVE-YYYY-NNNNN          → NVD NIST
+//   UBUNTU-CVE-YYYY-NNNNN   → Ubuntu security tracker
+//   USN-XXXX-X              → Ubuntu Security Notice
+//   GHSA-XXXX-XXXX-XXXX     → GitHub Advisory Database
+//   anything else           → OSV.dev (catch-all)
+function cveUrl(id) {
+  if (!id) return '#';
+  const u = id.toUpperCase();
+  if (/^CVE-\d{4}-\d+$/.test(u))
+    return `https://nvd.nist.gov/vuln/detail/${id}`;
+  if (u.startsWith('UBUNTU-CVE-'))
+    return `https://ubuntu.com/security/${id.slice('UBUNTU-'.length)}`;
+  if (u.startsWith('USN-'))
+    return `https://ubuntu.com/security/notices/${id}`;
+  if (u.startsWith('GHSA-'))
+    return `https://github.com/advisories/${id}`;
+  return `https://osv.dev/vulnerability/${id}`;
+}
+
 // ── Source badges (multi-value support: "zap,nuclei") ─────────────────────────
 
 function _renderSourceBadges(source) {
@@ -1296,7 +1318,7 @@ function _renderNucleiFindingsList(findings) {
       : sev === 'low' ? 'risk-low' : 'risk-info';
 
     const cveLinks = (f.cve_ids || []).map(cve =>
-      `<a class="cve-link" href="https://nvd.nist.gov/vuln/detail/${escape(cve)}"
+      `<a class="cve-link" href="${cveUrl(cve)}"
          target="_blank" rel="noopener">${escape(cve)}</a>`
     ).join(' ');
 
@@ -1897,6 +1919,12 @@ async function _initAppData() {
   // Scans panel
   document.getElementById('refresh-scans').addEventListener('click', loadScans);
 
+  // CVEs panel
+  document.getElementById('refresh-cves').addEventListener('click', () => loadCves(true));
+  document.getElementById('cve-search').addEventListener('input', () => loadCves(true));
+  document.getElementById('cve-severity-filter').addEventListener('change', () => loadCves(true));
+  document.getElementById('cve-enrich-btn').addEventListener('click', triggerCveEnrichment);
+
   // Auto-refresh every 30 s
   setInterval(() => { refreshStats(); loadScans(); }, 30_000);
 }
@@ -1913,3 +1941,110 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// ── CVE Library ───────────────────────────────────────────────────────────────
+
+let _cveOffset = 0;
+const _CVE_LIMIT = 100;
+
+async function loadCves(reset = false) {
+  if (reset) _cveOffset = 0;
+
+  const search   = (document.getElementById('cve-search')?.value || '').trim();
+  const severity = document.getElementById('cve-severity-filter')?.value || '';
+
+  const params = new URLSearchParams({ skip: _cveOffset, limit: _CVE_LIMIT });
+  if (search)   params.set('search', search);
+  if (severity) params.set('severity', severity);
+
+  const tbody = document.getElementById('cve-global-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:24px">Chargement…</td></tr>';
+
+  let data;
+  try {
+    data = await api(`/cves?${params}`);
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--danger);text-align:center;padding:24px">Erreur : ${escape(String(e))}</td></tr>`;
+    return;
+  }
+
+  // Update nav count
+  const countEl = document.getElementById('nav-cve-count');
+  if (countEl) countEl.textContent = data.total > 0 ? data.total : '';
+
+  if (!data.items.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:24px">Aucun CVE en base.</td></tr>';
+    _renderCvePagination(data.total);
+    return;
+  }
+
+  tbody.innerHTML = data.items.map(c => {
+    const sev = (c.severity || '').toLowerCase();
+    const sevType = sev === 'critical' || sev === 'high' ? 'error'
+      : sev === 'medium' ? 'warning' : sev === 'low' ? 'info' : 'muted';
+    const desc = c.description
+      ? escape(c.description.length > 120 ? c.description.slice(0, 120) + '…' : c.description)
+      : '—';
+    const pub = c.published_at ? new Date(c.published_at).toLocaleDateString('fr-FR') : '—';
+    return `
+      <tr>
+        <td><a class="cve-link" href="${cveUrl(c.cve_id)}"
+             target="_blank" rel="noopener">${escape(c.cve_id)}</a></td>
+        <td>${c.severity ? badge(c.severity, sevType) : '—'}</td>
+        <td>${c.cvss_score != null ? c.cvss_score.toFixed(1) : '—'}</td>
+        <td style="text-align:center">
+          ${c.asset_count > 0
+            ? `<span style="font-weight:600;color:var(--danger)">${c.asset_count}</span>`
+            : '0'}
+        </td>
+        <td style="font-size:12px;color:var(--text-muted);max-width:340px">${desc}</td>
+        <td style="font-size:12px">${pub}</td>
+      </tr>`;
+  }).join('');
+
+  _renderCvePagination(data.total);
+}
+
+function _renderCvePagination(total) {
+  const container = document.getElementById('cve-pagination');
+  if (!container) return;
+
+  const pages = Math.ceil(total / _CVE_LIMIT);
+  const current = Math.floor(_cveOffset / _CVE_LIMIT);
+
+  if (pages <= 1) { container.innerHTML = ''; return; }
+
+  let html = '';
+  if (current > 0) {
+    html += `<button class="btn btn-sm" onclick="_cvePage(${current - 1})">← Préc.</button>`;
+  }
+  html += `<span style="padding:6px 12px;font-size:13px;color:var(--text-muted)">Page ${current + 1} / ${pages}</span>`;
+  if (current < pages - 1) {
+    html += `<button class="btn btn-sm" onclick="_cvePage(${current + 1})">Suiv. →</button>`;
+  }
+  container.innerHTML = html;
+}
+
+function _cvePage(page) {
+  _cveOffset = page * _CVE_LIMIT;
+  loadCves(false);
+}
+
+async function triggerCveEnrichment() {
+  const btn = document.getElementById('cve-enrich-btn');
+  const status = document.getElementById('cve-enrich-status');
+  btn.disabled = true;
+  btn.textContent = 'En cours…';
+  status.textContent = 'Enrichissement lancé en arrière-plan (OSV + NVD). Actualisez dans quelques instants.';
+  status.classList.remove('hidden');
+  try {
+    await api('/cves/enrich', { method: 'POST' });
+  } catch (e) {
+    status.textContent = `Erreur : ${e}`;
+  }
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = 'Enrichir';
+    loadCves(false);
+  }, 5000);
+}

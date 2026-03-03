@@ -81,6 +81,14 @@
             </svg>
             Modules
           </button>
+          <button class="nav-item" data-view="cves">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M12 8v4M12 16h.01"/>
+            </svg>
+            CVEs
+            <span class="nav-count" id="nav-cve-count"></span>
+          </button>
         </nav>
       </div>
 
@@ -162,6 +170,41 @@
             <tbody></tbody>
           </table>
         </div>
+      </section>
+
+      <!-- ── CVEs panel ────────────────────────────────────────────────────── -->
+      <section class="panel" id="panel-cves">
+        <div class="page-header">
+          <h1 class="page-title">Bibliothèque CVE</h1>
+          <div class="page-actions">
+            <input id="cve-search" type="text" placeholder="Rechercher un CVE…" class="search-input" />
+            <select id="cve-severity-filter" class="search-input" style="width:140px">
+              <option value="">Toutes sévérités</option>
+              <option value="Critical">Critical</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+              <option value="Unknown">Unknown</option>
+            </select>
+            <button class="btn btn-sm" id="cve-enrich-btn" title="Enrichir les CVE sans données CVSS depuis OSV/NVD">Enrichir</button>
+            <button class="btn btn-sm" id="refresh-cves">Refresh</button>
+          </div>
+        </div>
+        <div id="cve-enrich-status" class="status-bar hidden"></div>
+        <div class="table-wrap">
+          <table id="cve-table-global">
+            <thead>
+              <tr>
+                <th>CVE</th><th>Sévérité</th><th>Score CVSS</th>
+                <th>Assets affectés</th><th>Description</th><th>Publié le</th>
+              </tr>
+            </thead>
+            <tbody id="cve-global-tbody">
+              <tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:24px">Chargement…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="cve-pagination" style="display:flex;gap:8px;justify-content:center;margin-top:12px"></div>
       </section>
 
       <!-- ── Scans panel ───────────────────────────────────────────────────── -->
@@ -622,11 +665,11 @@
                 <thead>
                   <tr>
                     <th>CVE</th><th>Composant</th><th>Version</th>
-                    <th>Sévérité</th><th>Score CVSS</th><th>Source</th>
+                    <th>Version corrigée</th><th>Sévérité</th><th>Score CVSS</th><th>Source</th>
                   </tr>
                 </thead>
                 <tbody id="cve-tbody">
-                  <tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:24px">
+                  <tr><td colspan="7" style="color:var(--text-muted);text-align:center;padding:24px">
                     No vulnerabilities detected yet
                   </td></tr>
                 </tbody>

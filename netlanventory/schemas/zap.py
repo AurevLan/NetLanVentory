@@ -81,9 +81,10 @@ class AssetCveOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    source: str | None = None       # "zap" | "ssh"
+    source: str | None = None       # "zap" | "ssh" | "nuclei"
     package_name: str | None = None
     package_version: str | None = None
+    fixed_version: str | None = None
     discovered_at: datetime
 
     # Flattened from the related Cve row
@@ -101,6 +102,7 @@ class AssetCveOut(BaseModel):
             source=obj.source,  # type: ignore[attr-defined]
             package_name=obj.package_name,  # type: ignore[attr-defined]
             package_version=obj.package_version,  # type: ignore[attr-defined]
+            fixed_version=obj.fixed_version,  # type: ignore[attr-defined]
             discovered_at=obj.discovered_at,  # type: ignore[attr-defined]
             cve_id_str=cve.cve_id if cve else "",
             description=cve.description if cve else None,
