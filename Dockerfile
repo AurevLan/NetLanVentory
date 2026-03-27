@@ -2,7 +2,7 @@
 FROM projectdiscovery/nuclei:latest AS nuclei-bin
 
 # ── Stage 0b: Trivy binary ────────────────────────────────────────────────────
-FROM aquasec/trivy:latest AS trivy-bin
+FROM ghcr.io/aquasecurity/trivy:latest AS trivy-bin
 
 # ── Stage 0c: testssl.sh ──────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS testssl-bin
