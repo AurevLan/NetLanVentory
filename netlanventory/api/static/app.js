@@ -1635,16 +1635,16 @@ async function loadScans() {
       const rerunBtn = `<button class="btn btn-sm" onclick="rerunScan('${s.id}')"
                           ${running ? 'disabled title="Scan in progress"' : ''}>&#8635; Re-run</button>`;
 
-      // Recurring badge + toggle
-      let recurringHtml = '';
+      // Recurring rescan button
+      let recurringBtn = '';
       if (s.recurring) {
         const interval = s.recurring_interval_hours || 24;
         const label = interval >= 24 ? `${Math.round(interval / 24)}j` : `${interval}h`;
-        recurringHtml = `
-          <span class="badge badge-success" style="font-size:9px" title="Rescan auto toutes les ${interval}h (${s.recurring_run_count || 0} exécutions)">&#8634; ${label}</span>
-          <button class="btn btn-sm" style="font-size:10px;padding:2px 6px" onclick="setRecurring('${s.id}', false)" title="Désactiver le rescan automatique">Stop</button>`;
-      } else if (!running && s.status === 'completed') {
-        recurringHtml = `<button class="btn btn-sm" style="font-size:10px;padding:2px 6px" onclick="promptRecurring('${s.id}')" title="Planifier un rescan automatique">&#8634; Planifier</button>`;
+        recurringBtn = `
+          <span class="badge badge-success" title="${s.recurring_run_count || 0} exécutions">&#8634; ${label}</span>
+          <button class="btn btn-danger btn-sm" onclick="setRecurring('${s.id}', false)">Arrêter</button>`;
+      } else if (!running) {
+        recurringBtn = `<button class="btn btn-primary btn-sm" onclick="promptRecurring('${s.id}')">&#8634; Replanifier</button>`;
       }
 
       return `
@@ -1652,11 +1652,11 @@ async function loadScans() {
           <td class="mono" style="font-size:11px;color:var(--text-muted)">${s.id.slice(0, 8)}…</td>
           <td class="mono">${escape(s.target)}</td>
           <td>${(s.modules_run || []).map(m => badge(m, 'info')).join(' ')}</td>
-          <td>${statusBadge(s.status)} ${recurringHtml}</td>
+          <td>${statusBadge(s.status)}</td>
           <td style="font-size:12px;color:var(--text-muted)">${fmtDate(s.started_at)}</td>
           <td style="font-size:12px;color:var(--text-muted)">${fmtDate(s.finished_at)}</td>
           <td>${assetsFound}</td>
-          <td>${rerunBtn}</td>
+          <td style="display:flex;gap:4px;flex-wrap:wrap">${rerunBtn} ${recurringBtn}</td>
         </tr>`;
     }).join('');
   } catch (e) {
