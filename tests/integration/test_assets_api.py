@@ -73,4 +73,4 @@ async def test_health_endpoint(client):
     data = resp.json()
     assert data["status"] in ("ok", "degraded")
     assert "version" in data
-    assert data["version"] == "0.9.0"
+    assert data["version"] == "0.12.0"
