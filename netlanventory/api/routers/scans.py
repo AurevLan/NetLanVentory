@@ -74,6 +74,49 @@ async def create_scan(
             detail=f"Unknown modules: {unknown}. Available: {registry.names()}",
         )
 
+    # Check if a scan with the same target already exists — reuse it
+    existing_result = await db.execute(
+        select(Scan)
+        .where(Scan.target == payload.target)
+        .options(selectinload(Scan.results))
+        .order_by(Scan.created_at.desc())
+        .limit(1)
+    )
+    existing = existing_result.scalar_one_or_none()
+
+    if existing and existing.status not in ("pending", "running"):
+        # Re-run the existing scan in place
+        for r in list(existing.results):
+            await db.delete(r)
+        existing.status = "pending"
+        existing.started_at = None
+        existing.finished_at = None
+        existing.summary = None
+        existing.error_msg = None
+        existing.partial_results = {}
+        existing.modules_run = payload.modules
+        await db.commit()
+
+        result = await db.execute(
+            select(Scan).where(Scan.id == existing.id).options(selectinload(Scan.results))
+        )
+        scan = result.scalar_one()
+
+        background_tasks.add_task(
+            _run_scan,
+            scan_id=scan.id,
+            target=payload.target,
+            modules=payload.modules,
+            options=payload.options,
+        )
+        logger.info("Scan reused in place", scan_id=str(scan.id), target=payload.target)
+        return scan
+
+    if existing and existing.status in ("pending", "running"):
+        # Already running — return it as-is
+        return existing
+
+    # No existing scan for this target — create a new one
     scan = Scan(
         target=payload.target,
         status="pending",
@@ -81,7 +124,6 @@ async def create_scan(
     )
     db.add(scan)
     await db.commit()
-    # Re-query with results eagerly loaded to avoid lazy-load during serialization
     result = await db.execute(
         select(Scan).where(Scan.id == scan.id).options(selectinload(Scan.results))
     )
