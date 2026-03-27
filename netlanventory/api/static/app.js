@@ -5952,8 +5952,7 @@ function initGlobalSearch() {
     if (q.length < 2) { dropdown.classList.add('hidden'); return; }
     _searchTimer = setTimeout(async () => {
       try {
-        const resp = await api(`/search?q=${encodeURIComponent(q)}&limit=15`);
-        const data = await resp.json();
+        const data = await api(`/search?q=${encodeURIComponent(q)}&limit=15`);
         if (!data.results || data.results.length === 0) {
           dropdown.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:13px">Aucun résultat</div>';
         } else {
@@ -6002,8 +6001,7 @@ async function loadTimeline() {
   if (!el) return;
   el.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Chargement…</p>';
   try {
-    const resp = await api('/timeline?limit=200');
-    const events = await resp.json();
+    const events = await api('/timeline?limit=200');
     if (!events.length) { el.innerHTML = '<p style="color:var(--text-muted)">Aucun événement</p>'; return; }
 
     const typeColors = { asset_discovered: '#818cf8', cve_found: '#f87171', port_opened: '#fbbf24', scan_completed: '#34d399' };
@@ -6039,12 +6037,10 @@ async function loadCompliance() {
   if (!fwEl || !listEl) return;
 
   try {
-    const [fwResp, repResp] = await Promise.all([
+    const [frameworks, reports] = await Promise.all([
       api('/compliance/frameworks'),
       api('/compliance/reports?limit=20'),
     ]);
-    const frameworks = await fwResp.json();
-    const reports = await repResp.json();
 
     fwEl.innerHTML = frameworks.map(fw => `
       <div class="settings-card" style="text-align:center">
@@ -6093,8 +6089,7 @@ async function loadExecutive() {
   if (!kpisEl) return;
 
   try {
-    const resp = await api('/executive/summary');
-    const d = await resp.json();
+    const d = await api('/executive/summary');
 
     kpisEl.innerHTML = [
       { label: 'Score risque', value: d.global_risk_score, color: d.global_risk_score > 60 ? 'var(--danger)' : d.global_risk_score > 30 ? 'var(--warning)' : 'var(--success)' },
@@ -6177,8 +6172,7 @@ async function loadThreatIntel() {
   if (!listEl) return;
 
   try {
-    const resp = await api('/threat-intel/iocs?limit=100');
-    const iocs = await resp.json();
+    const iocs = await api('/threat-intel/iocs?limit=100');
 
     if (statsEl) {
       const ipCount = iocs.filter(i => i.ioc_type === 'ip').length;
@@ -6225,7 +6219,8 @@ async function refreshThreatFeeds() {
 async function exportExecutivePDF() {
   try {
     showToast('Génération du PDF…', 'info');
-    const resp = await api('/reports/export/pdf/executive');
+    const headers = { 'Authorization': `Bearer ${_token}` };
+    const resp = await fetch(API + '/reports/export/pdf/executive', { headers });
     if (!resp.ok) { const err = await resp.json().catch(() => ({})); throw new Error(err.detail || 'Erreur PDF'); }
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
@@ -6238,7 +6233,8 @@ async function exportExecutivePDF() {
 async function exportXLSX() {
   try {
     showToast('Génération Excel…', 'info');
-    const resp = await api('/reports/export/xlsx');
+    const headers = { 'Authorization': `Bearer ${_token}` };
+    const resp = await fetch(API + '/reports/export/xlsx', { headers });
     if (!resp.ok) { const err = await resp.json().catch(() => ({})); throw new Error(err.detail || 'Erreur Excel'); }
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
