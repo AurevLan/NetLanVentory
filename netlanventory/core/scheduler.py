@@ -432,12 +432,12 @@ async def _check_scheduled_reports() -> None:
 async def _check_scheduled_scans() -> None:
     """Trigger recurring scans when their interval has elapsed.
 
-    A scan with recurring=True and recurring_interval_hours set will be
-    automatically re-launched (same target + modules) when the interval
-    has elapsed since the last trigger.
+    Re-runs the SAME scan in place (resets status, clears old results)
+    instead of creating a new scan row. The scan list stays clean.
     """
     from netlanventory.core.database import get_session_factory
     from netlanventory.models.scan import Scan
+    from netlanventory.models.scan_result import ScanResult
     from netlanventory.api.routers.scans import _run_scan
 
     factory = get_session_factory()
@@ -448,15 +448,16 @@ async def _check_scheduled_scans() -> None:
             select(Scan).where(
                 Scan.recurring.is_(True),
                 Scan.recurring_interval_hours.isnot(None),
+                # Don't re-trigger a scan that's already running
+                Scan.status.notin_(["pending", "running"]),
             )
         )
         recurring_scans = result.scalars().all()
 
-        for parent in recurring_scans:
-            interval = parent.recurring_interval_hours or 24
+        for scan in recurring_scans:
+            interval = scan.recurring_interval_hours or 24
 
-            # Check if interval has elapsed since last trigger (or creation)
-            last = parent.recurring_last_triggered_at or parent.created_at
+            last = scan.recurring_last_triggered_at or scan.finished_at or scan.created_at
             if last is not None:
                 if last.tzinfo is None:
                     last = last.replace(tzinfo=timezone.utc)
@@ -464,37 +465,39 @@ async def _check_scheduled_scans() -> None:
                 if elapsed_hours < interval:
                     continue
 
-            modules = parent.modules_run or []
+            modules = scan.modules_run or []
             if not modules:
                 continue
 
-            # Create a NEW scan from the parent's config
-            child = Scan(
-                target=parent.target,
-                status="pending",
-                modules_run=modules,
+            # Clear previous results
+            old_results = await session.execute(
+                select(ScanResult).where(ScanResult.scan_id == scan.id)
             )
-            session.add(child)
-            await session.flush()
-            await session.refresh(child)
+            for r in old_results.scalars().all():
+                await session.delete(r)
 
-            # Update parent tracking
-            parent.recurring_last_triggered_at = now
-            parent.recurring_run_count = (parent.recurring_run_count or 0) + 1
+            # Reset scan state in place
+            scan.status = "pending"
+            scan.started_at = None
+            scan.finished_at = None
+            scan.summary = None
+            scan.error_msg = None
+            scan.partial_results = {}
+            scan.recurring_last_triggered_at = now
+            scan.recurring_run_count = (scan.recurring_run_count or 0) + 1
             await session.flush()
 
             logger.info(
-                "Recurring scan triggered",
-                parent_scan_id=str(parent.id),
-                child_scan_id=str(child.id),
-                target=parent.target,
+                "Recurring scan triggered (in-place)",
+                scan_id=str(scan.id),
+                target=scan.target,
                 modules=modules,
-                run_count=parent.recurring_run_count,
+                run_count=scan.recurring_run_count,
             )
 
             asyncio.create_task(
-                _run_scan(child.id, parent.target, modules, {}),
-                name=f"recurring-{parent.id}-{child.id}",
+                _run_scan(scan.id, scan.target, modules, {}),
+                name=f"recurring-{scan.id}",
             )
 
         await session.commit()

@@ -104,21 +104,31 @@ async def rerun_scan(
     background_tasks: BackgroundTasks,
     db: DbDep,
 ) -> Scan:
-    """Create a new scan using the same target and modules as an existing scan."""
+    """Re-run an existing scan in place (same row, reset status, clear old results)."""
     result = await db.execute(
-        select(Scan).where(Scan.id == scan_id)
+        select(Scan).where(Scan.id == scan_id).options(selectinload(Scan.results))
     )
-    original = result.scalar_one_or_none()
-    if not original:
+    scan = result.scalar_one_or_none()
+    if not scan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
 
-    scan = Scan(
-        target=original.target,
-        status="pending",
-        modules_run=original.modules_run,
-    )
-    db.add(scan)
+    if scan.status in ("pending", "running"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Scan already running")
+
+    # Clear previous results
+    for r in list(scan.results):
+        await db.delete(r)
+
+    # Reset scan state
+    scan.status = "pending"
+    scan.started_at = None
+    scan.finished_at = None
+    scan.summary = None
+    scan.error_msg = None
+    scan.partial_results = {}
     await db.commit()
+
+    # Re-load cleanly
     result = await db.execute(
         select(Scan).where(Scan.id == scan.id).options(selectinload(Scan.results))
     )
@@ -132,7 +142,7 @@ async def rerun_scan(
         options={},
     )
 
-    logger.info("Rerun scan queued", original_scan_id=str(scan_id), new_scan_id=str(scan.id))
+    logger.info("Scan re-run in place", scan_id=str(scan_id))
     return scan
 
 
