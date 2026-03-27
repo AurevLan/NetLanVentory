@@ -9,6 +9,59 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.10.0] — 2026-03-27
+
+### Added
+- **Complete test suite** — 256 tests (from ~75), covering security regression, all API endpoints, CRUD, scan smoke tests, admin endpoints, auth/crypto unit tests
+- **Security regression test suite** (`test_security_regression.py`) — 32 tests verifying CSP/HSTS/CORS headers, auth enforcement, input validation, password strength (ANSSI R22), JWT security, encryption
+- **Scan endpoint smoke tests** (`test_api_scan_endpoints.py`) — 40 tests covering all 12 scanner types (Nuclei, SSH, ZAP, Trivy, testssl, ssh-audit, default-creds, headers-audit, SSL, baseline, full-audit, exploit-validation)
+- **Admin endpoint tests** (`test_api_admin.py`) — 23 tests for users CRUD, settings, OIDC, audit logs, SSH profiles, quota, sessions, notifications, compliance, EPSS, KEV, reports
+- **Auth & crypto unit tests** (`unit/test_auth_crypto.py`) — password hashing, ANSSI R22 validation, JWT create/decode/expired/invalid, encrypt/decrypt roundtrip
+- **Makefile** with `make recette` (full acceptance), `make test-security`, `make test-coverage`, `make lint`, `make audit`
+- **Recette script** (`scripts/recette.sh`) — 6-phase non-regression script with `--quick`, `--security`, `--coverage` modes
+- **CI/CD overhaul** — lint job (ruff + mypy), test job (Python 3.11 + 3.12 with coverage), dependency security audit (pip-audit + bandit)
+- **Ruff security rules** — added `S` (bandit), `B` (bugbear), `SIM`, `T20`, `PIE`, `RET`, `PTH` lint rules
+- **Dev security tools** — `bandit>=1.9.0`, `safety>=3.3.0`, `pip-audit>=2.9.0` in dev dependencies
+- **Pytest markers** — `security`, `smoke`, `crud`, `admin`, `unit`, `integration` for selective test execution
+
+### Changed
+- **Design overhaul: Obsidian Terminal v3** — complete CSS redesign with tactical operations aesthetic
+  - Typography: DM Sans (body) + IBM Plex Mono (data/labels) replacing Inter
+  - Color palette: ice-blue signal palette (#58a6ff accent, #3fb950 success, #f85149 danger, #d29922 warning)
+  - CRT scanline texture overlay, grid pattern login background
+  - Hairline rgba borders with 3 opacity tiers, deep void shadows
+  - Square badges and angular elements, 2px left accent bars on active nav
+  - Monospace data display throughout tables, badges, counters
+  - 3 responsive breakpoints (1024px, 768px, 480px) instead of 1
+  - `:focus-visible` outlines on all interactive elements, custom scrollbars
+- **Dependency versions** — fastapi >=0.135.0, uvicorn >=0.42.0, sqlalchemy >=2.0.48, pydantic >=2.11.0, pyjwt >=2.12.0, cryptography >=46.0.0, structlog >=25.1.0, ruff >=0.11.0, mypy >=1.15.0, pytest >=8.5.0
+- **Version bump** — 0.9.0 → 0.10.0
+
+### Security
+- **CSP nonce** — per-request nonce for scripts; `unsafe-inline` removed from `script-src`
+- **HSTS** — `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+- **Cross-origin isolation** — `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`
+- **API cache prevention** — `Cache-Control: no-store` on all `/api/` responses
+- **CSP hardening** — `frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`, `object-src 'none'`
+- **CORS restricted** — default origins changed from `["*"]` to `["http://localhost:8443", "https://localhost:8443"]`
+- **Bcrypt work factor** — increased from 12 to 14 rounds (ANSSI recommendation)
+- **Password complexity** — mandatory 12+ chars with uppercase, lowercase, digit, and special character (ANSSI R22)
+- **Default secrets blocked** — startup fails in production (APP_DEBUG=false) if default secrets are detected
+- **Docker non-root** — new `netlv` service user, `cap_drop: ALL` + `cap_add: NET_RAW, NET_ADMIN`, `no-new-privileges`
+- **Docker secrets required** — `SECRET_KEY`, `JWT_SECRET_KEY`, `ADMIN_PASSWORD`, `POSTGRES_PASSWORD` use `${VAR:?error}` syntax
+- **PostgreSQL hardened** — `read_only: true`, `no-new-privileges`, tmpfs for /tmp and /run
+- **ZAP API key** — enabled by default (was `api.disablekey=true`)
+- **Input validation** — regex host/port validation in testssl.sh and ssh-audit routers, Docker image name validation in Trivy, IP address validation in CSV import
+- **Token storage** — JWT moved from `localStorage` to `sessionStorage` (reduced XSS exposure)
+- **XSS escape** — strengthened `escape()` function (backticks, forward slashes), added `escapeAttr()` for attribute contexts
+- **Accessibility** — `role="dialog" aria-modal="true"` on all modal overlays
+
+### Fixed
+- **CVE enrichment test** — `mitre_techniques` field default is `[]` not `None`
+- **Circuit breaker state names** — uppercase enum values (`CLOSED`/`OPEN`/`HALF_OPEN`)
+
+---
+
 ## [v0.6.0] — 2026-03-03
 
 ### Added

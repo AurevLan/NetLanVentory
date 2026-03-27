@@ -20,3 +20,17 @@ class SshScanReportOut(BaseModel):
     error_msg: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class SshScanCveItem(BaseModel):
+    cve_id: str
+    severity: str | None = None
+    cvss_score: float | None = None
+    package_name: str | None = None
+    package_version: str | None = None
+
+
+class SshScanDiffOut(BaseModel):
+    new_cves: list[SshScanCveItem] = []
+    resolved_cves: list[SshScanCveItem] = []
+    common_cves: list[SshScanCveItem] = []

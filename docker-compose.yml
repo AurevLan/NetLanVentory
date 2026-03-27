@@ -18,19 +18,26 @@ services:
     networks:
       - internal
     ports:
-      - "127.0.0.1:5432:5432"   # Required: app uses network_mode: host → connects to localhost
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
       POSTGRES_DB:       ${POSTGRES_DB:-netlanventory}
       POSTGRES_USER:     ${POSTGRES_USER:-netlv}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-netlv_secret}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-netlv} -d ${POSTGRES_DB:-netlanventory}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+    # Security: drop all capabilities not needed by PostgreSQL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run/postgresql
 
   # ── Database migration (one-shot) ─────────────────────────────────────────
   migrate:
@@ -38,7 +45,7 @@ services:
     networks:
       - internal
     environment:
-      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-netlv}:${POSTGRES_PASSWORD:-netlv_secret}@db:5432/${POSTGRES_DB:-netlanventory}"
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-netlv}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-netlanventory}"
     command: >
       sh -c "
         until pg_isready -h db -U ${POSTGRES_USER:-netlv} -d ${POSTGRES_DB:-netlanventory} 2>/dev/null; do
@@ -50,6 +57,8 @@ services:
       db:
         condition: service_healthy
     restart: "no"
+    security_opt:
+      - no-new-privileges:true
 
   # ── Test runner (one-shot, profile: test) ─────────────────────────────────
   tests:
@@ -61,16 +70,21 @@ services:
       # Tests use SQLite in-memory — no PostgreSQL needed
       DATABASE_URL: "sqlite+aiosqlite:///:memory:"
     restart: "no"
+    security_opt:
+      - no-new-privileges:true
 
   # ── OWASP ZAP web scanner daemon ──────────────────────────────────────────
   zap:
     image: ghcr.io/zaproxy/zaproxy:stable
     restart: unless-stopped
+    networks:
+      - internal
     ports:
       - "127.0.0.1:8080:8080"
     command: >
       zap.sh -daemon -host 0.0.0.0 -port 8080
-      -config api.disablekey=true
+      -config api.disablekey=${ZAP_DISABLE_KEY:-false}
+      -config api.key=${ZAP_API_KEY:-}
       -config api.addrs.addr.name=.*
       -config api.addrs.addr.regex=true
     healthcheck:
@@ -79,51 +93,56 @@ services:
       timeout: 10s
       start_period: 60s
       retries: 5
+    security_opt:
+      - no-new-privileges:true
 
   # ── Application server ────────────────────────────────────────────────────
   app:
     build: .
     restart: unless-stopped
-    # network_mode: host is required for Layer 2 ARP scanning (scapy).
-    # This means the container shares the host network stack.
-    network_mode: host
-    # Alternatively, for environments where host networking is not available,
-    # uncomment the block below and comment out network_mode above:
-    # networks:
-    #   - internal
-    # ports:
-    #   - "${APP_PORT:-8000}:8000"
+    networks:
+      - internal
+    ports:
+      - "${HOST_PORT:-8443}:8443"
     environment:
-      DATABASE_URL:      "postgresql+asyncpg://${POSTGRES_USER:-netlv}:${POSTGRES_PASSWORD:-netlv_secret}@localhost:5432/${POSTGRES_DB:-netlanventory}"
+      DATABASE_URL:      "postgresql+asyncpg://${POSTGRES_USER:-netlv}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-netlanventory}"
       APP_HOST:          ${APP_HOST:-0.0.0.0}
-      APP_PORT:          ${APP_PORT:-8000}
+      APP_PORT:          8443
       APP_DEBUG:         ${APP_DEBUG:-false}
       LOG_LEVEL:         ${LOG_LEVEL:-INFO}
-      SECRET_KEY:        ${SECRET_KEY:-change-me-in-production}
-      JWT_SECRET_KEY:    ${JWT_SECRET_KEY:-change-me-jwt-secret}
+      SECRET_KEY:        ${SECRET_KEY:?SECRET_KEY must be set in .env}
+      JWT_SECRET_KEY:    ${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set in .env}
       ADMIN_EMAIL:       ${ADMIN_EMAIL:-admin@localhost}
-      ADMIN_PASSWORD:    ${ADMIN_PASSWORD:-changeme}
+      ADMIN_PASSWORD:    ${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set in .env}
+      ZAP_API_URL:       ${ZAP_API_URL:-http://zap:8080}
       ZAP_API_KEY:       ${ZAP_API_KEY:-}
       NVD_API_KEY:       ${NVD_API_KEY:-}
       NUCLEI_RATE_LIMIT: ${NUCLEI_RATE_LIMIT:-150}
       NUCLEI_TIMEOUT:    ${NUCLEI_TIMEOUT:-30}
       MAX_CONCURRENT_NUCLEI_SCANS: ${MAX_CONCURRENT_NUCLEI_SCANS:-2}
+    # Security: drop all capabilities, then add only what's needed
+    cap_drop:
+      - ALL
     cap_add:
-      - NET_ADMIN   # Required for ARP manipulation
-      - NET_RAW     # Required for raw socket access (scapy / nmap)
+      - NET_RAW       # Required for raw socket access (nmap SYN scans, ICMP)
+      - NET_ADMIN     # Required for ARP scans
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       db:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      zap:
+        condition: service_healthy
     volumes:
       # Optional: mount .env for local overrides
       - ./.env:/app/.env:ro
-      # Persist Nuclei templates so they are not re-downloaded on every container start
-      - nuclei_templates:/root/nuclei-templates
+      # Persist Nuclei templates (non-root user home)
+      - nuclei_templates:/home/netlv/nuclei-templates
     healthcheck:
       test: ["CMD", "python", "-c",
-             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+             "import urllib.request; urllib.request.urlopen('http://localhost:8443/health')"]
       interval: 30s
       timeout: 10s
       start_period: 20s

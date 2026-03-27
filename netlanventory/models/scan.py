@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import JSON, DateTime, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from netlanventory.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -30,6 +31,8 @@ class Scan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     modules_run: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     summary: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error_msg: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Partial results saved incrementally during long scans (survives restarts)
+    partial_results: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True, server_default="{}")
 
     # Relationships
     results: Mapped[list["ScanResult"]] = relationship(  # noqa: F821

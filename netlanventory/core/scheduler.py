@@ -1,8 +1,8 @@
-"""Background ZAP auto-scan scheduler.
+"""Background auto-scan scheduler.
 
 Runs as an asyncio task in the app lifespan. Every 60 seconds it checks
-all assets where ZAP auto-scan is enabled and triggers scans when the
-configured interval has elapsed since the last scan.
+all assets where ZAP, SSH, or Trivy auto-scan is enabled and triggers
+scans when the configured interval has elapsed since the last scan.
 """
 
 from __future__ import annotations
@@ -26,9 +26,13 @@ _WEB_PORTS_ALL = _WEB_PORTS_HTTP | _WEB_PORTS_HTTPS
 _CHECK_INTERVAL_SECONDS = 60  # how often the scheduler wakes up to check
 
 
+_THREAT_FEED_INTERVAL_SECONDS = 6 * 3600  # 6 hours
+_last_threat_feed_refresh: datetime | None = None
+
+
 async def scheduler_loop() -> None:
-    """Infinite loop: wake every 60 s and trigger due ZAP scans."""
-    logger.info("ZAP auto-scan scheduler started")
+    """Infinite loop: wake every 60 s and trigger due ZAP, SSH, Trivy scans and other checks."""
+    logger.info("Auto-scan scheduler started (ZAP + SSH + Trivy + threat feeds + new assets)")
     while True:
         await asyncio.sleep(_CHECK_INTERVAL_SECONDS)
         try:
@@ -37,6 +41,36 @@ async def scheduler_loop() -> None:
             raise
         except Exception:
             logger.exception("ZAP scheduler error — will retry next cycle")
+        try:
+            await _check_and_trigger_ssh_auto_scans()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("SSH scheduler error — will retry next cycle")
+        try:
+            await _check_and_trigger_trivy_auto_scans()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Trivy scheduler error — will retry next cycle")
+        try:
+            await _check_new_assets()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("New-assets check error — will retry next cycle")
+        try:
+            await _maybe_refresh_threat_feeds()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Threat feeds refresh error — will retry next cycle")
+        try:
+            await _check_scheduled_reports()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Scheduled reports check error — will retry next cycle")
 
 
 async def _check_and_trigger_auto_scans() -> None:
@@ -161,5 +195,229 @@ async def _check_and_trigger_auto_scans() -> None:
                     ),
                     name=f"zap-auto-{asset.id}-{report.id}",
                 )
+
+        await session.commit()
+
+
+async def _check_and_trigger_ssh_auto_scans() -> None:
+    """Check all assets and trigger SSH CVE scans where due."""
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.models.asset import Asset
+    from netlanventory.models.ssh_scan_report import SshScanReport
+    from netlanventory.api.routers.ssh_scan import _run_ssh_scan
+
+    factory = get_session_factory()
+
+    async with factory() as session:
+        assets_result = await session.execute(
+            select(Asset)
+            .where(Asset.is_active.is_(True))
+            .where(Asset.ssh_auto_scan_enabled.is_(True))
+            .options(selectinload(Asset.ssh_profile))
+        )
+        assets = assets_result.scalars().all()
+
+        now = datetime.now(timezone.utc)
+
+        for asset in assets:
+            # Must have SSH credentials to scan
+            if not asset.has_ssh_credentials:
+                continue
+
+            if not asset.ip:
+                continue
+
+            interval_minutes = asset.ssh_scan_interval_minutes or 60
+
+            last = asset.ssh_last_auto_scan_at
+            if last is not None:
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                elapsed_minutes = (now - last).total_seconds() / 60
+                if elapsed_minutes < interval_minutes:
+                    continue
+
+            # Mark before launching to avoid double-trigger
+            asset.ssh_last_auto_scan_at = now
+            await session.flush()
+
+            report = SshScanReport(asset_id=asset.id, status="pending")
+            session.add(report)
+            await session.flush()
+            await session.refresh(report)
+
+            logger.info(
+                "SSH auto-scan triggered",
+                asset_id=str(asset.id),
+                ip=asset.ip,
+            )
+
+            asyncio.create_task(
+                _run_ssh_scan(report_id=report.id, asset_id=asset.id),
+                name=f"ssh-auto-{asset.id}-{report.id}",
+            )
+
+        await session.commit()
+
+
+async def _check_and_trigger_trivy_auto_scans() -> None:
+    """Check all assets and trigger Trivy Docker scans where due."""
+    import shutil
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.models.asset import Asset
+    from netlanventory.models.trivy_docker_report import TrivyDockerReport
+    from netlanventory.api.routers.trivy_docker_scan import _run_trivy_docker_scan, TRIVY_BINARY
+
+    if not shutil.which(TRIVY_BINARY):
+        return  # Trivy not installed, skip silently
+
+    factory = get_session_factory()
+
+    async with factory() as session:
+        assets_result = await session.execute(
+            select(Asset)
+            .where(Asset.is_active.is_(True))
+            .where(Asset.trivy_auto_scan_enabled.is_(True))
+            .options(selectinload(Asset.ssh_profile))
+        )
+        assets = assets_result.scalars().all()
+
+        now = datetime.now(timezone.utc)
+
+        for asset in assets:
+            if not asset.has_ssh_credentials:
+                continue
+
+            if not asset.ip:
+                continue
+
+            interval_minutes = asset.trivy_scan_interval_minutes or 60
+
+            last = asset.trivy_last_auto_scan_at
+            if last is not None:
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                elapsed_minutes = (now - last).total_seconds() / 60
+                if elapsed_minutes < interval_minutes:
+                    continue
+
+            # Mark before launching to avoid double-trigger
+            asset.trivy_last_auto_scan_at = now
+            await session.flush()
+
+            report = TrivyDockerReport(asset_id=asset.id, status="pending")
+            session.add(report)
+            await session.flush()
+            await session.refresh(report)
+
+            logger.info(
+                "Trivy auto-scan triggered",
+                asset_id=str(asset.id),
+                ip=asset.ip,
+            )
+
+            asyncio.create_task(
+                _run_trivy_docker_scan(report_id=report.id, asset_id=asset.id),
+                name=f"trivy-auto-{asset.id}-{report.id}",
+            )
+
+        await session.commit()
+
+
+async def _check_new_assets() -> None:
+    """Notify about high/critical assets discovered in the last 5 minutes."""
+    from datetime import timedelta
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.core.notifications import notify_new_critical_asset
+    from netlanventory.models.asset import Asset
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+    factory = get_session_factory()
+
+    async with factory() as session:
+        result = await session.execute(
+            select(Asset).where(
+                Asset.created_at >= cutoff,
+                Asset.criticality.in_(["high", "critical"]),
+                Asset.is_active.is_(True),
+            )
+        )
+        new_critical = result.scalars().all()
+        for asset in new_critical:
+            await notify_new_critical_asset(asset)
+
+
+async def _maybe_refresh_threat_feeds() -> None:
+    """Refresh threat intelligence feeds every 6 hours."""
+    global _last_threat_feed_refresh
+
+    now = datetime.now(timezone.utc)
+    if _last_threat_feed_refresh is not None:
+        elapsed = (now - _last_threat_feed_refresh).total_seconds()
+        if elapsed < _THREAT_FEED_INTERVAL_SECONDS:
+            return
+
+    from netlanventory.core.config import get_settings
+    from netlanventory.core.threat_feeds import refresh_abusech_feed, refresh_otx_feed
+
+    _last_threat_feed_refresh = now
+    settings = get_settings()
+
+    if settings.otx_api_key:
+        try:
+            count = await refresh_otx_feed(settings.otx_api_key)
+            logger.info("OTX feed refreshed", count=count)
+        except Exception:  # noqa: BLE001
+            logger.exception("OTX feed refresh failed")
+
+    try:
+        count = await refresh_abusech_feed()
+        logger.info("Abuse.ch feed refreshed", count=count)
+    except Exception:  # noqa: BLE001
+        logger.exception("Abuse.ch feed refresh failed")
+
+
+async def _check_scheduled_reports() -> None:
+    """Send overdue scheduled reports."""
+    from datetime import timedelta
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.core.email_sender import send_report_email
+    from netlanventory.models.scheduled_report import ScheduledReport
+
+    now = datetime.now(timezone.utc)
+    factory = get_session_factory()
+
+    async with factory() as session:
+        result = await session.execute(
+            select(ScheduledReport).where(
+                ScheduledReport.enabled.is_(True),
+                ScheduledReport.next_run_at <= now,
+            )
+        )
+        due_reports = result.scalars().all()
+
+        interval_map = {
+            "daily": timedelta(days=1),
+            "weekly": timedelta(weeks=1),
+            "monthly": timedelta(days=30),
+        }
+
+        for report in due_reports:
+            try:
+                subject = f"[NetLanVentory] {report.name} — {report.report_type} report"
+                html_body = f"<h1>NetLanVentory Report: {report.name}</h1><p>Type: {report.report_type}</p>"
+
+                await send_report_email(
+                    recipients=report.recipients,
+                    subject=subject,
+                    html_body=html_body,
+                    pdf_attachment=None,
+                )
+
+                report.last_sent_at = now
+                report.next_run_at = now + interval_map.get(report.schedule, timedelta(days=1))
+                logger.info("Scheduled report sent", name=report.name, recipients=report.recipients)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to send scheduled report", name=report.name)
 
         await session.commit()

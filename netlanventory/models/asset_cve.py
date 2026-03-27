@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, func
 from sqlalchemy import Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -45,6 +45,28 @@ class AssetCve(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+    # Acknowledgment — none | accepted | false_positive | in_progress
+    ack_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="none"
+    )
+    ack_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ack_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ack_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # SLA remediation tracking
+    sla_deadline: Mapped[datetime | None] = mapped_column(Date(), nullable=True)
+    sla_breached: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+
+    # Exploit verification — did Nuclei confirm the CVE is actually exploitable?
+    # None = never tested, True = confirmed exploitable, False = tested / not confirmed
+    exploit_verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    exploit_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    exploit_verified_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # Ticket tracking (Jira / ServiceNow)
+    ticket_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ticket_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
     asset: Mapped["Asset"] = relationship("Asset", back_populates="cves")  # noqa: F821

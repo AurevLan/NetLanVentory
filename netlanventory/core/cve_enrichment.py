@@ -145,6 +145,13 @@ async def enrich_cves(
 
     await session.flush()
 
+    # MITRE ATT&CK enrichment (fire-and-forget, best effort)
+    try:
+        from netlanventory.core.mitre_enrichment import enrich_mitre
+        await enrich_mitre([cve.cve_id for cve in to_enrich], session)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("MITRE enrichment failed", error=str(exc))
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

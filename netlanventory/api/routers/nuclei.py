@@ -14,11 +14,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from netlanventory.api.dependencies import get_db
+from netlanventory.api.dependencies import actor_from_user, get_current_active_user, get_db
+from netlanventory.core.audit import log_action
 from netlanventory.core.config import get_settings
 from netlanventory.core.cve_enrichment import enrich_cves
 from netlanventory.core.limiter import limiter
 from netlanventory.core.logging import get_logger
+from netlanventory.core.quota import check_and_increment_quota
 from netlanventory.models.asset import Asset
 from netlanventory.models.asset_cve import AssetCve
 from netlanventory.models.cve import Cve
@@ -133,12 +135,25 @@ async def start_nuclei_scan(
     asset_id: uuid.UUID,
     background_tasks: BackgroundTasks,
     db: DbDep,
+    current_user: Annotated[object, Depends(get_current_active_user)],
 ) -> NucleiReport:
     """Trigger a Nuclei scan for an asset.
 
     Targets and template tags are auto-determined from the asset's discovered
     ports and services. The scan runs in the background.
     """
+    # Quota check
+    quota_ok = await check_and_increment_quota(
+        db,
+        user_id=current_user.id,
+        quota_limit=getattr(current_user, "scan_quota_per_day", None),
+    )
+    if not quota_ok:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Daily scan quota exceeded",
+        )
+
     settings = get_settings()
 
     # Verify nuclei binary is available
@@ -176,6 +191,17 @@ async def start_nuclei_scan(
         tags=tags,
     )
     db.add(report)
+    await db.flush()
+
+    actor = actor_from_user(current_user)
+    await log_action(
+        db,
+        user=actor,
+        action="nuclei_scan.trigger",
+        resource_type="asset",
+        resource_id=str(asset_id),
+    )
+
     await db.commit()
     await db.refresh(report)
 
@@ -531,6 +557,10 @@ async def _run_nuclei_scan(
         async with factory() as session:
             await enrich_cves(session, list(set(cve_ids_to_enrich)), nvd_api_key=settings.nvd_api_key)
             await session.commit()
+
+    # Phase 3 — Fire critical CVE notifications for Nuclei findings
+    from netlanventory.core.notifications import notify_critical_cves_for_asset
+    await notify_critical_cves_for_asset(factory, asset_id, source_filter="nuclei", log_label="nuclei")
 
 
 async def _fetch_report(session: AsyncSession, report_id: uuid.UUID) -> NucleiReport | None:

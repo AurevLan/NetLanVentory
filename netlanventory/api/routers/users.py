@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netlanventory.api.dependencies import get_current_active_user, get_db, require_admin
+from netlanventory.core.audit import log_action
 from netlanventory.core.auth import hash_password
 from netlanventory.core.logging import get_logger
 from netlanventory.models.user import User
@@ -30,9 +31,8 @@ async def list_users(db: DbDep) -> UserList:
     return UserList(total=total, items=list(result.scalars().all()))
 
 
-@router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED,
-             dependencies=[Depends(require_admin)])
-async def create_user(payload: UserCreate, db: DbDep) -> User:
+@router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+async def create_user(payload: UserCreate, db: DbDep, current_user: AdminDep) -> User:
     # Check uniqueness
     existing = (await db.execute(
         select(User).where(
@@ -58,6 +58,16 @@ async def create_user(payload: UserCreate, db: DbDep) -> User:
     await db.flush()
     await db.refresh(user)
     logger.info("User created", email=payload.email, role=payload.role)
+
+    actor = current_user.username or current_user.email
+    await log_action(
+        db,
+        user=actor,
+        action="user.create",
+        resource_type="user",
+        resource_id=str(user.id),
+        detail={"email": payload.email, "role": payload.role},
+    )
     return user
 
 
@@ -94,11 +104,25 @@ async def update_user(
     if "password" in data:
         user.hashed_password = hash_password(data.pop("password"))
 
+    # Only admins can change scan_quota_per_day
+    if "scan_quota_per_day" in data and not is_admin:
+        data.pop("scan_quota_per_day")
+
     for field, value in data.items():
         setattr(user, field, value)
 
     await db.flush()
     await db.refresh(user)
+
+    actor = current_user.username or current_user.email
+    await log_action(
+        db,
+        user=actor,
+        action="user.update",
+        resource_type="user",
+        resource_id=str(user_id),
+        detail={"fields": list(payload.model_dump(exclude_unset=True).keys())},
+    )
     return user
 
 
@@ -113,5 +137,15 @@ async def delete_user(user_id: uuid.UUID, db: DbDep, current_user: AdminDep) -> 
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    actor = current_user.username or current_user.email
+    await log_action(
+        db,
+        user=actor,
+        action="user.delete",
+        resource_type="user",
+        resource_id=str(user_id),
+        detail={"email": user.email},
+    )
     await db.delete(user)
     logger.info("User deleted", user_id=str(user_id))

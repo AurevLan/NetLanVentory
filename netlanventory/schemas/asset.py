@@ -69,6 +69,7 @@ class AssetBase(BaseModel):
     os_version: str | None = None
     ssh_user: str | None = None
     ssh_port: int | None = Field(default=None, ge=1, le=65535)
+    ssh_profile_id: uuid.UUID | None = None
     notes: str | None = None
     # Write-only SSH credentials — accepted on create/update, never echoed back
     ssh_password: str | None = Field(default=None, exclude=True)
@@ -103,6 +104,11 @@ class AssetUpdate(AssetBase):
     is_active: bool | None = None
     zap_auto_scan_enabled: bool | None = None
     zap_scan_interval_minutes: int | None = None
+    ssh_auto_scan_enabled: bool | None = None
+    ssh_scan_interval_minutes: int | None = None
+    trivy_auto_scan_enabled: bool | None = None
+    trivy_scan_interval_minutes: int | None = None
+    criticality: str | None = Field(default=None, pattern="^(critical|high|medium|low)$")
 
 
 class AssetOut(AssetBase):
@@ -113,21 +119,35 @@ class AssetOut(AssetBase):
     last_seen: datetime | None
     created_at: datetime
     updated_at: datetime
+    criticality: str = "medium"
+    risk_score: float | None = None
 
     # ZAP auto-scan settings
     zap_auto_scan_enabled: bool | None = None
     zap_scan_interval_minutes: int | None = None
     zap_last_auto_scan_at: datetime | None = None
 
+    # SSH auto-scan settings
+    ssh_auto_scan_enabled: bool = False
+    ssh_scan_interval_minutes: int | None = None
+    ssh_last_auto_scan_at: datetime | None = None
+
+    # Trivy auto-scan settings
+    trivy_auto_scan_enabled: bool = False
+    trivy_scan_interval_minutes: int | None = None
+    trivy_last_auto_scan_at: datetime | None = None
+
     # SSH credential presence flags — never expose the ciphertext
     has_ssh_password: bool = False
     has_ssh_key: bool = False
+    ssh_profile_name: str | None = None
 
     # Relationships
     ports: list[PortOut] = []
     cves: list[AssetCveOut] = []
     zap_reports: list[ZapReportOut] = []
     dns_entries: list[AssetDnsOut] = []
+    tags: list[str] = []
 
     @model_validator(mode="before")
     @classmethod
@@ -141,6 +161,10 @@ class AssetOut(AssetBase):
             data.__dict__["has_ssh_password"] = bool(data.ssh_password_enc)
         if hasattr(data, "ssh_private_key_enc"):
             data.__dict__["has_ssh_key"] = bool(data.ssh_private_key_enc)
+        if hasattr(data, "ssh_profile") and data.ssh_profile:
+            data.__dict__["ssh_profile_name"] = data.ssh_profile.name
+        if hasattr(data, "tags"):
+            data.__dict__["tags"] = [t.name for t in (data.tags or [])]
         return data
 
 

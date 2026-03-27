@@ -10,9 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netlanventory.api.dependencies import get_current_active_user, get_db
-from netlanventory.core.auth import create_access_token, verify_password
+from netlanventory.core.auth import create_access_token, generate_jti, verify_password
 from netlanventory.core.limiter import limiter
 from netlanventory.models.user import User
+from netlanventory.models.user_session import UserSession
 from netlanventory.schemas.user import TokenOut, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -54,7 +55,31 @@ async def login(
             detail="Account disabled",
         )
 
-    token = create_access_token(str(user.id), user.role, user.auth_provider)
+    # Generate a JWT ID for session tracking / revocation
+    jti = generate_jti()
+
+    # Extract IP and User-Agent from request
+    ip_address: str | None = None
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        ip_address = forwarded_for.split(",")[0].strip()
+    elif request.client:
+        ip_address = request.client.host
+
+    user_agent: str | None = request.headers.get("User-Agent")
+
+    # Persist session record
+    session_record = UserSession(
+        user_id=user.id,
+        token_jti=jti,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        revoked=False,
+    )
+    db.add(session_record)
+    await db.flush()
+
+    token = create_access_token(str(user.id), user.role, user.auth_provider, jti=jti)
     return TokenOut(access_token=token, user=UserOut.model_validate(user))
 
 

@@ -10,7 +10,8 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,10 @@ from netlanventory.core.database import get_session_factory
 from netlanventory.models.asset_cve import AssetCve
 from netlanventory.models.cve import Cve
 from netlanventory.schemas.cves import CveDetail, CveList, CveOut
+
+
+class CvePatch(BaseModel):
+    remediation: str | None = None
 
 router = APIRouter(prefix="/cves", tags=["cves"])
 DbDep = Annotated[AsyncSession, Depends(get_db)]
@@ -36,6 +41,10 @@ async def list_cves(
     limit: int = Query(100, ge=1, le=500),
     severity: str | None = Query(None, description="Filter: Critical|High|Medium|Low|Unknown"),
     search: str | None = Query(None, description="Filter by CVE ID substring"),
+    epss_min: float | None = Query(None, ge=0.0, le=1.0, description="Minimum EPSS score (0–1)"),
+    kev_only: bool = Query(False, description="Only CVEs in CISA KEV"),
+    exploit_only: bool = Query(False, description="Only CVEs with exploit/PoC available"),
+    maturity: str | None = Query(None, description="Filter by exploit_maturity: none|poc|exploit|weaponized"),
 ) -> CveList:
     """List all CVEs in the global cache, ordered by severity then CVE ID."""
     query = select(Cve)
@@ -48,6 +57,18 @@ async def list_cves(
         like = f"%{search.upper()}%"
         query = query.where(Cve.cve_id.ilike(like))
         count_query = count_query.where(Cve.cve_id.ilike(like))
+    if epss_min is not None:
+        query = query.where(Cve.epss_score >= epss_min)
+        count_query = count_query.where(Cve.epss_score >= epss_min)
+    if kev_only:
+        query = query.where(Cve.kev_date_added.isnot(None))
+        count_query = count_query.where(Cve.kev_date_added.isnot(None))
+    if exploit_only:
+        query = query.where(Cve.exploit_maturity.in_(["poc", "exploit", "weaponized"]))
+        count_query = count_query.where(Cve.exploit_maturity.in_(["poc", "exploit", "weaponized"]))
+    if maturity:
+        query = query.where(Cve.exploit_maturity == maturity)
+        count_query = count_query.where(Cve.exploit_maturity == maturity)
 
     total = (await db.execute(count_query)).scalar_one()
     rows = (await db.execute(query.offset(skip).limit(limit))).scalars().all()
@@ -90,6 +111,33 @@ async def get_cve(
         )
     ).scalars().all()
     return CveDetail.from_orm_row(cve, links)
+
+
+@router.patch("/{cve_id_str}", response_model=CveOut)
+async def update_cve(
+    cve_id_str: str,
+    body: CvePatch,
+    db: DbDep,
+    current_user: Annotated[object, Depends(get_current_active_user)],
+) -> CveOut:
+    """Update a CVE's remediation plan (admin only)."""
+    if getattr(current_user, "role", None) != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+    cve = (
+        await db.execute(select(Cve).where(Cve.cve_id == cve_id_str.upper()))
+    ).scalar_one_or_none()
+    if not cve:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CVE not found")
+    if body.remediation is not None:
+        cve.remediation = body.remediation or None
+    await db.commit()
+    await db.refresh(cve)
+    cnt = (
+        await db.execute(
+            select(func.count(AssetCve.asset_id.distinct())).where(AssetCve.cve_id == cve.id)
+        )
+    ).scalar_one()
+    return CveOut.from_orm_row(cve, cnt)
 
 
 @router.post("/enrich", status_code=202)
