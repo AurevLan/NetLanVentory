@@ -1634,12 +1634,25 @@ async function loadScans() {
       const running = ['pending', 'running'].includes(s.status);
       const rerunBtn = `<button class="btn btn-sm" onclick="rerunScan('${s.id}')"
                           ${running ? 'disabled title="Scan in progress"' : ''}>&#8635; Re-run</button>`;
+
+      // Recurring badge + toggle
+      let recurringHtml = '';
+      if (s.recurring) {
+        const interval = s.recurring_interval_hours || 24;
+        const label = interval >= 24 ? `${Math.round(interval / 24)}j` : `${interval}h`;
+        recurringHtml = `
+          <span class="badge badge-success" style="font-size:9px" title="Rescan auto toutes les ${interval}h (${s.recurring_run_count || 0} exécutions)">&#8634; ${label}</span>
+          <button class="btn btn-sm" style="font-size:10px;padding:2px 6px" onclick="setRecurring('${s.id}', false)" title="Désactiver le rescan automatique">Stop</button>`;
+      } else if (!running && s.status === 'completed') {
+        recurringHtml = `<button class="btn btn-sm" style="font-size:10px;padding:2px 6px" onclick="promptRecurring('${s.id}')" title="Planifier un rescan automatique">&#8634; Planifier</button>`;
+      }
+
       return `
         <tr>
           <td class="mono" style="font-size:11px;color:var(--text-muted)">${s.id.slice(0, 8)}…</td>
           <td class="mono">${escape(s.target)}</td>
           <td>${(s.modules_run || []).map(m => badge(m, 'info')).join(' ')}</td>
-          <td>${statusBadge(s.status)}</td>
+          <td>${statusBadge(s.status)} ${recurringHtml}</td>
           <td style="font-size:12px;color:var(--text-muted)">${fmtDate(s.started_at)}</td>
           <td style="font-size:12px;color:var(--text-muted)">${fmtDate(s.finished_at)}</td>
           <td>${assetsFound}</td>
@@ -5150,7 +5163,6 @@ async function _initAppData() {
   await refreshStats();
   await loadAssets();
   await loadScans();
-  await loadScheduledScans();
   await loadModules();
 
   document.getElementById('open-scan-modal-btn').addEventListener('click', openScanModal);
@@ -6236,8 +6248,31 @@ async function exportXLSX() {
   } catch (e) { showToast(`Erreur Excel : ${e.message}`, 'error'); }
 }
 
-// ── Scheduled Scans (recurring network rescans) ─────────────────────────────
+// ── Recurring scans (auto-rescan on existing scans) ─────────────────────────
 
+async function promptRecurring(scanId) {
+  const hours = prompt('Intervalle de rescan automatique (en heures) :\n\n24 = quotidien\n168 = hebdomadaire\n1 = toutes les heures', '24');
+  if (!hours) return;
+  const interval = parseInt(hours, 10);
+  if (!interval || interval < 1) { showToast('Intervalle invalide', 'error'); return; }
+  await setRecurring(scanId, true, interval);
+}
+
+async function setRecurring(scanId, enabled, intervalHours = 24) {
+  try {
+    await api(`/scans/${scanId}/recurring?recurring=${enabled}&interval_hours=${intervalHours}`, {
+      method: 'PUT',
+    });
+    showToast(enabled
+      ? `Rescan automatique activé (toutes les ${intervalHours}h)`
+      : 'Rescan automatique désactivé', 'success');
+    await loadScans();
+  } catch (e) {
+    showToast(`Erreur: ${e.message}`, 'error');
+  }
+}
+
+// Legacy — kept for backward compatibility but no longer used
 async function loadScheduledScans() {
   const tbody = document.getElementById('scheduled-scans-tbody');
   if (!tbody) return;

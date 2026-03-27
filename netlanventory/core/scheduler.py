@@ -430,14 +430,13 @@ async def _check_scheduled_reports() -> None:
 
 
 async def _check_scheduled_scans() -> None:
-    """Trigger recurring network scans when their interval has elapsed.
+    """Trigger recurring scans when their interval has elapsed.
 
-    Each ScheduledScan defines a target range (CIDR), a module list, and
-    an interval in hours. This function checks all enabled scheduled scans
-    and fires a background scan for each one that is overdue.
+    A scan with recurring=True and recurring_interval_hours set will be
+    automatically re-launched (same target + modules) when the interval
+    has elapsed since the last trigger.
     """
     from netlanventory.core.database import get_session_factory
-    from netlanventory.models.scheduled_scan import ScheduledScan
     from netlanventory.models.scan import Scan
     from netlanventory.api.routers.scans import _run_scan
 
@@ -446,102 +445,56 @@ async def _check_scheduled_scans() -> None:
 
     async with factory() as session:
         result = await session.execute(
-            select(ScheduledScan).where(ScheduledScan.enabled.is_(True))
+            select(Scan).where(
+                Scan.recurring.is_(True),
+                Scan.recurring_interval_hours.isnot(None),
+            )
         )
-        scheduled_scans = result.scalars().all()
+        recurring_scans = result.scalars().all()
 
-        for scheduled in scheduled_scans:
-            # Check if interval has elapsed
-            if scheduled.last_run_at is not None:
-                last = scheduled.last_run_at
+        for parent in recurring_scans:
+            interval = parent.recurring_interval_hours or 24
+
+            # Check if interval has elapsed since last trigger (or creation)
+            last = parent.recurring_last_triggered_at or parent.created_at
+            if last is not None:
                 if last.tzinfo is None:
                     last = last.replace(tzinfo=timezone.utc)
                 elapsed_hours = (now - last).total_seconds() / 3600
-                if elapsed_hours < scheduled.interval_hours:
+                if elapsed_hours < interval:
                     continue
 
-            modules = [m.strip() for m in scheduled.modules.split(",") if m.strip()]
+            modules = parent.modules_run or []
             if not modules:
                 continue
 
-            # Create a Scan record
-            scan = Scan(
-                target=scheduled.target,
+            # Create a NEW scan from the parent's config
+            child = Scan(
+                target=parent.target,
                 status="pending",
                 modules_run=modules,
             )
-            session.add(scan)
+            session.add(child)
             await session.flush()
-            await session.refresh(scan)
+            await session.refresh(child)
 
-            # Update tracking
-            scheduled.last_run_at = now
-            scheduled.last_scan_id = str(scan.id)
-            scheduled.last_status = "running"
-            scheduled.run_count = (scheduled.run_count or 0) + 1
+            # Update parent tracking
+            parent.recurring_last_triggered_at = now
+            parent.recurring_run_count = (parent.recurring_run_count or 0) + 1
             await session.flush()
 
             logger.info(
-                "Scheduled scan triggered",
-                name=scheduled.name,
-                target=scheduled.target,
+                "Recurring scan triggered",
+                parent_scan_id=str(parent.id),
+                child_scan_id=str(child.id),
+                target=parent.target,
                 modules=modules,
-                scan_id=str(scan.id),
-                run_count=scheduled.run_count,
+                run_count=parent.recurring_run_count,
             )
 
-            # Fire background task
             asyncio.create_task(
-                _run_scheduled_scan_wrapper(
-                    scan_id=scan.id,
-                    scheduled_id=scheduled.id,
-                    target=scheduled.target,
-                    modules=modules,
-                ),
-                name=f"sched-{scheduled.id}-{scan.id}",
-            )
-
-        await session.commit()
-
-
-async def _run_scheduled_scan_wrapper(
-    scan_id: uuid.UUID,
-    scheduled_id: uuid.UUID,
-    target: str,
-    modules: list[str],
-) -> None:
-    """Run the scan and update the ScheduledScan status when done."""
-    from netlanventory.core.database import get_session_factory
-    from netlanventory.models.scheduled_scan import ScheduledScan
-    from netlanventory.models.scan import Scan
-    from netlanventory.api.routers.scans import _run_scan
-
-    try:
-        await _run_scan(scan_id, target, modules, {})
-    except Exception as exc:
-        logger.exception("Scheduled scan failed", scan_id=str(scan_id), error=str(exc))
-
-    # Update ScheduledScan with final status
-    factory = get_session_factory()
-    async with factory() as session:
-        result = await session.execute(
-            select(Scan).where(Scan.id == scan_id)
-        )
-        scan = result.scalar_one_or_none()
-
-        sched_result = await session.execute(
-            select(ScheduledScan).where(ScheduledScan.id == scheduled_id)
-        )
-        scheduled = sched_result.scalar_one_or_none()
-
-        if scheduled and scan:
-            scheduled.last_status = scan.status
-            scheduled.last_error = scan.error_msg
-            logger.info(
-                "Scheduled scan completed",
-                name=scheduled.name,
-                status=scan.status,
-                scan_id=str(scan_id),
+                _run_scan(child.id, parent.target, modules, {}),
+                name=f"recurring-{parent.id}-{child.id}",
             )
 
         await session.commit()

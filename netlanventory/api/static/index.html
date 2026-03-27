@@ -514,32 +514,7 @@
           </table>
         </div>
 
-        <!-- Scheduled scans section -->
-        <div style="margin-top:28px">
-          <div class="page-header">
-            <h2 class="page-title" style="font-size:16px">Scans planifiés</h2>
-            <div class="page-actions">
-              <button class="btn btn-primary btn-sm" onclick="openScheduledScanModal()">+ Planifier un rescan</button>
-              <button class="btn btn-sm" onclick="loadScheduledScans()">Refresh</button>
-            </div>
-          </div>
-          <p style="font-size:12px;color:var(--text-muted);margin:-12px 0 14px">
-            Rescans automatiques de vos plages réseau aux intervalles configurés.
-          </p>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Nom</th><th>Cible</th><th>Modules</th><th>Intervalle</th>
-                  <th>Dernier scan</th><th>Statut</th><th>Runs</th><th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="scheduled-scans-tbody">
-                <tr><td colspan="8" style="color:var(--text-muted);text-align:center;padding:24px">Chargement…</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <!-- recurring scan info appears inline in the scan table actions -->
       </section>
 
       <!-- ── Modules panel ─────────────────────────────────────────────────── -->

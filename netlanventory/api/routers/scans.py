@@ -136,6 +136,40 @@ async def rerun_scan(
     return scan
 
 
+@router.put("/{scan_id}/recurring", response_model=ScanOut)
+async def set_recurring(
+    scan_id: uuid.UUID,
+    db: DbDep,
+    recurring: bool = Query(...),
+    interval_hours: int = Query(24, ge=1, le=8760),
+) -> Scan:
+    """Set recurring rescan on an existing scan.
+
+    Query params:
+      - recurring: true/false
+      - interval_hours: 1-8760 (default 24)
+    """
+    result = await db.execute(
+        select(Scan).where(Scan.id == scan_id).options(selectinload(Scan.results))
+    )
+    scan = result.scalar_one_or_none()
+    if not scan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+
+    scan.recurring = recurring
+    scan.recurring_interval_hours = interval_hours if recurring else None
+    await db.flush()
+    await db.refresh(scan)
+
+    logger.info(
+        "Recurring scan updated",
+        scan_id=str(scan_id),
+        recurring=recurring,
+        interval_hours=interval_hours,
+    )
+    return scan
+
+
 @router.delete("/{scan_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_scan(scan_id: uuid.UUID, db: DbDep) -> None:
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
