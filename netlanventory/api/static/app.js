@@ -151,7 +151,16 @@ function showToast(message, type = 'info', duration = 4000) {
 
 // ── Navigation ────────────────────────────────────────────────────────────────
 
-function switchToView(viewName) {
+// ── Hash-based routing ────────────────────────────────────────────────────────
+// Every view change updates location.hash so the browser back/forward buttons
+// work and URLs are shareable (e.g. /#/assets, /#/admin, /#/topology).
+
+let _currentView = null;
+
+function switchToView(viewName, { pushHistory = true } = {}) {
+  if (!viewName) return;
+  _currentView = viewName;
+
   document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
 
@@ -160,18 +169,31 @@ function switchToView(viewName) {
   const panel = document.getElementById(`panel-${viewName}`);
   if (panel) panel.classList.add('active');
 
-  // Load data for the panel if needed
-  if (viewName === 'admin') loadUsers();
-  if (viewName === 'cves') loadCves();
-  if (viewName === 'dashboard') loadDashboard();
-  if (viewName === 'expositions') loadExpositions();
-  if (viewName === 'topology') loadTopology();
-  if (viewName === 'reports') loadReportsPanel();
-  if (viewName === 'remediation') loadRemediation();
-  if (viewName === 'timeline') loadTimeline();
-  if (viewName === 'compliance') loadCompliance();
-  if (viewName === 'executive') loadExecutive();
-  if (viewName === 'threat-intel') loadThreatIntel();
+  // Update URL hash for browser navigation (back/forward)
+  if (pushHistory && location.hash !== `#/${viewName}`) {
+    history.pushState({ view: viewName }, '', `#/${viewName}`);
+  }
+
+  // Load data for the panel
+  const loaders = {
+    'admin': () => loadUsers(),
+    'cves': () => loadCves(),
+    'dashboard': () => loadDashboard(),
+    'expositions': () => loadExpositions(),
+    'topology': () => loadTopology(),
+    'reports': () => loadReportsPanel(),
+    'remediation': () => loadRemediation(),
+    'timeline': () => loadTimeline(),
+    'compliance': () => loadCompliance(),
+    'executive': () => loadExecutive(),
+    'threat-intel': () => loadThreatIntel(),
+  };
+  if (loaders[viewName]) loaders[viewName]();
+}
+
+function _getViewFromHash() {
+  const hash = location.hash.replace(/^#\/?/, '');
+  return hash || 'assets';
 }
 
 function initNav() {
@@ -180,6 +202,18 @@ function initNav() {
       switchToView(item.dataset.view);
     });
   });
+
+  // Handle browser back/forward buttons
+  window.addEventListener('popstate', (e) => {
+    const view = e.state?.view || _getViewFromHash();
+    switchToView(view, { pushHistory: false });
+  });
+
+  // On initial load, restore view from hash
+  const initialView = _getViewFromHash();
+  if (initialView !== 'assets') {
+    switchToView(initialView, { pushHistory: false });
+  }
 }
 
 // ── Authentication ────────────────────────────────────────────────────────────
@@ -6099,29 +6133,7 @@ function _renderExpositions() {
   if (_expKanbanMode) _renderKanban();
 }
 
-// ── switchToView — handle new panels ─────────────────────────────────────────
-
-function switchToView(viewName) {
-  document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-
-  const navBtn = document.querySelector(`.nav-item[data-view="${viewName}"]`);
-  if (navBtn) navBtn.classList.add('active');
-  const panel = document.getElementById(`panel-${viewName}`);
-  if (panel) panel.classList.add('active');
-
-  if (viewName === 'admin') loadUsers();
-  if (viewName === 'cves') loadCves();
-  if (viewName === 'dashboard') loadDashboard();
-  if (viewName === 'expositions') loadExpositions();
-  if (viewName === 'topology') loadTopology();
-  if (viewName === 'reports') loadReportsPanel();
-  if (viewName === 'remediation') loadRemediation();
-  if (viewName === 'timeline') loadTimeline();
-  if (viewName === 'compliance') loadCompliance();
-  if (viewName === 'executive') loadExecutive();
-  if (viewName === 'threat-intel') loadThreatIntel();
-}
+// ── switchToView — duplicate removed (defined at top of file with hash routing) ──
 
 // ── initSubTabs — handle new sub-tabs ────────────────────────────────────────
 
