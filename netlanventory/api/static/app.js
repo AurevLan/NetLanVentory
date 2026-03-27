@@ -5032,7 +5032,6 @@ function initSubTabs() {
       if (tab.dataset.subtab === 'admin-quota') loadQuotaUsage();
       if (tab.dataset.subtab === 'admin-sla') loadSlaConfig();
       if (tab.dataset.subtab === 'admin-notif') loadNotifications();
-      if (tab.dataset.subtab === 'admin-scheduled-scans') loadScheduledScans();
     });
   });
 }
@@ -5151,6 +5150,7 @@ async function _initAppData() {
   await refreshStats();
   await loadAssets();
   await loadScans();
+  await loadScheduledScans();
   await loadModules();
 
   document.getElementById('open-scan-modal-btn').addEventListener('click', openScanModal);

@@ -513,6 +513,33 @@
             <tbody></tbody>
           </table>
         </div>
+
+        <!-- Scheduled scans section -->
+        <div style="margin-top:28px">
+          <div class="page-header">
+            <h2 class="page-title" style="font-size:16px">Scans planifiés</h2>
+            <div class="page-actions">
+              <button class="btn btn-primary btn-sm" onclick="openScheduledScanModal()">+ Planifier un rescan</button>
+              <button class="btn btn-sm" onclick="loadScheduledScans()">Refresh</button>
+            </div>
+          </div>
+          <p style="font-size:12px;color:var(--text-muted);margin:-12px 0 14px">
+            Rescans automatiques de vos plages réseau aux intervalles configurés.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nom</th><th>Cible</th><th>Modules</th><th>Intervalle</th>
+                  <th>Dernier scan</th><th>Statut</th><th>Runs</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="scheduled-scans-tbody">
+                <tr><td colspan="8" style="color:var(--text-muted);text-align:center;padding:24px">Chargement…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- ── Modules panel ─────────────────────────────────────────────────── -->
@@ -599,12 +626,6 @@
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
               </svg>
               Notifications
-            </button>
-            <button class="subnav-item" data-subtab="admin-scheduled-scans">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-              </svg>
-              Scans planifiés
             </button>
           </nav>
 
@@ -886,35 +907,6 @@
                   </thead>
                   <tbody id="notif-tbody">
                     <tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:32px">Chargement…</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- Scheduled Scans sub-panel -->
-            <div class="sub-panel" id="sub-admin-scheduled-scans">
-              <div class="sub-panel-header">
-                <h2>Scans planifiés</h2>
-                <div class="page-actions">
-                  <button class="btn btn-primary btn-sm" onclick="openScheduledScanModal()">+ Nouveau scan planifié</button>
-                  <button class="btn btn-sm" onclick="loadScheduledScans()">Refresh</button>
-                </div>
-              </div>
-              <p class="settings-note" style="margin-bottom:14px">
-                Configurez des rescans automatiques de vos plages réseau. Chaque scan planifié
-                exécute les modules sélectionnés (découverte ARP, scan de ports, détection de services,
-                fingerprint OS) à l'intervalle défini.
-              </p>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Nom</th><th>Cible</th><th>Modules</th><th>Intervalle</th>
-                      <th>Dernier scan</th><th>Statut</th><th>Exécutions</th><th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="scheduled-scans-tbody">
-                    <tr><td colspan="8" style="color:var(--text-muted);text-align:center;padding:32px">Chargement…</td></tr>
                   </tbody>
                 </table>
               </div>
