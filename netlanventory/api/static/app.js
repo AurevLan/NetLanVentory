@@ -1668,7 +1668,7 @@ async function loadScans() {
 
       return `
         <tr>
-          <td class="mono">${escape(s.target)}</td>
+          <td class="mono"><a href="#" onclick="showScanHistory('${s.id}','${escape(s.target)}');return false" style="color:var(--accent);text-decoration:none" title="Voir l'historique des scans">${escape(s.target)}</a></td>
           <td>${(s.modules_run || []).map(m => badge(m, 'info')).join(' ')}</td>
           <td>${statusBadge(s.status)}</td>
           <td style="font-size:12px;color:var(--text-muted)">${fmtDate(s.started_at)}</td>
@@ -6518,6 +6518,108 @@ async function setRecurring(scanId, enabled, intervalHours = 24) {
   } catch (e) {
     showToast(`Erreur: ${e.message}`, 'error');
   }
+}
+
+// ── Scan history timeline ────────────────────────────────────────────────────
+
+let _scanHistoryChart = null;
+
+async function showScanHistory(scanId, target) {
+  const panel = document.getElementById('scan-history-panel');
+  const title = document.getElementById('scan-history-title');
+  if (!panel) return;
+
+  panel.style.display = 'block';
+  title.textContent = `Historique — ${target}`;
+
+  try {
+    const history = await api(`/scans/${scanId}/history`);
+    if (!history || !history.length) {
+      document.getElementById('scan-history-table').innerHTML =
+        '<p style="color:var(--text-muted);font-size:13px;padding:16px 0">Aucun historique — le scan n\'a pas encore été exécuté plusieurs fois.</p>';
+      return;
+    }
+
+    // Chart
+    const canvas = document.getElementById('scan-history-chart');
+    if (canvas && typeof Chart !== 'undefined') {
+      if (_scanHistoryChart) _scanHistoryChart.destroy();
+      const labels = history.map(h => h.started_at ? h.started_at.substring(5, 16).replace('T', ' ') : '—');
+      _scanHistoryChart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Assets trouvés',
+              data: history.map(h => h.assets_found),
+              borderColor: '#22d3ee',
+              backgroundColor: 'rgba(34,211,238,0.1)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 4,
+              pointBackgroundColor: '#22d3ee',
+            },
+            {
+              label: 'Nouveaux assets',
+              data: history.map(h => h.new_assets),
+              borderColor: '#34d399',
+              backgroundColor: 'rgba(52,211,153,0.1)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 4,
+              pointBackgroundColor: '#34d399',
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#9ca3af', font: { size: 11 } } } },
+          scales: {
+            x: { ticks: { color: '#6b7280', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,.04)' } },
+            y: { ticks: { color: '#6b7280' }, beginAtZero: true, grid: { color: 'rgba(255,255,255,.04)' } },
+          },
+        },
+      });
+    }
+
+    // Table
+    document.getElementById('scan-history-table').innerHTML = `
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead><tr>
+          <th style="text-align:left;padding:6px;color:var(--text-muted);border-bottom:1px solid var(--border)">Date</th>
+          <th style="text-align:center;padding:6px;color:var(--text-muted);border-bottom:1px solid var(--border)">Status</th>
+          <th style="text-align:center;padding:6px;color:var(--text-muted);border-bottom:1px solid var(--border)">Assets</th>
+          <th style="text-align:center;padding:6px;color:var(--text-muted);border-bottom:1px solid var(--border)">Nouveaux</th>
+          <th style="text-align:center;padding:6px;color:var(--text-muted);border-bottom:1px solid var(--border)">Durée</th>
+        </tr></thead>
+        <tbody>${history.map(h => {
+          const dur = h.started_at && h.finished_at
+            ? Math.round((new Date(h.finished_at) - new Date(h.started_at)) / 1000) + 's'
+            : '—';
+          return `<tr style="border-bottom:1px solid var(--border-muted)">
+            <td style="padding:6px">${h.started_at ? fmtDate(h.started_at) : '—'}</td>
+            <td style="padding:6px;text-align:center">${statusBadge(h.status)}</td>
+            <td style="padding:6px;text-align:center;font-weight:600">${h.assets_found}</td>
+            <td style="padding:6px;text-align:center;color:${h.new_assets > 0 ? 'var(--success)' : 'var(--text-muted)'}">${h.new_assets > 0 ? '+' + h.new_assets : '0'}</td>
+            <td style="padding:6px;text-align:center;color:var(--text-muted)">${dur}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+
+    // Scroll into view
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    document.getElementById('scan-history-table').innerHTML =
+      `<p style="color:var(--danger)">Erreur: ${escape(e.message)}</p>`;
+  }
+}
+
+function closeScanHistory() {
+  const panel = document.getElementById('scan-history-panel');
+  if (panel) panel.style.display = 'none';
+  if (_scanHistoryChart) { _scanHistoryChart.destroy(); _scanHistoryChart = null; }
 }
 
 // Legacy stubs — no longer used but kept to avoid reference errors

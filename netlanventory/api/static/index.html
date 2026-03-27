@@ -514,6 +514,19 @@
           </table>
         </div>
 
+        <!-- Scan history timeline (shown when clicking a scan target) -->
+        <div id="scan-history-panel" style="display:none;margin-top:20px">
+          <div class="settings-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <h3 class="settings-card-title" style="margin:0" id="scan-history-title">Historique</h3>
+              <button class="btn btn-sm" onclick="closeScanHistory()">Fermer</button>
+            </div>
+            <div style="position:relative;height:200px;margin-bottom:16px">
+              <canvas id="scan-history-chart"></canvas>
+            </div>
+            <div id="scan-history-table"></div>
+          </div>
+        </div>
       </section>
 
       <!-- ── Modules panel ─────────────────────────────────────────────────── -->
@@ -1943,6 +1956,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js" crossorigin="anonymous"></script>
-  <script src="/static/app.js?v=5.1"></script>
+  <script src="/static/app.js?v=5.2"></script>
 </body>
 </html>

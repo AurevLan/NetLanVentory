@@ -231,6 +231,56 @@ async def delete_scan(scan_id: uuid.UUID, db: DbDep) -> None:
     await db.delete(scan)
 
 
+@router.get("/{scan_id}/history")
+async def get_scan_history(scan_id: uuid.UUID, db: DbDep) -> list[dict]:
+    """Get the execution history for a scan (timeline of all runs)."""
+    from netlanventory.models.scan_history import ScanHistory
+    result = await db.execute(
+        select(ScanHistory)
+        .where(ScanHistory.scan_id == scan_id)
+        .order_by(ScanHistory.started_at.desc())
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "id": str(h.id),
+            "target": h.target,
+            "status": h.status,
+            "started_at": h.started_at.isoformat() if h.started_at else None,
+            "finished_at": h.finished_at.isoformat() if h.finished_at else None,
+            "assets_found": h.assets_found,
+            "new_assets": h.new_assets,
+            "modules_run": h.modules_run,
+            "summary": h.summary,
+        }
+        for h in rows
+    ]
+
+
+@router.get("/history/by-target/{target:path}")
+async def get_target_history(target: str, db: DbDep) -> list[dict]:
+    """Get execution history across all scans for a given target range."""
+    from netlanventory.models.scan_history import ScanHistory
+    result = await db.execute(
+        select(ScanHistory)
+        .where(ScanHistory.target == target)
+        .order_by(ScanHistory.started_at.asc())
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "id": str(h.id),
+            "target": h.target,
+            "status": h.status,
+            "started_at": h.started_at.isoformat() if h.started_at else None,
+            "finished_at": h.finished_at.isoformat() if h.finished_at else None,
+            "assets_found": h.assets_found,
+            "new_assets": h.new_assets,
+        }
+        for h in rows
+    ]
+
+
 # ── Background scan execution ────────────────────────────────────────────────
 
 async def _run_scan(
@@ -306,5 +356,39 @@ async def _run_scan(
             scan.finished_at = datetime.now(timezone.utc)
             scan.summary = summary
             await session.commit()
+
+        # Save a snapshot in scan_history for timeline tracking
+        try:
+            from netlanventory.models.scan_history import ScanHistory
+            total_assets = sum(
+                m.get("assets_found", 0) for m in summary.get("modules", {}).values()
+            )
+            # Count how many assets were newly created in this scan (discovered_at ~ scan start)
+            from netlanventory.models.asset import Asset
+            new_count = 0
+            if scan and scan.started_at:
+                new_result = await session.execute(
+                    select(func.count()).select_from(Asset).where(
+                        Asset.created_at >= scan.started_at
+                    )
+                )
+                new_count = new_result.scalar_one() or 0
+
+            history = ScanHistory(
+                scan_id=scan_id,
+                target=target,
+                status=overall_status,
+                started_at=scan.started_at if scan else None,
+                finished_at=scan.finished_at if scan else None,
+                assets_found=total_assets,
+                new_assets=new_count,
+                modules_run=modules,
+                summary=summary,
+                error_msg=scan.error_msg if scan else None,
+            )
+            session.add(history)
+            await session.commit()
+        except Exception:
+            logger.exception("Failed to save scan history snapshot")
 
         logger.info("Scan complete", scan_id=str(scan_id), status=overall_status)
