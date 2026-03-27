@@ -32,7 +32,7 @@ _last_threat_feed_refresh: datetime | None = None
 
 async def scheduler_loop() -> None:
     """Infinite loop: wake every 60 s and trigger due ZAP, SSH, Trivy scans and other checks."""
-    logger.info("Auto-scan scheduler started (ZAP + SSH + Trivy + threat feeds + new assets)")
+    logger.info("Auto-scan scheduler started (ZAP + SSH + Trivy + scheduled rescans + threat feeds + new assets)")
     while True:
         await asyncio.sleep(_CHECK_INTERVAL_SECONDS)
         try:
@@ -71,6 +71,12 @@ async def scheduler_loop() -> None:
             raise
         except Exception:
             logger.exception("Scheduled reports check error — will retry next cycle")
+        try:
+            await _check_scheduled_scans()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Scheduled scans check error — will retry next cycle")
 
 
 async def _check_and_trigger_auto_scans() -> None:
@@ -419,5 +425,123 @@ async def _check_scheduled_reports() -> None:
                 logger.info("Scheduled report sent", name=report.name, recipients=report.recipients)
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to send scheduled report", name=report.name)
+
+        await session.commit()
+
+
+async def _check_scheduled_scans() -> None:
+    """Trigger recurring network scans when their interval has elapsed.
+
+    Each ScheduledScan defines a target range (CIDR), a module list, and
+    an interval in hours. This function checks all enabled scheduled scans
+    and fires a background scan for each one that is overdue.
+    """
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.models.scheduled_scan import ScheduledScan
+    from netlanventory.models.scan import Scan
+    from netlanventory.api.routers.scans import _run_scan
+
+    factory = get_session_factory()
+    now = datetime.now(timezone.utc)
+
+    async with factory() as session:
+        result = await session.execute(
+            select(ScheduledScan).where(ScheduledScan.enabled.is_(True))
+        )
+        scheduled_scans = result.scalars().all()
+
+        for scheduled in scheduled_scans:
+            # Check if interval has elapsed
+            if scheduled.last_run_at is not None:
+                last = scheduled.last_run_at
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                elapsed_hours = (now - last).total_seconds() / 3600
+                if elapsed_hours < scheduled.interval_hours:
+                    continue
+
+            modules = [m.strip() for m in scheduled.modules.split(",") if m.strip()]
+            if not modules:
+                continue
+
+            # Create a Scan record
+            scan = Scan(
+                target=scheduled.target,
+                status="pending",
+                modules_run=modules,
+            )
+            session.add(scan)
+            await session.flush()
+            await session.refresh(scan)
+
+            # Update tracking
+            scheduled.last_run_at = now
+            scheduled.last_scan_id = str(scan.id)
+            scheduled.last_status = "running"
+            scheduled.run_count = (scheduled.run_count or 0) + 1
+            await session.flush()
+
+            logger.info(
+                "Scheduled scan triggered",
+                name=scheduled.name,
+                target=scheduled.target,
+                modules=modules,
+                scan_id=str(scan.id),
+                run_count=scheduled.run_count,
+            )
+
+            # Fire background task
+            asyncio.create_task(
+                _run_scheduled_scan_wrapper(
+                    scan_id=scan.id,
+                    scheduled_id=scheduled.id,
+                    target=scheduled.target,
+                    modules=modules,
+                ),
+                name=f"sched-{scheduled.id}-{scan.id}",
+            )
+
+        await session.commit()
+
+
+async def _run_scheduled_scan_wrapper(
+    scan_id: uuid.UUID,
+    scheduled_id: uuid.UUID,
+    target: str,
+    modules: list[str],
+) -> None:
+    """Run the scan and update the ScheduledScan status when done."""
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.models.scheduled_scan import ScheduledScan
+    from netlanventory.models.scan import Scan
+    from netlanventory.api.routers.scans import _run_scan
+
+    try:
+        await _run_scan(scan_id, target, modules, {})
+    except Exception as exc:
+        logger.exception("Scheduled scan failed", scan_id=str(scan_id), error=str(exc))
+
+    # Update ScheduledScan with final status
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(
+            select(Scan).where(Scan.id == scan_id)
+        )
+        scan = result.scalar_one_or_none()
+
+        sched_result = await session.execute(
+            select(ScheduledScan).where(ScheduledScan.id == scheduled_id)
+        )
+        scheduled = sched_result.scalar_one_or_none()
+
+        if scheduled and scan:
+            scheduled.last_status = scan.status
+            scheduled.last_error = scan.error_msg
+            logger.info(
+                "Scheduled scan completed",
+                name=scheduled.name,
+                status=scan.status,
+                scan_id=str(scan_id),
+            )
 
         await session.commit()

@@ -5032,6 +5032,7 @@ function initSubTabs() {
       if (tab.dataset.subtab === 'admin-quota') loadQuotaUsage();
       if (tab.dataset.subtab === 'admin-sla') loadSlaConfig();
       if (tab.dataset.subtab === 'admin-notif') loadNotifications();
+      if (tab.dataset.subtab === 'admin-scheduled-scans') loadScheduledScans();
     });
   });
 }
@@ -6233,4 +6234,116 @@ async function exportXLSX() {
     URL.revokeObjectURL(url);
     showToast('Excel téléchargé', 'info');
   } catch (e) { showToast(`Erreur Excel : ${e.message}`, 'error'); }
+}
+
+// ── Scheduled Scans (recurring network rescans) ─────────────────────────────
+
+async function loadScheduledScans() {
+  const tbody = document.getElementById('scheduled-scans-tbody');
+  if (!tbody) return;
+  try {
+    const scans = await api('/scheduled-scans');
+    if (!scans || scans.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="color:var(--text-muted);text-align:center;padding:32px">Aucun scan planifié. Cliquez sur "+ Nouveau scan planifié" pour commencer.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = scans.map(s => {
+      const modules = escape(s.modules).split(',').map(m =>
+        `<span class="badge badge-info" style="font-size:9px;margin:1px">${m.trim()}</span>`
+      ).join(' ');
+      const interval = s.interval_hours >= 24
+        ? `${Math.round(s.interval_hours / 24)}j`
+        : `${s.interval_hours}h`;
+      const lastRun = s.last_run_at ? fmtDate(s.last_run_at) : '—';
+      const statusBdg = s.last_status
+        ? statusBadge(s.last_status)
+        : '<span class="badge badge-muted">jamais</span>';
+      const enabledBdg = s.enabled
+        ? '<span class="badge badge-success">actif</span>'
+        : '<span class="badge badge-muted">inactif</span>';
+      return `<tr>
+        <td><strong>${escape(s.name)}</strong><br>${enabledBdg}</td>
+        <td class="mono">${escape(s.target)}</td>
+        <td>${modules}</td>
+        <td class="mono">${interval}</td>
+        <td style="font-size:12px">${lastRun}</td>
+        <td>${statusBdg}</td>
+        <td class="mono">${s.run_count || 0}</td>
+        <td>
+          <button class="btn btn-sm" onclick="triggerScheduledScan('${escape(s.id)}')">Lancer</button>
+          <button class="btn btn-sm" onclick="toggleScheduledScan('${escape(s.id)}', ${!s.enabled})">${s.enabled ? 'Désactiver' : 'Activer'}</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteScheduledScan('${escape(s.id)}', '${escape(s.name)}')">Suppr.</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--danger);padding:16px">Erreur: ${escape(e.message)}</td></tr>`;
+  }
+}
+
+async function openScheduledScanModal() {
+  const name = prompt('Nom du scan planifié (ex: "Rescan LAN quotidien"):');
+  if (!name) return;
+  const target = prompt('Plage cible (CIDR, ex: "192.168.1.0/24"):');
+  if (!target) return;
+  const intervalStr = prompt('Intervalle en heures (ex: 24 pour quotidien, 168 pour hebdo):', '24');
+  const interval = parseInt(intervalStr, 10);
+  if (!interval || interval < 1) { showToast('Intervalle invalide', 'error'); return; }
+
+  const modulesStr = prompt(
+    'Modules (séparés par des virgules):',
+    'arp_sweep,port_scanner,service_detector,os_fingerprint'
+  );
+  if (!modulesStr) return;
+
+  try {
+    await api('/scheduled-scans', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        target,
+        modules: modulesStr,
+        interval_hours: interval,
+        enabled: true,
+      }),
+    });
+    showToast(`Scan planifié "${name}" créé`, 'success');
+    loadScheduledScans();
+  } catch (e) {
+    showToast(`Erreur: ${e.message}`, 'error');
+  }
+}
+
+async function triggerScheduledScan(id) {
+  try {
+    const result = await api(`/scheduled-scans/${id}/trigger`, { method: 'POST' });
+    showToast(`Scan lancé (${result.target}) — ID: ${result.scan_id.slice(0,8)}`, 'success');
+    loadScheduledScans();
+  } catch (e) {
+    showToast(`Erreur: ${e.message}`, 'error');
+  }
+}
+
+async function toggleScheduledScan(id, enabled) {
+  try {
+    await api(`/scheduled-scans/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    });
+    showToast(enabled ? 'Scan activé' : 'Scan désactivé', 'info');
+    loadScheduledScans();
+  } catch (e) {
+    showToast(`Erreur: ${e.message}`, 'error');
+  }
+}
+
+async function deleteScheduledScan(id, name) {
+  if (!confirm(`Supprimer le scan planifié "${name}" ?`)) return;
+  try {
+    await api(`/scheduled-scans/${id}`, { method: 'DELETE' });
+    showToast(`Scan "${name}" supprimé`, 'info');
+    loadScheduledScans();
+  } catch (e) {
+    showToast(`Erreur: ${e.message}`, 'error');
+  }
 }

@@ -64,6 +64,7 @@ from netlanventory.api.routers import ansible as ansible_router
 from netlanventory.api.routers import tickets as tickets_router
 from netlanventory.api.routers import saved_filters as saved_filters_router
 from netlanventory.api.routers import scheduled_reports as scheduled_reports_router
+from netlanventory.api.routers import scheduled_scans as scheduled_scans_router
 from netlanventory.core.auth import hash_password
 from netlanventory.core.config import get_settings
 from netlanventory.core.database import close_engine, get_engine, get_session_factory
@@ -362,6 +363,7 @@ def create_app() -> FastAPI:
     app.include_router(tickets_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(saved_filters_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(scheduled_reports_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(scheduled_scans_router.router, prefix=api_prefix, dependencies=_auth)
 
     # Serve static dashboard if the directory exists
     if STATIC_DIR.exists():
