@@ -267,7 +267,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="NetLanVentory",
         description="Modular network scanning and inventory API",
-        version="0.10.0",
+        version="0.11.0",
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=lifespan,

@@ -89,18 +89,27 @@
 - **On-demand enrichment** — "Enrichir" button triggers a global background enrichment pass via OSV.dev and NVD for any CVE still missing CVSS score or description
 - **CVE detail view** — `GET /api/v1/cves/{id}` returns CVSS score, severity, description, published date, and the full list of affected assets
 
+### Scan planification & automation
+- **Planifier un rescan** — any completed scan can be set to auto-repeat at a configurable interval (hourly, 6h, 12h, daily, weekly, monthly) directly from the Scans tab
+- **Re-run in place** — re-running a scan updates the same row instead of creating duplicates
+- **Inline controls** — dropdown interval selector + "Planifier" button, green badge when active with countdown to next run
+- **Scheduler** — checks every 60 seconds; auto-triggers ZAP, SSH, Trivy, and network rescans when intervals elapse
+
 ### Security & authentication
 - **JWT authentication** — all API endpoints require a valid Bearer token (except `/api/v1/auth/login`); `sub`, `exp`, and `iss` claims required; issuer verified as `netlanventory`
+- **ANSSI R22 password policy** — 12+ characters, uppercase, lowercase, digit, special character; bcrypt 14 rounds
 - **Role-based access** — `admin` role required for user management and global settings
 - **OIDC / SSO** — optional OpenID Connect provider configured via the admin panel
 - **User management** — create, activate/deactivate and delete users from the dashboard
-- **HTTP security headers** — every response includes `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, and `Content-Security-Policy`
-- **Rate limiting** — 10 req/min on login, 20 req/min on ZAP trigger, 10 req/min on Nuclei trigger, 5 req/min on SSH trigger, 200 req/min global default; returns HTTP 429 on breach
-- **Input validation** — IP addresses, MAC addresses, SSH port range (1–65535), FQDNs (RFC-1123), and ZAP target URLs (http/https only) are validated at the API boundary
+- **HTTP security headers** — HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, Content-Security-Policy, Cross-Origin-Opener-Policy
+- **Rate limiting** — 10 req/min on login, 20 req/min on ZAP trigger, 10 req/min on Nuclei trigger, 5 req/min on SSH trigger, 200 req/min global default
+- **Input validation** — IP addresses, host/port regex, Docker image names, FQDNs validated at the API boundary
+- **Docker hardened** — non-root user, cap_drop ALL, mandatory secrets, no-new-privileges
 
 ### Infrastructure
 - **REST API** — FastAPI with OpenAPI docs at `/docs`
-- **Web dashboard** — dark-theme SPA at `http://localhost:8000`
+- **Web dashboard** — SOC Nightwatch dark-theme SPA at `http://localhost:8443`
+- **Hash routing** — browser back/forward buttons work, URLs are shareable (`/#/assets`, `/#/topology`)
 - **CLI** — `netlv` command with Rich-formatted tables and live progress
 
 ---

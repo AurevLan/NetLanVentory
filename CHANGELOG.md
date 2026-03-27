@@ -9,6 +9,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.11.0] — 2026-03-27
+
+### Added
+- **Scan planification** — any completed scan can be set to auto-repeat at a configurable interval (1h, 6h, 12h, daily, weekly, monthly) directly from the Scans tab
+  - Inline dropdown + "Planifier" button in the new "Planification" column
+  - Active scans show green badge with interval, run count, and countdown to next execution
+  - "Modifier" to change interval, "Arrêter" to disable
+  - `PUT /api/v1/scans/{id}/recurring?recurring=true&interval_hours=24`
+- **Re-run in place** — re-running a scan updates the same row instead of creating a new one; previous results are cleared and the scan is re-executed
+- **Hash-based routing** — browser back/forward buttons now work; URLs are shareable (`/#/assets`, `/#/admin`, `/#/topology`, etc.)
+- **SOC Nightwatch design v4** — cybersecurity-focused visual identity
+  - Phosphor green (#00ff9d) accent, Rajdhani + Source Code Pro fonts
+  - Radar grid overlay, pulsing login ring, glowing nav indicators
+  - Threat-level semantic colors (red/amber/green/purple)
+
+### Fixed
+- **apiFetch undefined** — replaced 10 calls to non-existent `apiFetch()` with the project's `api()` helper (timeline, compliance, executive, threat-intel, search, reports)
+- **resp.json() double parse** — `api()` already returns parsed JSON; removed 6 redundant `.json()` calls that caused "is not a function" errors
+- **Null guards** — all v0.9.0 page loaders (timeline, executive, compliance, search, threat-intel) now handle null API responses gracefully
+- **14 duplicate JS functions** — removed 1,123 lines of duplicate function declarations that overwrote working code (loadAssets, openAssetModal, loadCves, etc.)
+- **CSP nonce conflict** — removed nonce from CSP (browsers ignore `unsafe-inline` when a nonce is present; HTML uses hundreds of `onclick` handlers)
+- **DB migrations** — applied pending migrations 0037-0048 that caused all API 500 errors
+- **Docker** — fixed Trivy image registry (`ghcr.io/aquasecurity/trivy`), ZAP healthcheck, `.env` permission with non-root user
+- **Font loading** — moved Google Fonts from CSS `@import` to HTML `<link>` (CSP-compatible)
+
+### Changed
+- **Scans table** — new columns (Target, Modules, Status, Date, Assets, Planification, Actions), removed ID column
+- **Re-run behavior** — resets existing scan in place instead of creating a new row (409 Conflict if already running)
+- **Scheduler** — recurring scans re-use the same scan row; skips scans already in pending/running state
+
+---
+
 ## [v0.10.0] — 2026-03-27
 
 ### Added
