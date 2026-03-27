@@ -5953,7 +5953,7 @@ function initGlobalSearch() {
     _searchTimer = setTimeout(async () => {
       try {
         const data = await api(`/search?q=${encodeURIComponent(q)}&limit=15`);
-        if (!data.results || data.results.length === 0) {
+        if (!data || !data.results || data.results.length === 0) {
           dropdown.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:13px">Aucun résultat</div>';
         } else {
           dropdown.innerHTML = data.results.map(r => `
@@ -6002,7 +6002,7 @@ async function loadTimeline() {
   el.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Chargement…</p>';
   try {
     const events = await api('/timeline?limit=200');
-    if (!events.length) { el.innerHTML = '<p style="color:var(--text-muted)">Aucun événement</p>'; return; }
+    if (!events || !events.length) { el.innerHTML = '<p style="color:var(--text-muted)">Aucun événement</p>'; return; }
 
     const typeColors = { asset_discovered: '#818cf8', cve_found: '#f87171', port_opened: '#fbbf24', scan_completed: '#34d399' };
     const typeIcons = { asset_discovered: '&#x1f4bb;', cve_found: '&#x26a0;', port_opened: '&#x1f513;', scan_completed: '&#x2705;' };
@@ -6041,8 +6041,9 @@ async function loadCompliance() {
       api('/compliance/frameworks'),
       api('/compliance/reports?limit=20'),
     ]);
+    if (!frameworks || !reports) return;
 
-    fwEl.innerHTML = frameworks.map(fw => `
+    fwEl.innerHTML = (frameworks || []).map(fw => `
       <div class="settings-card" style="text-align:center">
         <h3 style="font-size:14px;margin-bottom:4px">${escape(fw.name)}</h3>
         <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${escape(fw.description).substring(0, 80)}</p>
@@ -6090,6 +6091,7 @@ async function loadExecutive() {
 
   try {
     const d = await api('/executive/summary');
+    if (!d) { kpisEl.innerHTML = '<p style="color:var(--text-muted)">Données indisponibles</p>'; return; }
 
     kpisEl.innerHTML = [
       { label: 'Score risque', value: d.global_risk_score, color: d.global_risk_score > 60 ? 'var(--danger)' : d.global_risk_score > 30 ? 'var(--warning)' : 'var(--success)' },
@@ -6172,7 +6174,7 @@ async function loadThreatIntel() {
   if (!listEl) return;
 
   try {
-    const iocs = await api('/threat-intel/iocs?limit=100');
+    const iocs = await api('/threat-intel/iocs?limit=100') || [];
 
     if (statsEl) {
       const ipCount = iocs.filter(i => i.ioc_type === 'ip').length;
