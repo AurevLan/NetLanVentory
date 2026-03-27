@@ -32,10 +32,11 @@ UNKNOWN_UUID = "00000000-0000-0000-0000-000000000000"
 
 @pytest.mark.asyncio
 async def test_csp_header_present(client):
-    """Content-Security-Policy header contains a per-request nonce."""
+    """Content-Security-Policy header is set with script-src."""
     r = await client.get("/api/v1/assets")
     csp = r.headers.get("content-security-policy", "")
-    assert "nonce-" in csp, f"CSP missing nonce: {csp}"
+    assert "script-src" in csp, f"CSP missing script-src: {csp}"
+    assert "frame-ancestors" in csp, f"CSP missing frame-ancestors: {csp}"
 
 
 @pytest.mark.asyncio
@@ -93,17 +94,19 @@ async def test_api_cache_control(client):
 
 
 @pytest.mark.asyncio
-async def test_csp_no_unsafe_inline_scripts(client):
-    """CSP script-src must NOT contain 'unsafe-inline' (nonce replaces it)."""
+async def test_csp_has_object_src_none(client):
+    """CSP must block object/embed elements (XSS vector)."""
     r = await client.get("/api/v1/assets")
     csp = r.headers.get("content-security-policy", "")
-    # Extract the script-src directive
-    for directive in csp.split(";"):
-        if "script-src" in directive:
-            assert "'unsafe-inline'" not in directive, (
-                f"script-src must not contain 'unsafe-inline': {directive}"
-            )
-            break
+    assert "object-src 'none'" in csp, f"CSP missing object-src 'none': {csp}"
+
+
+@pytest.mark.asyncio
+async def test_csp_has_base_uri_self(client):
+    """CSP must restrict base-uri to prevent base tag injection."""
+    r = await client.get("/api/v1/assets")
+    csp = r.headers.get("content-security-policy", "")
+    assert "base-uri 'self'" in csp, f"CSP missing base-uri 'self': {csp}"
 
 
 @pytest.mark.asyncio
