@@ -112,14 +112,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         h["Cross-Origin-Opener-Policy"] = "same-origin"
         h["Cross-Origin-Resource-Policy"] = "same-origin"
 
-        # Content Security Policy — nonce-based (no unsafe-inline for scripts)
+        # Content Security Policy
+        # NOTE: 'unsafe-inline' required for script-src because the dashboard
+        # uses inline onclick handlers extensively. TODO: migrate to addEventListener
+        # and switch to nonce-only CSP (nonce is generated but not yet sufficient).
         h["Content-Security-Policy"] = (
             "default-src 'self'; "
-            f"script-src 'self' 'nonce-{nonce}' cdn.jsdelivr.net; "
+            f"script-src 'self' 'unsafe-inline' 'nonce-{nonce}' cdn.jsdelivr.net; "
             "style-src 'self' 'unsafe-inline' fonts.googleapis.com; "
             "font-src 'self' fonts.gstatic.com; "
             "img-src 'self' data:; "
-            "connect-src 'self'; "
+            "connect-src 'self' cdn.jsdelivr.net; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "
             "form-action 'self'; "
