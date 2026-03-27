@@ -341,6 +341,7 @@ def create_app() -> FastAPI:
     app.include_router(default_creds_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(full_audit_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(remediation_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(remediation_router.workflow_router, prefix=api_prefix, dependencies=_auth)
 
     # New feature routers (0.8.0) — security audit suite
     app.include_router(priority_matrix_router.router, prefix=api_prefix, dependencies=_auth)

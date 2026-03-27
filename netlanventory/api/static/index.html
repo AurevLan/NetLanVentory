@@ -948,26 +948,58 @@
       <!-- ── Remediation plan panel ──────────────────────────────────────────── -->
       <section class="panel" id="panel-remediation">
         <div class="page-header">
-          <h1 class="page-title">Plan de remédiation</h1>
+          <h1 class="page-title">Suivi de remédiation</h1>
           <div class="page-actions">
-            <select id="remediation-source-filter" class="btn btn-sm" style="padding:4px 8px;background:var(--bg-card);border:1px solid var(--border);color:var(--text);border-radius:6px">
+            <select id="remediation-source-filter" style="padding:5px 8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);font-size:12px">
               <option value="">Toutes les sources</option>
               <option value="ssh">SSH</option>
               <option value="zap">ZAP</option>
               <option value="nuclei">Nuclei</option>
               <option value="trivy">Trivy</option>
             </select>
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="remediation-kev-only" />
               KEV uniquement
             </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="remediation-sla-only" />
               SLA dépassé
             </label>
-            <button class="btn btn-primary" onclick="loadRemediation()">Refresh</button>
+            <button class="btn btn-sm" onclick="loadRemediationBoard()">Vue Board</button>
+            <button class="btn btn-primary btn-sm" onclick="loadRemediation()">Refresh</button>
           </div>
         </div>
+
+        <!-- Remediation stats row -->
+        <div id="remediation-stats" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px"></div>
+
+        <!-- Remediation funnel / board -->
+        <div id="remediation-board" style="display:none;margin-bottom:16px">
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+            <div class="settings-card" style="padding:12px">
+              <h4 style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Ouvert</h4>
+              <div id="board-open"></div>
+            </div>
+            <div class="settings-card" style="padding:12px">
+              <h4 style="font-size:12px;color:var(--info);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Planifié</h4>
+              <div id="board-planned"></div>
+            </div>
+            <div class="settings-card" style="padding:12px">
+              <h4 style="font-size:12px;color:var(--warning);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">En cours</h4>
+              <div id="board-in_progress"></div>
+            </div>
+            <div class="settings-card" style="padding:12px">
+              <h4 style="font-size:12px;color:var(--success);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Résolu</h4>
+              <div id="board-resolved"></div>
+            </div>
+            <div class="settings-card" style="padding:12px">
+              <h4 style="font-size:12px;color:var(--danger);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Bloqué</h4>
+              <div id="board-blocked"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Priority list -->
         <div id="remediation-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
         <div id="remediation-list"></div>
       </section>
@@ -1004,32 +1036,70 @@
       <!-- ── Executive RSSI panel ────────────────────────────────────────── -->
       <section class="panel" id="panel-executive">
         <div class="page-header">
-          <h1 class="page-title">Dashboard Exécutif RSSI</h1>
+          <h1 class="page-title">Vision 360° — Dashboard RSSI</h1>
           <div class="page-actions">
             <button class="btn btn-sm" onclick="exportExecutivePDF()">Export PDF</button>
             <button class="btn btn-sm" onclick="exportXLSX()">Export Excel</button>
             <button class="btn btn-sm" onclick="loadExecutive()">Refresh</button>
           </div>
         </div>
-        <div id="exec-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+
+        <!-- Row 1: KPIs principaux -->
+        <div id="exec-kpis" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px"></div>
+
+        <!-- Row 2: Risk gauge + Remediation funnel + MTTR -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
           <div class="settings-card">
             <h3 class="settings-card-title">Score de risque global</h3>
-            <div id="exec-risk-gauge" style="text-align:center;padding:20px"></div>
+            <div id="exec-risk-gauge" style="text-align:center;padding:16px"></div>
           </div>
           <div class="settings-card">
-            <h3 class="settings-card-title">Couverture sécurité</h3>
-            <div id="exec-coverage"></div>
+            <h3 class="settings-card-title">Entonnoir de remédiation</h3>
+            <div id="exec-funnel"></div>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">Performance</h3>
+            <div id="exec-performance"></div>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+
+        <!-- Row 3: Trend chart + Severity heatmap -->
+        <div style="display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:16px">
           <div class="settings-card">
-            <h3 class="settings-card-title">Tendance 30 jours</h3>
-            <canvas id="exec-trend-chart" height="200"></canvas>
+            <h3 class="settings-card-title">Tendance 30 jours — CVEs</h3>
+            <canvas id="exec-trend-chart" height="180"></canvas>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">Heatmap sévérité × criticité</h3>
+            <div id="exec-heatmap"></div>
+          </div>
+        </div>
+
+        <!-- Row 4: Velocity chart + Burndown + Top assets -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Vélocité (CVEs/semaine)</h3>
+            <canvas id="exec-velocity-chart" height="150"></canvas>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">Burndown CVEs ouvertes</h3>
+            <canvas id="exec-burndown-chart" height="150"></canvas>
           </div>
           <div class="settings-card">
             <h3 class="settings-card-title">Top assets à risque</h3>
             <div id="exec-top-assets"></div>
+          </div>
+        </div>
+
+        <!-- Row 5: Coverage + SLA -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Couverture sécurité</h3>
+            <div id="exec-coverage"></div>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">SLA & Conformité</h3>
+            <div id="exec-sla"></div>
           </div>
         </div>
       </section>
@@ -1873,6 +1943,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js" crossorigin="anonymous"></script>
-  <script src="/static/app.js?v=5.0"></script>
+  <script src="/static/app.js?v=5.1"></script>
 </body>
 </html>

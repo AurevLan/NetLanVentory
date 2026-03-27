@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, literal, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netlanventory.api.dependencies import get_db
@@ -52,6 +52,37 @@ class SecurityCoverage(BaseModel):
     hardening_coverage_pct: float
 
 
+class VelocityPoint(BaseModel):
+    week: str
+    resolved: int
+
+
+class BurndownPoint(BaseModel):
+    date: str
+    open_count: int
+
+
+class HeatmapEntry(BaseModel):
+    criticality: str
+    critical_cves: int
+    high_cves: int
+    medium_cves: int
+    low_cves: int
+
+
+class SlaMetrics(BaseModel):
+    total_breach_count: int
+    avg_days_overdue: float | None
+
+
+class RemediationFunnel(BaseModel):
+    open: int
+    planned: int
+    in_progress: int
+    resolved: int
+    blocked: int
+
+
 class ExecutiveSummary(BaseModel):
     # Overall risk score (0-100, higher = worse)
     global_risk_score: float
@@ -72,6 +103,27 @@ class ExecutiveSummary(BaseModel):
 
     # 30-day trend
     trend_30d: list[RiskTrendPoint]
+
+    # MTTR
+    mttr_hours: float | None
+
+    # Velocity (CVEs resolved per week, last 12 weeks)
+    velocity: list[VelocityPoint]
+
+    # Burndown (daily open CVE count, last 30 days)
+    burndown: list[BurndownPoint]
+
+    # Forecast days until critical+high CVEs reach zero
+    forecast_days_to_zero: int | None
+
+    # Severity heatmap grouped by asset criticality
+    heatmap: list[HeatmapEntry]
+
+    # SLA metrics
+    sla_metrics: SlaMetrics
+
+    # Remediation funnel
+    remediation_funnel: RemediationFunnel
 
     # Context
     total_assets: int
@@ -264,6 +316,146 @@ async def get_executive_summary(db: DbDep) -> ExecutiveSummary:
         ))
         running_unacked += new - resolved
 
+    # ── MTTR (Mean Time to Remediation) ────────────────────────────────
+    cutoff_90d = now - timedelta(days=90)
+    mttr_result = (
+        await db.execute(
+            select(
+                func.avg(
+                    func.extract("epoch", AssetCve.remediation_resolved_at)
+                    - func.extract("epoch", AssetCve.discovered_at)
+                )
+                / 3600.0
+            )
+            .where(
+                AssetCve.remediation_status == "resolved",
+                AssetCve.remediation_resolved_at.isnot(None),
+                AssetCve.remediation_resolved_at >= cutoff_90d,
+            )
+        )
+    ).scalar_one_or_none()
+    mttr_hours: float | None = round(mttr_result, 2) if mttr_result is not None else None
+
+    # ── Velocity (CVEs resolved per week, last 12 weeks) ────────────
+    velocity: list[VelocityPoint] = []
+    for w in range(12, 0, -1):
+        week_end = now - timedelta(weeks=w - 1)
+        week_start = now - timedelta(weeks=w)
+        cnt = (
+            await db.execute(
+                select(func.count())
+                .select_from(AssetCve)
+                .where(
+                    AssetCve.remediation_resolved_at.isnot(None),
+                    AssetCve.remediation_resolved_at >= week_start,
+                    AssetCve.remediation_resolved_at < week_end,
+                )
+            )
+        ).scalar_one()
+        iso_year, iso_week, _ = week_start.isocalendar()
+        velocity.append(VelocityPoint(week=f"{iso_year}-W{iso_week:02d}", resolved=cnt))
+
+    # ── Burndown (daily open CVE count, last 30 days) ────────────────
+    burndown: list[BurndownPoint] = []
+    for d in range(30):
+        day = (now - timedelta(days=29 - d)).date()
+        day_end = datetime(day.year, day.month, day.day, 23, 59, 59, tzinfo=timezone.utc)
+        # Count CVEs that were open at end of this day:
+        # discovered_at <= day_end AND (remediation_resolved_at IS NULL OR remediation_resolved_at > day_end)
+        open_count = (
+            await db.execute(
+                select(func.count())
+                .select_from(AssetCve)
+                .where(
+                    AssetCve.discovered_at <= day_end,
+                    AssetCve.remediation_status != "resolved",
+                )
+                .where(
+                    (AssetCve.remediation_resolved_at.is_(None))
+                    | (AssetCve.remediation_resolved_at > day_end)
+                )
+            )
+        ).scalar_one()
+        burndown.append(BurndownPoint(date=str(day), open_count=open_count))
+
+    # ── Forecast days to zero critical+high ──────────────────────────
+    current_critical_high = critical_cves + high_cves
+    total_velocity = sum(v.resolved for v in velocity)
+    avg_weekly_velocity = total_velocity / 12.0 if velocity else 0.0
+    if avg_weekly_velocity > 0 and current_critical_high > 0:
+        forecast_days_to_zero = int(current_critical_high / avg_weekly_velocity * 7)
+    else:
+        forecast_days_to_zero = None
+
+    # ── Severity heatmap (group by asset criticality) ────────────────
+    heatmap_rows = (
+        await db.execute(
+            select(
+                Asset.criticality,
+                func.sum(case((Cve.severity == "Critical", 1), else_=0)).label("critical_cves"),
+                func.sum(case((Cve.severity == "High", 1), else_=0)).label("high_cves"),
+                func.sum(case((Cve.severity == "Medium", 1), else_=0)).label("medium_cves"),
+                func.sum(case((Cve.severity == "Low", 1), else_=0)).label("low_cves"),
+            )
+            .join(AssetCve, AssetCve.asset_id == Asset.id)
+            .join(Cve, AssetCve.cve_id == Cve.id)
+            .group_by(Asset.criticality)
+        )
+    ).all()
+    heatmap = [
+        HeatmapEntry(
+            criticality=r.criticality or "unknown",
+            critical_cves=int(r.critical_cves or 0),
+            high_cves=int(r.high_cves or 0),
+            medium_cves=int(r.medium_cves or 0),
+            low_cves=int(r.low_cves or 0),
+        )
+        for r in heatmap_rows
+    ]
+
+    # ── SLA metrics ──────────────────────────────────────────────────
+    sla_breach_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(AssetCve)
+            .where(AssetCve.sla_breached.is_(True))
+        )
+    ).scalar_one()
+
+    sla_avg_overdue = (
+        await db.execute(
+            select(
+                func.avg(
+                    func.extract("epoch", func.now() - AssetCve.sla_deadline) / 86400.0
+                )
+            )
+            .where(
+                AssetCve.sla_breached.is_(True),
+                AssetCve.sla_deadline.isnot(None),
+            )
+        )
+    ).scalar_one_or_none()
+    sla_metrics = SlaMetrics(
+        total_breach_count=sla_breach_count,
+        avg_days_overdue=round(sla_avg_overdue, 1) if sla_avg_overdue is not None else None,
+    )
+
+    # ── Remediation funnel ───────────────────────────────────────────
+    funnel_rows = (
+        await db.execute(
+            select(AssetCve.remediation_status, func.count(AssetCve.id).label("cnt"))
+            .group_by(AssetCve.remediation_status)
+        )
+    ).all()
+    funnel_map = {r.remediation_status: r.cnt for r in funnel_rows}
+    remediation_funnel = RemediationFunnel(
+        open=funnel_map.get("open", 0),
+        planned=funnel_map.get("planned", 0),
+        in_progress=funnel_map.get("in_progress", 0),
+        resolved=funnel_map.get("resolved", 0),
+        blocked=funnel_map.get("blocked", 0),
+    )
+
     return ExecutiveSummary(
         global_risk_score=global_risk_score,
         risk_trend=risk_trend,
@@ -275,6 +467,13 @@ async def get_executive_summary(db: DbDep) -> ExecutiveSummary:
         top_risky_assets=top_risky_assets,
         coverage=coverage,
         trend_30d=trend_30d,
+        mttr_hours=mttr_hours,
+        velocity=velocity,
+        burndown=burndown,
+        forecast_days_to_zero=forecast_days_to_zero,
+        heatmap=heatmap,
+        sla_metrics=sla_metrics,
+        remediation_funnel=remediation_funnel,
         total_assets=total_assets,
         active_assets=active_assets,
         generated_at=now.isoformat(),

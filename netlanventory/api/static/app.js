@@ -182,7 +182,7 @@ function switchToView(viewName, { pushHistory = true } = {}) {
     'expositions': () => loadExpositions(),
     'topology': () => loadTopology(),
     'reports': () => loadReportsPanel(),
-    'remediation': () => loadRemediation(),
+    'remediation': () => { loadRemediation(); loadRemediationStats(); },
     'timeline': () => loadTimeline(),
     'compliance': () => loadCompliance(),
     'executive': () => loadExecutive(),
@@ -6117,83 +6117,277 @@ async function runComplianceEval(framework) {
 
 async function loadExecutive() {
   const kpisEl = document.getElementById('exec-kpis');
-  const gaugeEl = document.getElementById('exec-risk-gauge');
-  const coverageEl = document.getElementById('exec-coverage');
-  const topEl = document.getElementById('exec-top-assets');
   if (!kpisEl) return;
 
   try {
     const d = await api('/executive/summary');
     if (!d) { kpisEl.innerHTML = '<p style="color:var(--text-muted)">Données indisponibles</p>'; return; }
 
-    kpisEl.innerHTML = [
-      { label: 'Score risque', value: d.global_risk_score, color: d.global_risk_score > 60 ? 'var(--danger)' : d.global_risk_score > 30 ? 'var(--warning)' : 'var(--success)' },
-      { label: 'CVEs critiques', value: d.critical_cves, color: 'var(--danger)' },
-      { label: 'Taux remédiation', value: d.remediation_rate_pct + '%', color: 'var(--success)' },
-      { label: 'Tendance', value: d.risk_trend === 'improving' ? 'En amélioration' : d.risk_trend === 'worsening' ? 'En dégradation' : 'Stable', color: d.risk_trend === 'improving' ? 'var(--success)' : d.risk_trend === 'worsening' ? 'var(--danger)' : 'var(--text-muted)' },
-    ].map(k => `<div class="stat-card"><span class="num" style="color:${k.color}">${k.value}</span><span class="stat-lbl">${k.label}</span></div>`).join('');
+    // ── Row 1: 6 KPIs ──
+    const mttr = d.mttr_hours != null ? `${Math.round(d.mttr_hours)}h` : '—';
+    const forecast = d.forecast_days_to_zero != null ? `${d.forecast_days_to_zero}j` : '∞';
+    const trendLabel = d.risk_trend === 'improving' ? '↘ Amélioration' : d.risk_trend === 'worsening' ? '↗ Dégradation' : '→ Stable';
+    const trendColor = d.risk_trend === 'improving' ? 'var(--success)' : d.risk_trend === 'worsening' ? 'var(--danger)' : 'var(--text-muted)';
 
-    // Risk gauge
+    kpisEl.innerHTML = [
+      { label: 'Score risque', value: Math.round(d.global_risk_score), color: d.global_risk_score > 60 ? 'var(--danger)' : d.global_risk_score > 30 ? 'var(--warning)' : 'var(--success)' },
+      { label: 'CVEs critiques', value: d.critical_cves, color: d.critical_cves > 0 ? 'var(--danger)' : 'var(--success)' },
+      { label: 'CVEs ouvertes', value: d.total_cves - (d.remediation_funnel?.resolved || 0), color: 'var(--warning)' },
+      { label: 'MTTR', value: mttr, color: 'var(--info)' },
+      { label: 'Tendance', value: trendLabel, color: trendColor },
+      { label: 'Forecast 0 crit', value: forecast, color: 'var(--accent)' },
+    ].map(k => `<div class="stat-card"><span class="num" style="color:${k.color};font-size:20px">${k.value}</span><span class="stat-lbl">${k.label}</span></div>`).join('');
+
+    // ── Risk gauge ──
+    const gaugeEl = document.getElementById('exec-risk-gauge');
     if (gaugeEl) {
-      const pct = d.global_risk_score;
-      const gaugeColor = pct > 60 ? '#ef4444' : pct > 30 ? '#f59e0b' : '#22c55e';
+      const pct = Math.round(d.global_risk_score);
+      const gc = pct > 60 ? 'var(--danger)' : pct > 30 ? 'var(--warning)' : 'var(--success)';
       gaugeEl.innerHTML = `
-        <div style="position:relative;width:160px;height:160px;margin:0 auto">
+        <div style="position:relative;width:140px;height:140px;margin:0 auto">
           <svg viewBox="0 0 36 36" style="transform:rotate(-90deg)">
-            <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--border)" stroke-width="3"/>
-            <circle cx="18" cy="18" r="15.9" fill="none" stroke="${gaugeColor}" stroke-width="3" stroke-dasharray="${pct} ${100 - pct}" stroke-linecap="round"/>
+            <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--surface3)" stroke-width="3"/>
+            <circle cx="18" cy="18" r="15.9" fill="none" stroke="${gc}" stroke-width="3" stroke-dasharray="${pct} ${100 - pct}" stroke-linecap="round"/>
           </svg>
           <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column">
-            <span style="font-size:28px;font-weight:700;color:${gaugeColor}">${pct}</span>
-            <span style="font-size:11px;color:var(--text-muted)">/100</span>
+            <span style="font-size:26px;font-weight:700;color:${gc}">${pct}</span>
+            <span style="font-size:10px;color:var(--text-muted)">/ 100</span>
           </div>
+        </div>
+        <p style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:8px">${d.active_assets || 0} assets actifs · ${d.total_cves || 0} CVEs</p>`;
+    }
+
+    // ── Remediation funnel ──
+    const funnelEl = document.getElementById('exec-funnel');
+    if (funnelEl) {
+      const f = d.remediation_funnel || { open: 0, planned: 0, in_progress: 0, resolved: 0, blocked: 0 };
+      const total = Object.values(f).reduce((s, v) => s + v, 0) || 1;
+      const bars = [
+        { label: 'Ouvert', count: f.open, color: 'var(--text-muted)' },
+        { label: 'Planifié', count: f.planned, color: 'var(--info)' },
+        { label: 'En cours', count: f.in_progress, color: 'var(--warning)' },
+        { label: 'Résolu', count: f.resolved, color: 'var(--success)' },
+        { label: 'Bloqué', count: f.blocked, color: 'var(--danger)' },
+      ];
+      funnelEl.innerHTML = bars.map(b => `
+        <div style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+            <span>${b.label}</span><span style="font-weight:600">${b.count}</span>
+          </div>
+          <div style="height:6px;background:var(--surface3);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${Math.round(b.count / total * 100)}%;background:${b.color};border-radius:3px;transition:width .3s"></div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // ── Performance (MTTR + SLA) ──
+    const perfEl = document.getElementById('exec-performance');
+    if (perfEl) {
+      const slaBreach = d.sla_breach_count || 0;
+      const slaAvgOverdue = d.sla_avg_days_overdue ? Math.round(d.sla_avg_days_overdue) : 0;
+      perfEl.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center">
+          <div>
+            <div style="font-size:28px;font-weight:700;color:var(--info)">${mttr}</div>
+            <div style="font-size:11px;color:var(--text-muted)">MTTR moyen</div>
+          </div>
+          <div>
+            <div style="font-size:28px;font-weight:700;color:${slaBreach > 0 ? 'var(--danger)' : 'var(--success)'}">${slaBreach}</div>
+            <div style="font-size:11px;color:var(--text-muted)">SLA en breach</div>
+          </div>
+        </div>
+        <div style="margin-top:14px;font-size:12px;color:var(--text-muted)">
+          ${slaBreach > 0 ? `Retard moyen : <strong style="color:var(--danger)">${slaAvgOverdue}j</strong>` : '<span style="color:var(--success)">Tous les SLA sont respectés</span>'}
+        </div>
+        <div style="margin-top:8px;font-size:12px;color:var(--text-muted)">
+          Remédiation : <strong>${d.remediation_rate_pct || 0}%</strong> · Couverture scan : <strong>${d.coverage?.scan_coverage_pct?.toFixed(0) || 0}%</strong>
         </div>`;
     }
 
-    // Coverage
-    if (coverageEl) {
+    // ── Coverage bars ──
+    const coverageEl = document.getElementById('exec-coverage');
+    if (coverageEl && d.coverage) {
       const c = d.coverage;
-      coverageEl.innerHTML = [
-        { label: 'Scan récent', pct: c.scan_coverage_pct, count: `${c.assets_with_recent_scan}/${c.total_assets}` },
-        { label: 'Hardening', pct: c.hardening_coverage_pct, count: `${c.assets_with_hardening}/${c.total_assets}` },
-        { label: 'SSL valide', pct: 0, count: `${c.assets_with_ssl_ok}/${c.total_assets}` },
-      ].map(m => `<div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>${m.label}</span><span>${m.count}</span></div>
-        <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden"><div style="height:100%;width:${Math.min(m.pct, 100)}%;background:var(--primary);border-radius:4px"></div></div>
-      </div>`).join('');
+      const items = [
+        { label: 'Scan réseau récent (<7j)', pct: c.scan_coverage_pct || 0, count: `${c.assets_with_recent_scan}/${c.total_assets}` },
+        { label: 'Hardening audit', pct: c.hardening_coverage_pct || 0, count: `${c.assets_with_hardening}/${c.total_assets}` },
+        { label: 'SSL/TLS valide', pct: c.total_assets ? Math.round((c.assets_with_ssl_ok / c.total_assets) * 100) : 0, count: `${c.assets_with_ssl_ok}/${c.total_assets}` },
+      ];
+      coverageEl.innerHTML = items.map(m => {
+        const barColor = m.pct >= 80 ? 'var(--success)' : m.pct >= 50 ? 'var(--warning)' : 'var(--danger)';
+        return `<div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>${m.label}</span><span style="font-weight:600">${m.pct.toFixed(0)}% <span style="color:var(--text-muted);font-weight:400">(${m.count})</span></span></div>
+          <div style="height:8px;background:var(--surface3);border-radius:4px;overflow:hidden"><div style="height:100%;width:${Math.min(m.pct, 100)}%;background:${barColor};border-radius:4px;transition:width .3s"></div></div>
+        </div>`;
+      }).join('');
     }
 
-    // Top risky assets
-    if (topEl) {
-      topEl.innerHTML = d.top_risky_assets.slice(0, 5).map(a => `
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
-          <span>${escape(a.ip || a.name || a.asset_id.substring(0, 8))}</span>
-          <span><span class="badge badge-critical" style="font-size:10px">${a.critical_cve_count} crit</span> ${a.cve_count} CVEs</span>
+    // ── SLA section ──
+    const slaEl = document.getElementById('exec-sla');
+    if (slaEl) {
+      const slaBreach = d.sla_breach_count || 0;
+      const funnelRes = d.remediation_funnel?.resolved || 0;
+      const funnelTotal = d.total_cves || 1;
+      slaEl.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:var(--radius)">
+            <div style="font-size:24px;font-weight:700;color:${slaBreach > 0 ? 'var(--danger)' : 'var(--success)'}">${slaBreach}</div>
+            <div style="font-size:11px;color:var(--text-muted)">SLA dépassés</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:var(--radius)">
+            <div style="font-size:24px;font-weight:700;color:var(--accent)">${Math.round(funnelRes / funnelTotal * 100)}%</div>
+            <div style="font-size:11px;color:var(--text-muted)">Taux résolution</div>
+          </div>
         </div>
-      `).join('') || '<p style="color:var(--text-muted);font-size:13px">Aucun asset à risque</p>';
+        <p style="font-size:12px;color:var(--text-muted)">SLA : Critique 3j · Haut 7j · Moyen 30j · Bas 90j</p>`;
     }
 
-    // Trend chart
-    const canvas = document.getElementById('exec-trend-chart');
-    if (canvas && d.trend_30d && d.trend_30d.length > 0 && typeof Chart !== 'undefined') {
-      const ctx = canvas.getContext('2d');
-      if (canvas._chartInstance) canvas._chartInstance.destroy();
-      canvas._chartInstance = new Chart(ctx, {
+    // ── Heatmap severity × criticality ──
+    const heatmapEl = document.getElementById('exec-heatmap');
+    if (heatmapEl && d.heatmap) {
+      const rows = d.heatmap || [];
+      heatmapEl.innerHTML = `
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+          <thead><tr>
+            <th style="text-align:left;padding:4px 6px;color:var(--text-muted);font-weight:600">Criticité</th>
+            <th style="text-align:center;padding:4px;color:var(--danger)">Crit</th>
+            <th style="text-align:center;padding:4px;color:var(--warning)">High</th>
+            <th style="text-align:center;padding:4px;color:#fbbf24">Med</th>
+            <th style="text-align:center;padding:4px;color:var(--info)">Low</th>
+          </tr></thead>
+          <tbody>${(rows.length ? rows : [{criticality:'—',critical_cves:0,high_cves:0,medium_cves:0,low_cves:0}]).map(r => {
+            const cellStyle = (v) => `text-align:center;padding:6px;font-weight:600;border-radius:4px;${v > 0 ? 'background:rgba(248,113,113,.1)' : ''}`;
+            return `<tr style="border-bottom:1px solid var(--border-muted)">
+              <td style="padding:6px;font-weight:600;text-transform:capitalize">${escape(r.criticality)}</td>
+              <td style="${cellStyle(r.critical_cves)}">${r.critical_cves || 0}</td>
+              <td style="${cellStyle(r.high_cves)}">${r.high_cves || 0}</td>
+              <td style="${cellStyle(r.medium_cves)}">${r.medium_cves || 0}</td>
+              <td style="${cellStyle(r.low_cves)}">${r.low_cves || 0}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>`;
+    }
+
+    // ── Top risky assets ──
+    const topEl = document.getElementById('exec-top-assets');
+    if (topEl) {
+      topEl.innerHTML = (d.top_risky_assets || []).slice(0, 8).map((a, i) => `
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border-muted);font-size:12px">
+          <span style="color:var(--text-muted);font-weight:600;min-width:18px">#${i + 1}</span>
+          <span style="flex:1;font-weight:500">${escape(a.ip || a.name || a.asset_id?.substring(0, 8))}</span>
+          <span class="badge badge-error" style="font-size:9px">${a.critical_cve_count} crit</span>
+          <span style="color:var(--text-muted)">${a.cve_count} CVEs</span>
+        </div>
+      `).join('') || '<p style="color:var(--text-muted);font-size:12px">Aucun asset à risque</p>';
+    }
+
+    // ── Charts (trend, velocity, burndown) ──
+    const chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#9ca3af', font: { size: 10 } } } }, scales: { x: { ticks: { color: '#6b7280', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,.04)' } }, y: { ticks: { color: '#6b7280' }, beginAtZero: true, grid: { color: 'rgba(255,255,255,.04)' } } } };
+
+    // Trend 30d
+    const trendCanvas = document.getElementById('exec-trend-chart');
+    if (trendCanvas && d.trend_30d?.length && typeof Chart !== 'undefined') {
+      if (trendCanvas._ci) trendCanvas._ci.destroy();
+      trendCanvas._ci = new Chart(trendCanvas.getContext('2d'), {
         type: 'line',
         data: {
-          labels: d.trend_30d.map(p => p.date.substring(5)),
+          labels: d.trend_30d.map(p => p.date?.substring(5)),
           datasets: [
-            { label: 'Nouvelles CVEs', data: d.trend_30d.map(p => p.new_cves), borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.1)', fill: true, tension: 0.3 },
-            { label: 'CVEs résolues', data: d.trend_30d.map(p => p.resolved_cves), borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.1)', fill: true, tension: 0.3 },
-            { label: 'Non acquittées', data: d.trend_30d.map(p => p.cumulative_unacked), borderColor: '#818cf8', borderDash: [5, 3], fill: false, tension: 0.3 },
+            { label: 'Nouvelles', data: d.trend_30d.map(p => p.new_cves), borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.08)', fill: true, tension: 0.3, pointRadius: 1 },
+            { label: 'Résolues', data: d.trend_30d.map(p => p.resolved_cves), borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.08)', fill: true, tension: 0.3, pointRadius: 1 },
+            { label: 'Ouvertes (cumul)', data: d.trend_30d.map(p => p.cumulative_unacked), borderColor: '#60a5fa', borderDash: [4, 2], fill: false, tension: 0.3, pointRadius: 0 },
           ],
         },
-        options: { responsive: true, plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } }, scales: { x: { ticks: { color: '#64748b', font: { size: 10 } } }, y: { ticks: { color: '#64748b' }, beginAtZero: true } } },
+        options: chartOpts,
       });
     }
+
+    // Velocity
+    const velCanvas = document.getElementById('exec-velocity-chart');
+    if (velCanvas && d.velocity?.length && typeof Chart !== 'undefined') {
+      if (velCanvas._ci) velCanvas._ci.destroy();
+      velCanvas._ci = new Chart(velCanvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: d.velocity.map(v => v.week),
+          datasets: [{ label: 'CVEs résolues', data: d.velocity.map(v => v.resolved), backgroundColor: 'rgba(52,211,153,0.6)', borderRadius: 3 }],
+        },
+        options: { ...chartOpts, plugins: { ...chartOpts.plugins, legend: { display: false } } },
+      });
+    }
+
+    // Burndown
+    const burnCanvas = document.getElementById('exec-burndown-chart');
+    if (burnCanvas && d.burndown?.length && typeof Chart !== 'undefined') {
+      if (burnCanvas._ci) burnCanvas._ci.destroy();
+      burnCanvas._ci = new Chart(burnCanvas.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels: d.burndown.map(b => b.date?.substring(5)),
+          datasets: [{ label: 'CVEs ouvertes', data: d.burndown.map(b => b.open_count), borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,0.06)', fill: true, tension: 0.3, pointRadius: 1 }],
+        },
+        options: { ...chartOpts, plugins: { ...chartOpts.plugins, legend: { display: false } } },
+      });
+    }
+
   } catch (e) {
     kpisEl.innerHTML = `<p style="color:var(--danger)">Erreur : ${escape(String(e.message))}</p>`;
   }
+}
+
+// ── Remediation board view ──────────────────────────────────────────────────
+
+async function loadRemediationBoard() {
+  const boardEl = document.getElementById('remediation-board');
+  const listEl = document.getElementById('remediation-list');
+  if (!boardEl) return;
+
+  // Toggle visibility
+  boardEl.style.display = boardEl.style.display === 'none' ? 'block' : 'none';
+  if (boardEl.style.display === 'none') return;
+  if (listEl) listEl.style.display = 'none';
+
+  try {
+    const data = await api('/remediation/board');
+    if (!data) return;
+
+    for (const status of ['open', 'planned', 'in_progress', 'resolved', 'blocked']) {
+      const col = document.getElementById(`board-${status}`);
+      if (!col) continue;
+      const items = data[status] || [];
+      col.innerHTML = items.length === 0
+        ? '<p style="color:var(--text-muted);font-size:11px;text-align:center;padding:16px">Aucun</p>'
+        : items.map(item => {
+          const sevColor = { critical: 'var(--danger)', high: 'var(--warning)', medium: '#fbbf24', low: 'var(--info)' }[item.severity] || 'var(--text-muted)';
+          return `<div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid ${sevColor};border-radius:var(--radius-sm);padding:8px;margin-bottom:6px;font-size:11px">
+            <div style="font-weight:600;color:var(--accent)">${escape(item.cve_id)}</div>
+            <div style="color:var(--text-muted)">${escape(item.asset_ip || '—')} ${item.package_name ? '· ' + escape(item.package_name) : ''}</div>
+            ${item.assigned_to ? `<div style="margin-top:4px">→ ${escape(item.assigned_to)}</div>` : ''}
+            ${item.sla_breached ? '<span class="badge badge-error" style="font-size:8px;margin-top:4px">SLA</span>' : ''}
+          </div>`;
+        }).join('');
+    }
+  } catch (e) {
+    boardEl.innerHTML = `<p style="color:var(--danger)">Erreur: ${escape(e.message)}</p>`;
+  }
+}
+
+async function loadRemediationStats() {
+  const statsEl = document.getElementById('remediation-stats');
+  if (!statsEl) return;
+  try {
+    const s = await api('/remediation/stats');
+    if (!s) return;
+    const f = s.funnel || {};
+    statsEl.innerHTML = [
+      { label: 'Ouvertes', value: f.open || 0, color: 'var(--text-muted)' },
+      { label: 'Planifiées', value: f.planned || 0, color: 'var(--info)' },
+      { label: 'En cours', value: f.in_progress || 0, color: 'var(--warning)' },
+      { label: 'Résolues', value: f.resolved || 0, color: 'var(--success)' },
+      { label: 'Bloquées', value: f.blocked || 0, color: 'var(--danger)' },
+    ].map(k => `<div class="stat-card"><span class="num" style="color:${k.color};font-size:22px">${k.value}</span><span class="stat-lbl">${k.label}</span></div>`).join('');
+  } catch (_) {}
 }
 
 

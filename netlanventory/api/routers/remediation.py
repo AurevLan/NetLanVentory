@@ -21,19 +21,25 @@ Scoring formula (multiplicative, yields 0–100):
 from __future__ import annotations
 
 import math
+import uuid
+from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from netlanventory.api.dependencies import get_current_active_user, get_db
 from netlanventory.core.risk import _CRITICALITY_FACTORS
+from netlanventory.models.asset import Asset
 from netlanventory.models.asset_cve import AssetCve
+from netlanventory.models.cve import Cve
 from netlanventory.schemas.remediation import RemediationGroup, RemediationPlanResponse
 
 router = APIRouter(prefix="/remediation-plan", tags=["remediation"])
+workflow_router = APIRouter(tags=["remediation"])
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 
@@ -234,3 +240,206 @@ async def get_remediation_plan(
         filters_applied=filters_applied,
         groups=result_groups,
     )
+
+
+# ── Remediation workflow endpoints ────────────────────────────────────────────
+
+_VALID_STATUSES = {"open", "planned", "in_progress", "resolved", "blocked"}
+
+
+class RemediationUpdate(BaseModel):
+    status: str | None = None  # open, planned, in_progress, resolved, blocked
+    assigned_to: str | None = None
+    due_date: str | None = None  # ISO date string
+    note: str | None = None
+
+
+@workflow_router.patch("/assets/{asset_id}/cves/{link_id}/remediation")
+async def update_remediation_status(
+    asset_id: uuid.UUID,
+    link_id: uuid.UUID,
+    body: RemediationUpdate,
+    db: DbDep,
+    _current_user: Annotated[object, Depends(get_current_active_user)],
+):
+    """Update the remediation status of a specific CVE on an asset."""
+    result = await db.execute(
+        select(AssetCve).where(AssetCve.id == link_id, AssetCve.asset_id == asset_id)
+    )
+    link = result.scalar_one_or_none()
+    if link is None:
+        raise HTTPException(status_code=404, detail="AssetCve link not found")
+
+    if body.status is not None:
+        if body.status not in _VALID_STATUSES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid status. Must be one of: {', '.join(sorted(_VALID_STATUSES))}",
+            )
+        old_status = link.remediation_status
+
+        # Transition logic
+        if body.status == "in_progress" and link.remediation_started_at is None:
+            link.remediation_started_at = datetime.now(timezone.utc)
+        if body.status == "resolved":
+            link.remediation_resolved_at = datetime.now(timezone.utc)
+        if old_status == "resolved" and body.status != "resolved":
+            link.remediation_resolved_at = None
+
+        link.remediation_status = body.status
+
+    if body.assigned_to is not None:
+        link.assigned_to = body.assigned_to
+    if body.due_date is not None:
+        link.remediation_due_date = datetime.fromisoformat(body.due_date).date()
+    if body.note is not None:
+        link.remediation_note = body.note
+
+    await db.commit()
+    await db.refresh(link)
+
+    return {
+        "id": str(link.id),
+        "asset_id": str(link.asset_id),
+        "cve_id": str(link.cve_id),
+        "remediation_status": link.remediation_status,
+        "assigned_to": link.assigned_to,
+        "remediation_due_date": str(link.remediation_due_date) if link.remediation_due_date else None,
+        "remediation_started_at": link.remediation_started_at.isoformat() if link.remediation_started_at else None,
+        "remediation_resolved_at": link.remediation_resolved_at.isoformat() if link.remediation_resolved_at else None,
+        "remediation_note": link.remediation_note,
+    }
+
+
+@workflow_router.get("/remediation/stats")
+async def get_remediation_stats(
+    db: DbDep,
+    _current_user: Annotated[object, Depends(get_current_active_user)],
+):
+    """Return aggregated remediation statistics."""
+    from datetime import date as date_type
+
+    # Funnel counts by status
+    funnel_q = select(
+        AssetCve.remediation_status,
+        func.count().label("cnt"),
+    ).group_by(AssetCve.remediation_status)
+    funnel_rows = (await db.execute(funnel_q)).all()
+    funnel = {status: 0 for status in _VALID_STATUSES}
+    total = 0
+    for row in funnel_rows:
+        status = row[0] or "open"
+        if status in funnel:
+            funnel[status] += row[1]
+        total += row[1]
+
+    # MTTR (mean time to resolve) in hours — only for resolved items
+    mttr_q = select(
+        func.avg(
+            func.extract("epoch", AssetCve.remediation_resolved_at)
+            - func.extract("epoch", AssetCve.remediation_started_at)
+        )
+    ).where(
+        AssetCve.remediation_status == "resolved",
+        AssetCve.remediation_resolved_at.isnot(None),
+        AssetCve.remediation_started_at.isnot(None),
+    )
+    avg_seconds = (await db.execute(mttr_q)).scalar_one_or_none()
+    mttr_hours = round(avg_seconds / 3600.0, 1) if avg_seconds else 0.0
+
+    # Assigned breakdown
+    assigned_q = select(
+        AssetCve.assigned_to,
+        AssetCve.remediation_status,
+        func.count().label("cnt"),
+    ).where(
+        AssetCve.assigned_to.isnot(None),
+    ).group_by(AssetCve.assigned_to, AssetCve.remediation_status)
+    assigned_rows = (await db.execute(assigned_q)).all()
+
+    assignee_map: dict[str, dict[str, int]] = {}
+    for row in assigned_rows:
+        assignee = row[0]
+        status = row[1] or "open"
+        if assignee not in assignee_map:
+            assignee_map[assignee] = {s: 0 for s in _VALID_STATUSES}
+        if status in assignee_map[assignee]:
+            assignee_map[assignee][status] += row[2]
+
+    assigned_breakdown = [
+        {"assignee": assignee, **counts}
+        for assignee, counts in sorted(assignee_map.items())
+    ]
+
+    # Overdue count
+    today = date_type.today()
+    overdue_q = select(func.count()).select_from(AssetCve).where(
+        AssetCve.remediation_due_date < today,
+        AssetCve.remediation_status.notin_({"resolved"}),
+    )
+    overdue_count = (await db.execute(overdue_q)).scalar_one()
+
+    return {
+        "funnel": funnel,
+        "mttr_hours": mttr_hours,
+        "assigned_breakdown": assigned_breakdown,
+        "overdue_count": overdue_count,
+        "total": total,
+    }
+
+
+@workflow_router.get("/remediation/board")
+async def get_remediation_board(
+    db: DbDep,
+    _current_user: Annotated[object, Depends(get_current_active_user)],
+):
+    """Return CVEs grouped by remediation_status for a Kanban-style view."""
+    from datetime import date as date_type
+
+    today = date_type.today()
+    board: dict[str, list] = {s: [] for s in ["open", "planned", "in_progress", "resolved", "blocked"]}
+
+    # Severity ordering for sort: critical > high > medium > low > unknown
+    severity_order = case(
+        (Cve.severity.ilike("critical"), 4),
+        (Cve.severity.ilike("high"), 3),
+        (Cve.severity.ilike("medium"), 2),
+        (Cve.severity.ilike("low"), 1),
+        else_=0,
+    )
+
+    for status in board:
+        q = (
+            select(AssetCve)
+            .where(AssetCve.remediation_status == status)
+            .join(AssetCve.cve)
+            .join(AssetCve.asset)
+            .options(selectinload(AssetCve.cve), selectinload(AssetCve.asset))
+            .order_by(severity_order.desc())
+            .limit(50)
+        )
+        rows = (await db.execute(q)).scalars().all()
+
+        for link in rows:
+            cve = link.cve
+            asset = link.asset
+            if cve is None or asset is None:
+                continue
+
+            sla_breached = False
+            if link.remediation_due_date is not None:
+                sla_breached = link.remediation_due_date < today and status != "resolved"
+
+            board[status].append({
+                "id": str(link.id),
+                "cve_id": cve.cve_id,
+                "asset_ip": asset.ip,
+                "severity": cve.severity,
+                "cvss_score": cve.cvss_score,
+                "assigned_to": link.assigned_to,
+                "due_date": str(link.remediation_due_date) if link.remediation_due_date else None,
+                "package_name": link.package_name,
+                "sla_breached": sla_breached,
+            })
+
+    return board

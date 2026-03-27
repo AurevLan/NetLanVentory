@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
 from netlanventory.core.logging import get_logger
@@ -77,6 +77,12 @@ async def scheduler_loop() -> None:
             raise
         except Exception:
             logger.exception("Scheduled scans check error — will retry next cycle")
+        try:
+            await _take_daily_kpi_snapshot()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("KPI snapshot error — will retry next cycle")
 
 
 async def _check_and_trigger_auto_scans() -> None:
@@ -501,3 +507,143 @@ async def _check_scheduled_scans() -> None:
             )
 
         await session.commit()
+
+
+async def _take_daily_kpi_snapshot() -> None:
+    """Create a daily KPI snapshot if one does not already exist for today."""
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.models.asset import Asset
+    from netlanventory.models.asset_cve import AssetCve
+    from netlanventory.models.cve import Cve
+    from netlanventory.models.kpi_snapshot import KpiSnapshot
+
+    factory = get_session_factory()
+    today = date.today()
+    now = datetime.now(timezone.utc)
+
+    async with factory() as session:
+        # Check if snapshot already exists for today
+        existing = (
+            await session.execute(
+                select(KpiSnapshot).where(KpiSnapshot.date == today)
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return
+
+        # ── Asset metrics ────────────────────────────────────────────
+        total_assets = (
+            await session.execute(select(func.count()).select_from(Asset))
+        ).scalar_one()
+
+        active_assets = (
+            await session.execute(
+                select(func.count()).select_from(Asset).where(Asset.is_active.is_(True))
+            )
+        ).scalar_one()
+
+        # ── CVE metrics ──────────────────────────────────────────────
+        total_cves = (
+            await session.execute(select(func.count()).select_from(AssetCve))
+        ).scalar_one()
+
+        # Critical and High CVE counts (by Cve severity)
+        sev_rows = (
+            await session.execute(
+                select(Cve.severity, func.count(AssetCve.id).label("cnt"))
+                .join(AssetCve, AssetCve.cve_id == Cve.id)
+                .group_by(Cve.severity)
+            )
+        ).all()
+        sev_map = {r.severity or "Unknown": r.cnt for r in sev_rows}
+        critical_cves = sev_map.get("Critical", 0)
+        high_cves = sev_map.get("High", 0)
+
+        open_cves = (
+            await session.execute(
+                select(func.count())
+                .select_from(AssetCve)
+                .where(AssetCve.remediation_status != "resolved")
+            )
+        ).scalar_one()
+
+        resolved_cves = (
+            await session.execute(
+                select(func.count())
+                .select_from(AssetCve)
+                .where(AssetCve.remediation_status == "resolved")
+            )
+        ).scalar_one()
+
+        # ── MTTR (last 90 days) ──────────────────────────────────────
+        cutoff_90d = now - timedelta(days=90)
+        mttr_result = (
+            await session.execute(
+                select(
+                    func.avg(
+                        func.extract("epoch", AssetCve.remediation_resolved_at)
+                        - func.extract("epoch", AssetCve.discovered_at)
+                    )
+                    / 3600.0
+                )
+                .where(
+                    AssetCve.remediation_status == "resolved",
+                    AssetCve.remediation_resolved_at.isnot(None),
+                    AssetCve.remediation_resolved_at >= cutoff_90d,
+                )
+            )
+        ).scalar_one_or_none()
+        mttr_hours: float | None = round(mttr_result, 2) if mttr_result is not None else None
+
+        # ── SLA breach count ─────────────────────────────────────────
+        sla_breach_count = (
+            await session.execute(
+                select(func.count())
+                .select_from(AssetCve)
+                .where(AssetCve.sla_breached.is_(True))
+            )
+        ).scalar_one()
+
+        # ── Risk score average ───────────────────────────────────────
+        risk_score_avg_result = (
+            await session.execute(
+                select(func.avg(Asset.risk_score)).where(Asset.risk_score.isnot(None))
+            )
+        ).scalar_one_or_none()
+        risk_score_avg: float | None = (
+            round(risk_score_avg_result, 2) if risk_score_avg_result is not None else None
+        )
+
+        # ── Scan coverage ────────────────────────────────────────────
+        cutoff_scan = now - timedelta(days=7)
+        assets_recently_scanned = (
+            await session.execute(
+                select(func.count())
+                .select_from(Asset)
+                .where(
+                    Asset.is_active.is_(True),
+                    Asset.last_seen >= cutoff_scan,
+                )
+            )
+        ).scalar_one()
+        denom = max(active_assets, 1)
+        scan_coverage_pct = round(assets_recently_scanned / denom * 100, 1)
+
+        # ── Insert snapshot ──────────────────────────────────────────
+        snapshot = KpiSnapshot(
+            date=today,
+            total_assets=total_assets,
+            active_assets=active_assets,
+            total_cves=total_cves,
+            critical_cves=critical_cves,
+            high_cves=high_cves,
+            open_cves=open_cves,
+            resolved_cves=resolved_cves,
+            mttr_hours=mttr_hours,
+            sla_breach_count=sla_breach_count,
+            risk_score_avg=risk_score_avg,
+            scan_coverage_pct=scan_coverage_pct,
+        )
+        session.add(snapshot)
+        await session.commit()
+        logger.info("Daily KPI snapshot recorded", date=str(today))

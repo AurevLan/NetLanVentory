@@ -68,6 +68,21 @@ class AssetCve(Base):
     ticket_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     ticket_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # ── Remediation workflow ─────────────────────────────────────────────
+    # Status: open → planned → in_progress → resolved | blocked
+    remediation_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="open"
+    )
+    assigned_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    remediation_due_date: Mapped[datetime | None] = mapped_column(Date(), nullable=True)
+    remediation_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    remediation_resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    remediation_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Relationships
     asset: Mapped["Asset"] = relationship("Asset", back_populates="cves")  # noqa: F821
     cve: Mapped["Cve"] = relationship("Cve", back_populates="asset_cves")  # noqa: F821

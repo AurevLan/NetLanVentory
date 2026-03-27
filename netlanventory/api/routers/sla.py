@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 from netlanventory.api.dependencies import get_current_active_user, get_db, require_admin
 from netlanventory.core.logging import get_logger
 from netlanventory.models.asset_cve import AssetCve
+from netlanventory.models.sla_config import SlaConfig
 
 logger = get_logger(__name__)
 
@@ -63,31 +64,48 @@ class SlaComputeResult(BaseModel):
     updated: int
 
 
-# In-memory SLA config (could be persisted to global_settings in a future iteration)
-_sla_config: dict[str, int] = dict(_DEFAULT_SLA_DAYS)
+async def _load_sla_config(db: AsyncSession) -> dict[str, int]:
+    """Load SLA configuration from the database, falling back to defaults."""
+    result = await db.execute(select(SlaConfig))
+    rows = result.scalars().all()
+    config = dict(_DEFAULT_SLA_DAYS)
+    for row in rows:
+        config[row.severity] = row.days
+    return config
 
 
 @router.get("/sla/config", response_model=SlaConfigOut)
-async def get_sla_config(_auth: AuthDep) -> SlaConfigOut:
+async def get_sla_config(db: DbDep, _auth: AuthDep) -> SlaConfigOut:
     """Return the current SLA configuration (days per severity)."""
+    config = await _load_sla_config(db)
     return SlaConfigOut(
-        critical_days=_sla_config.get("Critical", 3),
-        high_days=_sla_config.get("High", 7),
-        medium_days=_sla_config.get("Medium", 30),
-        low_days=_sla_config.get("Low", 90),
+        critical_days=config.get("Critical", 3),
+        high_days=config.get("High", 7),
+        medium_days=config.get("Medium", 30),
+        low_days=config.get("Low", 90),
     )
 
 
 @router.put("/sla/config", response_model=SlaConfigOut)
-async def update_sla_config(body: SlaConfigIn, _admin: AdminDep) -> SlaConfigOut:
-    """Update the SLA configuration (admin only)."""
-    global _sla_config
-    _sla_config = {
+async def update_sla_config(body: SlaConfigIn, db: DbDep, _admin: AdminDep) -> SlaConfigOut:
+    """Update the SLA configuration (admin only). Upserts rows in sla_configs."""
+    updates = {
         "Critical": body.critical_days,
         "High": body.high_days,
         "Medium": body.medium_days,
         "Low": body.low_days,
     }
+    for severity, days in updates.items():
+        result = await db.execute(
+            select(SlaConfig).where(SlaConfig.severity == severity)
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            existing.days = days
+            existing.updated_at = datetime.now(timezone.utc)
+        else:
+            db.add(SlaConfig(severity=severity, days=days))
+    await db.commit()
     return SlaConfigOut(
         critical_days=body.critical_days,
         high_days=body.high_days,
@@ -103,6 +121,8 @@ async def compute_sla_deadlines(db: DbDep, _admin: AdminDep) -> SlaComputeResult
     Deadline = discovered_at + days_for_severity.
     A breach is flagged when sla_deadline < today and ack_status != 'accepted'.
     """
+    sla_config = await _load_sla_config(db)
+
     result = await db.execute(
         select(AssetCve).options(selectinload(AssetCve.cve))
     )
@@ -116,7 +136,7 @@ async def compute_sla_deadlines(db: DbDep, _admin: AdminDep) -> SlaComputeResult
         if not cve:
             continue
         severity = (cve.severity or "Medium").capitalize()
-        days = _sla_config.get(severity, 30)
+        days = sla_config.get(severity, 30)
 
         disc = link.discovered_at
         if disc.tzinfo is None:
