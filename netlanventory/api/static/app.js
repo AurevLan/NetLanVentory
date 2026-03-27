@@ -1623,8 +1623,8 @@ async function loadScans() {
   try {
     const { items } = await api('/scans?limit=50');
     const tbody = document.querySelector('#scan-table tbody');
-    if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:32px">No scans yet — start one with "+ New scan"</td></tr>';
+    if (!items || !items.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:32px">Aucun scan — lancez-en un avec "+ New scan"</td></tr>';
       return;
     }
     tbody.innerHTML = items.map(s => {
@@ -1632,36 +1632,69 @@ async function loadScans() {
         ? Object.values(s.summary.modules).reduce((acc, m) => acc + (m.assets_found || 0), 0)
         : '—';
       const running = ['pending', 'running'].includes(s.status);
-      const rerunBtn = `<button class="btn btn-sm" onclick="rerunScan('${s.id}')"
-                          ${running ? 'disabled title="Scan in progress"' : ''}>&#8635; Re-run</button>`;
 
-      // Recurring rescan button
-      let recurringBtn = '';
+      // ── Planification column ──
+      let planifHtml = '';
       if (s.recurring) {
-        const interval = s.recurring_interval_hours || 24;
-        const label = interval >= 24 ? `${Math.round(interval / 24)}j` : `${interval}h`;
-        recurringBtn = `
-          <span class="badge badge-success" title="${s.recurring_run_count || 0} exécutions">&#8634; ${label}</span>
-          <button class="btn btn-danger btn-sm" onclick="setRecurring('${s.id}', false)">Arrêter</button>`;
+        const h = s.recurring_interval_hours || 24;
+        const label = h >= 168 ? `${Math.round(h / 168)} sem.` : h >= 24 ? `${Math.round(h / 24)} jour${Math.round(h/24)>1?'s':''}` : `${h}h`;
+        const runs = s.recurring_run_count || 0;
+        const nextIn = _nextRecurringIn(s);
+        planifHtml = `
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <span class="badge badge-success" style="font-size:10px">&#8634; Toutes les ${label}</span>
+            <span style="font-size:10px;color:var(--text-muted)">${runs} exécution${runs > 1 ? 's' : ''} ${nextIn ? '· prochain ' + nextIn : ''}</span>
+            <div style="display:flex;gap:3px;margin-top:2px">
+              <button class="btn btn-sm" style="font-size:10px;padding:1px 6px" onclick="promptRecurring('${s.id}', ${h})">Modifier</button>
+              <button class="btn btn-danger btn-sm" style="font-size:10px;padding:1px 6px" onclick="setRecurring('${s.id}', false)">Arrêter</button>
+            </div>
+          </div>`;
       } else if (!running) {
-        recurringBtn = `<button class="btn btn-primary btn-sm" onclick="promptRecurring('${s.id}')">&#8634; Replanifier</button>`;
+        planifHtml = `
+          <div id="planif-${s.id}" style="display:flex;align-items:center;gap:4px">
+            <select id="planif-interval-${s.id}" style="width:auto;padding:2px 4px;font-size:11px">
+              <option value="1">Toutes les heures</option>
+              <option value="6">Toutes les 6h</option>
+              <option value="12">Toutes les 12h</option>
+              <option value="24" selected>Quotidien</option>
+              <option value="168">Hebdomadaire</option>
+              <option value="720">Mensuel</option>
+            </select>
+            <button class="btn btn-primary btn-sm" style="font-size:10px;padding:2px 8px" onclick="planifyScan('${s.id}')">Planifier</button>
+          </div>`;
+      } else {
+        planifHtml = '<span style="color:var(--text-muted);font-size:11px">—</span>';
       }
 
       return `
         <tr>
-          <td class="mono" style="font-size:11px;color:var(--text-muted)">${s.id.slice(0, 8)}…</td>
           <td class="mono">${escape(s.target)}</td>
           <td>${(s.modules_run || []).map(m => badge(m, 'info')).join(' ')}</td>
           <td>${statusBadge(s.status)}</td>
           <td style="font-size:12px;color:var(--text-muted)">${fmtDate(s.started_at)}</td>
-          <td style="font-size:12px;color:var(--text-muted)">${fmtDate(s.finished_at)}</td>
           <td>${assetsFound}</td>
-          <td style="display:flex;gap:4px;flex-wrap:wrap">${rerunBtn} ${recurringBtn}</td>
+          <td>${planifHtml}</td>
+          <td>
+            <button class="btn btn-sm" onclick="rerunScan('${s.id}')" ${running ? 'disabled' : ''}>&#8635; Re-run</button>
+          </td>
         </tr>`;
     }).join('');
   } catch (e) {
     console.error('Scans error:', e);
   }
+}
+
+/** Calculate time until next recurring scan trigger. */
+function _nextRecurringIn(scan) {
+  if (!scan.recurring || !scan.recurring_interval_hours) return '';
+  const last = scan.recurring_last_triggered_at || scan.finished_at || scan.created_at;
+  if (!last) return 'imminent';
+  const nextAt = new Date(last).getTime() + scan.recurring_interval_hours * 3600_000;
+  const diff = nextAt - Date.now();
+  if (diff <= 0) return 'imminent';
+  if (diff < 3600_000) return `dans ${Math.round(diff / 60_000)} min`;
+  if (diff < 86400_000) return `dans ${Math.round(diff / 3600_000)}h`;
+  return `dans ${Math.round(diff / 86400_000)}j`;
 }
 
 async function triggerScan() {
@@ -6246,137 +6279,56 @@ async function exportXLSX() {
   } catch (e) { showToast(`Erreur Excel : ${e.message}`, 'error'); }
 }
 
-// ── Recurring scans (auto-rescan on existing scans) ─────────────────────────
+// ── Scan planification (recurring rescans) ──────────────────────────────────
 
-async function promptRecurring(scanId) {
-  const hours = prompt('Intervalle de rescan automatique (en heures) :\n\n24 = quotidien\n168 = hebdomadaire\n1 = toutes les heures', '24');
-  if (!hours) return;
-  const interval = parseInt(hours, 10);
-  if (!interval || interval < 1) { showToast('Intervalle invalide', 'error'); return; }
-  await setRecurring(scanId, true, interval);
+/** Activate planification from the inline dropdown. */
+async function planifyScan(scanId) {
+  const select = document.getElementById(`planif-interval-${scanId}`);
+  if (!select) return;
+  const hours = parseInt(select.value, 10);
+  await setRecurring(scanId, true, hours);
 }
 
+/** Modify an existing planification (shows prompt with current value). */
+async function promptRecurring(scanId, currentHours) {
+  const options = [
+    { value: 1, label: 'Toutes les heures' },
+    { value: 6, label: 'Toutes les 6h' },
+    { value: 12, label: 'Toutes les 12h' },
+    { value: 24, label: 'Quotidien (24h)' },
+    { value: 168, label: 'Hebdomadaire (7j)' },
+    { value: 720, label: 'Mensuel (30j)' },
+  ];
+  const labels = options.map((o, i) => `  ${i + 1}. ${o.label}`).join('\n');
+  const current = options.find(o => o.value === currentHours)?.label || `${currentHours}h`;
+  const choice = prompt(`Modifier l'intervalle de planification :\n\nActuel : ${current}\n\n${labels}\n\nEntrez le numéro (1-${options.length}) :`, '4');
+  if (!choice) return;
+  const idx = parseInt(choice, 10) - 1;
+  if (idx < 0 || idx >= options.length) { showToast('Choix invalide', 'error'); return; }
+  await setRecurring(scanId, true, options[idx].value);
+}
+
+/** Enable or disable recurring on a scan. */
 async function setRecurring(scanId, enabled, intervalHours = 24) {
   try {
     await api(`/scans/${scanId}/recurring?recurring=${enabled}&interval_hours=${intervalHours}`, {
       method: 'PUT',
     });
-    showToast(enabled
-      ? `Rescan automatique activé (toutes les ${intervalHours}h)`
-      : 'Rescan automatique désactivé', 'success');
+    if (enabled) {
+      const label = intervalHours >= 168 ? 'hebdomadaire' : intervalHours >= 24 ? 'quotidien' : `toutes les ${intervalHours}h`;
+      showToast(`Scan planifié — rescan ${label}`, 'success');
+    } else {
+      showToast('Planification arrêtée', 'info');
+    }
     await loadScans();
   } catch (e) {
     showToast(`Erreur: ${e.message}`, 'error');
   }
 }
 
-// Legacy — kept for backward compatibility but no longer used
-async function loadScheduledScans() {
-  const tbody = document.getElementById('scheduled-scans-tbody');
-  if (!tbody) return;
-  try {
-    const scans = await api('/scheduled-scans');
-    if (!scans || scans.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="color:var(--text-muted);text-align:center;padding:32px">Aucun scan planifié. Cliquez sur "+ Nouveau scan planifié" pour commencer.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = scans.map(s => {
-      const modules = escape(s.modules).split(',').map(m =>
-        `<span class="badge badge-info" style="font-size:9px;margin:1px">${m.trim()}</span>`
-      ).join(' ');
-      const interval = s.interval_hours >= 24
-        ? `${Math.round(s.interval_hours / 24)}j`
-        : `${s.interval_hours}h`;
-      const lastRun = s.last_run_at ? fmtDate(s.last_run_at) : '—';
-      const statusBdg = s.last_status
-        ? statusBadge(s.last_status)
-        : '<span class="badge badge-muted">jamais</span>';
-      const enabledBdg = s.enabled
-        ? '<span class="badge badge-success">actif</span>'
-        : '<span class="badge badge-muted">inactif</span>';
-      return `<tr>
-        <td><strong>${escape(s.name)}</strong><br>${enabledBdg}</td>
-        <td class="mono">${escape(s.target)}</td>
-        <td>${modules}</td>
-        <td class="mono">${interval}</td>
-        <td style="font-size:12px">${lastRun}</td>
-        <td>${statusBdg}</td>
-        <td class="mono">${s.run_count || 0}</td>
-        <td>
-          <button class="btn btn-sm" onclick="triggerScheduledScan('${escape(s.id)}')">Lancer</button>
-          <button class="btn btn-sm" onclick="toggleScheduledScan('${escape(s.id)}', ${!s.enabled})">${s.enabled ? 'Désactiver' : 'Activer'}</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteScheduledScan('${escape(s.id)}', '${escape(s.name)}')">Suppr.</button>
-        </td>
-      </tr>`;
-    }).join('');
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--danger);padding:16px">Erreur: ${escape(e.message)}</td></tr>`;
-  }
-}
-
-async function openScheduledScanModal() {
-  const name = prompt('Nom du scan planifié (ex: "Rescan LAN quotidien"):');
-  if (!name) return;
-  const target = prompt('Plage cible (CIDR, ex: "192.168.1.0/24"):');
-  if (!target) return;
-  const intervalStr = prompt('Intervalle en heures (ex: 24 pour quotidien, 168 pour hebdo):', '24');
-  const interval = parseInt(intervalStr, 10);
-  if (!interval || interval < 1) { showToast('Intervalle invalide', 'error'); return; }
-
-  const modulesStr = prompt(
-    'Modules (séparés par des virgules):',
-    'arp_sweep,port_scanner,service_detector,os_fingerprint'
-  );
-  if (!modulesStr) return;
-
-  try {
-    await api('/scheduled-scans', {
-      method: 'POST',
-      body: JSON.stringify({
-        name,
-        target,
-        modules: modulesStr,
-        interval_hours: interval,
-        enabled: true,
-      }),
-    });
-    showToast(`Scan planifié "${name}" créé`, 'success');
-    loadScheduledScans();
-  } catch (e) {
-    showToast(`Erreur: ${e.message}`, 'error');
-  }
-}
-
-async function triggerScheduledScan(id) {
-  try {
-    const result = await api(`/scheduled-scans/${id}/trigger`, { method: 'POST' });
-    showToast(`Scan lancé (${result.target}) — ID: ${result.scan_id.slice(0,8)}`, 'success');
-    loadScheduledScans();
-  } catch (e) {
-    showToast(`Erreur: ${e.message}`, 'error');
-  }
-}
-
-async function toggleScheduledScan(id, enabled) {
-  try {
-    await api(`/scheduled-scans/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ enabled }),
-    });
-    showToast(enabled ? 'Scan activé' : 'Scan désactivé', 'info');
-    loadScheduledScans();
-  } catch (e) {
-    showToast(`Erreur: ${e.message}`, 'error');
-  }
-}
-
-async function deleteScheduledScan(id, name) {
-  if (!confirm(`Supprimer le scan planifié "${name}" ?`)) return;
-  try {
-    await api(`/scheduled-scans/${id}`, { method: 'DELETE' });
-    showToast(`Scan "${name}" supprimé`, 'info');
-    loadScheduledScans();
-  } catch (e) {
-    showToast(`Erreur: ${e.message}`, 'error');
-  }
-}
+// Legacy stubs — no longer used but kept to avoid reference errors
+function loadScheduledScans() {}
+function openScheduledScanModal() {}
+function triggerScheduledScan() {}
+function toggleScheduledScan() {}
+function deleteScheduledScan() {}
