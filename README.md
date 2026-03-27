@@ -2,7 +2,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/AurevLan/NetLanVentory)](https://github.com/AurevLan/NetLanVentory/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/AurevLan/NetLanVentory/ci.yml?branch=main&label=CI)](https://github.com/AurevLan/NetLanVentory/actions)
-[![Tests](https://img.shields.io/badge/tests-256%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-288%20(278%20passed)-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
@@ -88,6 +88,13 @@
 - **Fix version tracking** — `fixed_version` column in `asset_cves` records the version that patches each CVE; shown as a "Version corrigée" column in the dashboard
 - **On-demand enrichment** — "Enrichir" button triggers a global background enrichment pass via OSV.dev and NVD for any CVE still missing CVSS score or description
 - **CVE detail view** — `GET /api/v1/cves/{id}` returns CVSS score, severity, description, published date, and the full list of affected assets
+
+### Vision 360° RSSI
+- **Executive dashboard** — risk score gauge, MTTR, velocity (CVEs/week), burndown chart, 30-day trends, severity × criticality heatmap, remediation funnel, coverage bars, SLA metrics, forecast to zero
+- **Remediation workflow** — track CVE lifecycle (open → planned → in_progress → resolved | blocked), assign to team members, set due dates, Kanban board view
+- **KPI snapshots** — daily automated snapshots of all metrics for long-term trend analysis
+- **Persistent SLA** — configurable per severity (critical 3d, high 7d, medium 30d, low 90d), stored in database
+- **Compliance** — ISO 27001, NIS2, ANSSI framework evaluation with control scoring
 
 ### Scan planification & automation
 - **Planifier un rescan** — any completed scan can be set to auto-repeat at a configurable interval (hourly, 6h, 12h, daily, weekly, monthly) directly from the Scans tab
@@ -394,8 +401,9 @@ make test-security    # security tests only
 make test-coverage    # with HTML coverage report
 ```
 
-Tests use SQLite in-memory — no PostgreSQL required. **256 tests** across 19 test files covering:
+Tests use SQLite in-memory — no PostgreSQL required. **288 tests** across 20 test files covering:
 - Security regression (CSP, HSTS, CORS, auth enforcement, input validation, JWT, crypto)
+- RSSI 360° vision (executive KPIs, remediation workflow, SLA, compliance, timeline)
 - All 180+ API endpoints (CRUD, scans, admin, compliance)
 - Unit tests (auth, passwords, scoring, compliance, circuit breaker)
 - Integration tests (assets, CVE enrichment, caching)
@@ -421,7 +429,7 @@ Tests use SQLite in-memory — no PostgreSQL required. **256 tests** across 19 t
 | Logging | structlog |
 | Linting | Ruff (with bandit security rules) |
 | Type checking | MyPy (strict mode) |
-| Testing | pytest-asyncio (256 tests) |
+| Testing | pytest-asyncio (288 tests) |
 | Container | Docker Compose (multi-stage build) |
 
 ## Contributing

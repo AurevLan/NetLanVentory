@@ -9,6 +9,61 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.12.0] — 2026-03-28
+
+### Added
+- **Vision 360° RSSI** — complete executive dashboard overhaul for security teams
+  - 6 KPIs: risk score, critical CVEs, open CVEs, MTTR, trend, forecast to zero
+  - Risk gauge + remediation funnel (5 statuses) + performance metrics
+  - Severity × criticality heatmap table
+  - Velocity chart (CVEs resolved per week, 12 weeks)
+  - Burndown chart (open CVEs per day, 30 days)
+  - 30-day trend chart (new / resolved / cumulative open)
+  - Top 8 risky assets + security coverage bars + SLA dashboard
+- **Remediation workflow** — track CVE remediation lifecycle
+  - Statuses: open → planned → in_progress → resolved | blocked
+  - `PATCH /assets/{id}/cves/{link_id}/remediation` (status, assigned_to, due_date, note)
+  - `GET /remediation/stats` — funnel counts, MTTR, per-assignee breakdown
+  - `GET /remediation/board` — Kanban view (5 columns, 50 items each)
+  - Kanban board toggle in the remediation panel
+- **Persistent SLA configuration** — stored in PostgreSQL (was in-memory)
+  - Pre-seeded: critical 3d, high 7d, medium 30d, low 90d
+  - Survives restarts
+- **KPI daily snapshots** — scheduler saves daily metrics for historical tracking
+  - Assets, CVEs, MTTR, SLA breaches, risk score avg, scan coverage
+- **Executive API enriched** (`GET /executive/summary`)
+  - `mttr_hours`, `velocity`, `burndown`, `forecast_days_to_zero`
+  - `heatmap`, `sla_metrics`, `remediation_funnel`
+  - `total_assets`, `active_assets`
+- **288 tests** (from 256) — new `test_api_rssi_360.py` (22 tests)
+- **Slate Shield v5 design** — professional dark theme replacing SOC Nightwatch
+  - Inter + JetBrains Mono typography, cyan #22d3ee accent
+  - Warm slate backgrounds, clean borders, no overlay effects
+  - Filled gradient buttons, rounded corners, high readability
+
+### Fixed
+- `apiFetch is not defined` — 10 calls replaced with `api()` (timeline, compliance, executive, threat-intel, search, reports)
+- `resp.json is not a function` — 6 redundant `.json()` calls on already-parsed API responses
+- Null guard on all v0.9.0 page loaders (timeline, executive, compliance, search, threat-intel)
+- 14 duplicate JS functions removed (1,123 dead lines causing broken assets/scans)
+- CSP nonce conflict — removed nonce (browsers ignore unsafe-inline when nonce present)
+- DB migrations 0037-0049 applied (all API 500 errors)
+- Docker: Trivy registry, ZAP healthcheck, .env permissions, font loading
+- Scan re-run creates duplicate rows → now updates in place
+- CSP tests updated to match reality (unsafe-inline required for onclick handlers)
+
+### Changed
+- Scans table: new "Planification" column with inline interval dropdown
+- Re-run updates same scan row (clears old results, resets status)
+- Recurring scans re-use same row (no child scan creation)
+- Design: SOC Nightwatch (green) → Slate Shield (cyan), no radar grid overlay
+
+### Database
+- Migration 0048: `scans` — recurring, recurring_interval_hours, recurring_last_triggered_at, recurring_run_count
+- Migration 0049: `asset_cves` — remediation_status, assigned_to, due_date, started_at, resolved_at, note; `sla_configs` table; `kpi_snapshots` table
+
+---
+
 ## [v0.11.0] — 2026-03-27
 
 ### Added
