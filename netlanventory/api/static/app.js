@@ -7050,7 +7050,7 @@ function initGlobalSearch() {
     if (q.length < 2) { dropdown.classList.add('hidden'); return; }
     _searchTimer = setTimeout(async () => {
       try {
-        const resp = await apiFetch(`/api/v1/search?q=${encodeURIComponent(q)}&limit=15`);
+        const resp = await api(`/search?q=${encodeURIComponent(q)}&limit=15`);
         const data = await resp.json();
         if (!data.results || data.results.length === 0) {
           dropdown.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:13px">Aucun résultat</div>';
@@ -7100,7 +7100,7 @@ async function loadTimeline() {
   if (!el) return;
   el.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Chargement…</p>';
   try {
-    const resp = await apiFetch('/api/v1/timeline?limit=200');
+    const resp = await api('/timeline?limit=200');
     const events = await resp.json();
     if (!events.length) { el.innerHTML = '<p style="color:var(--text-muted)">Aucun événement</p>'; return; }
 
@@ -7138,8 +7138,8 @@ async function loadCompliance() {
 
   try {
     const [fwResp, repResp] = await Promise.all([
-      apiFetch('/api/v1/compliance/frameworks'),
-      apiFetch('/api/v1/compliance/reports?limit=20'),
+      api('/compliance/frameworks'),
+      api('/compliance/reports?limit=20'),
     ]);
     const frameworks = await fwResp.json();
     const reports = await repResp.json();
@@ -7171,7 +7171,7 @@ async function loadCompliance() {
 async function runComplianceEval(framework) {
   try {
     showToast(`Évaluation ${framework} lancée…`, 'info');
-    await apiFetch(`/api/v1/compliance/evaluate/${framework}`, { method: 'POST' });
+    await api(`/compliance/evaluate/${framework}`, { method: 'POST' });
     setTimeout(loadCompliance, 3000);
   } catch (e) {
     showToast(`Erreur : ${e.message}`, 'error');
@@ -7191,7 +7191,7 @@ async function loadExecutive() {
   if (!kpisEl) return;
 
   try {
-    const resp = await apiFetch('/api/v1/executive/summary');
+    const resp = await api('/executive/summary');
     const d = await resp.json();
 
     kpisEl.innerHTML = [
@@ -7275,7 +7275,7 @@ async function loadThreatIntel() {
   if (!listEl) return;
 
   try {
-    const resp = await apiFetch('/api/v1/threat-intel/iocs?limit=100');
+    const resp = await api('/threat-intel/iocs?limit=100');
     const iocs = await resp.json();
 
     if (statsEl) {
@@ -7307,7 +7307,7 @@ async function loadThreatIntel() {
 async function refreshThreatFeeds() {
   try {
     showToast('Rafraîchissement des feeds en cours…', 'info');
-    await apiFetch('/api/v1/threat-intel/refresh', { method: 'POST' });
+    await api('/threat-intel/refresh', { method: 'POST' });
     showToast('Feeds en cours de mise à jour', 'info');
     setTimeout(loadThreatIntel, 5000);
   } catch (e) {
@@ -7323,7 +7323,7 @@ async function refreshThreatFeeds() {
 async function exportExecutivePDF() {
   try {
     showToast('Génération du PDF…', 'info');
-    const resp = await apiFetch('/api/v1/reports/export/pdf/executive');
+    const resp = await api('/reports/export/pdf/executive');
     if (!resp.ok) { const err = await resp.json().catch(() => ({})); throw new Error(err.detail || 'Erreur PDF'); }
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
@@ -7336,7 +7336,7 @@ async function exportExecutivePDF() {
 async function exportXLSX() {
   try {
     showToast('Génération Excel…', 'info');
-    const resp = await apiFetch('/api/v1/reports/export/xlsx');
+    const resp = await api('/reports/export/xlsx');
     if (!resp.ok) { const err = await resp.json().catch(() => ({})); throw new Error(err.detail || 'Erreur Excel'); }
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
