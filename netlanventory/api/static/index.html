@@ -3,8 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="NetLanVentory — Network inventory and vulnerability scanning dashboard" />
+  <meta name="theme-color" content="#0f1117" />
   <title>NetLanVentory</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='32' y2='32' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0%25' stop-color='%2358a6ff'/%3E%3Cstop offset='100%25' stop-color='%23bc8cff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='5' fill='%230a0d14'/%3E%3Cpath d='M16 4L7 7.5v7c0 5.6 3.92 10.8 9 12 5.08-1.2 9-6.4 9-12v-7L16 4z' fill='url(%23g)' opacity='.25'/%3E%3Cpath d='M16 4L7 7.5v7c0 5.6 3.92 10.8 9 12 5.08-1.2 9-6.4 9-12v-7L16 4z' fill='none' stroke='url(%23g)' stroke-width='1.5' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='5.5' fill='none' stroke='url(%23g)' stroke-width='1' stroke-dasharray='2 2' opacity='.6'/%3E%3Cline x1='16' y1='16' x2='21' y2='12' stroke='url(%23g)' stroke-width='1.5' opacity='.85'/%3E%3C%2Fsvg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css?v=5.0" />
 </head>
 <body>
 
@@ -12,13 +18,31 @@
   <div id="login-view" class="login-view hidden">
     <div class="login-card">
       <div class="login-logo">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="3" width="20" height="7" rx="2"/>
-          <rect x="2" y="14" width="20" height="7" rx="2"/>
-          <circle cx="6" cy="6.5" r="1" fill="currentColor" stroke="none"/>
-          <circle cx="6" cy="17.5" r="1" fill="currentColor" stroke="none"/>
-          <line x1="10" y1="6.5" x2="18" y2="6.5"/>
-          <line x1="10" y1="17.5" x2="18" y2="17.5"/>
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="logoGrad" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#818cf8"/>
+              <stop offset="100%" stop-color="#a78bfa"/>
+            </linearGradient>
+          </defs>
+          <!-- Shield -->
+          <path d="M24 4L8 10v12c0 9.6 6.72 18.6 16 21 9.28-2.4 16-11.4 16-21V10L24 4z" fill="url(#logoGrad)" opacity="0.18"/>
+          <path d="M24 4L8 10v12c0 9.6 6.72 18.6 16 21 9.28-2.4 16-11.4 16-21V10L24 4z" stroke="url(#logoGrad)" stroke-width="2" stroke-linejoin="round"/>
+          <!-- Radar rings -->
+          <circle cx="24" cy="24" r="4" stroke="url(#logoGrad)" stroke-width="1.5" opacity="0.9"/>
+          <circle cx="24" cy="24" r="8.5" stroke="url(#logoGrad)" stroke-width="1" stroke-dasharray="2.5 2.5" opacity="0.6"/>
+          <circle cx="24" cy="24" r="13" stroke="url(#logoGrad)" stroke-width="1" stroke-dasharray="2 3" opacity="0.35"/>
+          <!-- Center dot -->
+          <circle cx="24" cy="24" r="2" fill="url(#logoGrad)"/>
+          <!-- Scan line -->
+          <line x1="24" y1="24" x2="32" y2="17" stroke="url(#logoGrad)" stroke-width="1.5" opacity="0.8"/>
+          <!-- Network nodes -->
+          <circle cx="14" cy="18" r="1.5" fill="url(#logoGrad)" opacity="0.7"/>
+          <circle cx="34" cy="20" r="1.5" fill="url(#logoGrad)" opacity="0.7"/>
+          <circle cx="18" cy="33" r="1.5" fill="url(#logoGrad)" opacity="0.7"/>
+          <line x1="14" y1="18" x2="24" y2="24" stroke="url(#logoGrad)" stroke-width="0.8" opacity="0.4"/>
+          <line x1="34" y1="20" x2="24" y2="24" stroke="url(#logoGrad)" stroke-width="0.8" opacity="0.4"/>
+          <line x1="18" y1="33" x2="24" y2="24" stroke="url(#logoGrad)" stroke-width="0.8" opacity="0.4"/>
         </svg>
       </div>
       <h1 class="login-title">NetLanVentory</h1>
@@ -46,11 +70,18 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="3" width="20" height="7" rx="2"/>
-          <rect x="2" y="14" width="20" height="7" rx="2"/>
-          <circle cx="6" cy="6.5" r="1" fill="currentColor" stroke="none"/>
-          <circle cx="6" cy="17.5" r="1" fill="currentColor" stroke="none"/>
+        <svg class="brand-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="sidebarLogoGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#818cf8"/>
+              <stop offset="100%" stop-color="#a78bfa"/>
+            </linearGradient>
+          </defs>
+          <path d="M16 3L6 7v8c0 6.4 4.48 12.4 10 14 5.52-1.6 10-7.6 10-14V7L16 3z" fill="url(#sidebarLogoGrad)" opacity="0.2"/>
+          <path d="M16 3L6 7v8c0 6.4 4.48 12.4 10 14 5.52-1.6 10-7.6 10-14V7L16 3z" stroke="url(#sidebarLogoGrad)" stroke-width="1.5" stroke-linejoin="round"/>
+          <circle cx="16" cy="16" r="2.5" fill="url(#sidebarLogoGrad)"/>
+          <circle cx="16" cy="16" r="5.5" stroke="url(#sidebarLogoGrad)" stroke-width="1" stroke-dasharray="2 2" opacity="0.6"/>
+          <line x1="16" y1="16" x2="21" y2="12" stroke="url(#sidebarLogoGrad)" stroke-width="1.5" opacity="0.8"/>
         </svg>
         <span class="brand-name">NetLanVentory</span>
       </div>
@@ -58,6 +89,13 @@
       <div class="sidebar-section">
         <div class="sidebar-section-label">Inventory</div>
         <nav class="sidebar-nav">
+          <button class="nav-item" data-view="dashboard">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            Dashboard
+          </button>
           <button class="nav-item active" data-view="assets">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <rect x="2" y="3" width="20" height="14" rx="2"/>
@@ -81,6 +119,14 @@
             </svg>
             Modules
           </button>
+          <button class="nav-item" data-view="expositions">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+            Expositions
+            <span class="nav-count" id="nav-exp-count" style="background:var(--danger)"></span>
+          </button>
           <button class="nav-item" data-view="cves">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
@@ -88,6 +134,54 @@
             </svg>
             CVEs
             <span class="nav-count" id="nav-cve-count"></span>
+          </button>
+          <button class="nav-item" data-view="topology">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/>
+              <line x1="12" y1="7" x2="5" y2="17"/><line x1="12" y1="7" x2="19" y2="17"/>
+            </svg>
+            Topologie
+          </button>
+          <button class="nav-item" data-view="reports">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+            Rapports
+          </button>
+          <button class="nav-item" data-view="remediation">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 11l3 3L22 4"/>
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+            Remédiation
+          </button>
+          <button class="nav-item" data-view="timeline">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="20" x2="12" y2="4"/><polyline points="6 10 12 4 18 10"/>
+            </svg>
+            Timeline
+          </button>
+          <button class="nav-item" data-view="compliance">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+            Conformité
+          </button>
+          <button class="nav-item" data-view="executive">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 20V10M12 20V4M6 20v-6"/>
+            </svg>
+            RSSI
+          </button>
+          <button class="nav-item" data-view="threat-intel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+            </svg>
+            Threat Intel
           </button>
         </nav>
       </div>
@@ -126,6 +220,14 @@
     <!-- Main content -->
     <div class="main-area">
 
+      <!-- Global search bar -->
+      <div class="global-search-wrapper" style="padding:10px 20px 0">
+        <div style="position:relative;max-width:500px">
+          <input type="text" id="global-search-input" class="search-input" placeholder="Recherche globale (assets, CVEs)… Ctrl+K" style="width:100%;padding-right:30px" autocomplete="off" />
+          <div id="global-search-results" class="global-search-dropdown hidden"></div>
+        </div>
+      </div>
+
       <!-- Stats header -->
       <div class="stats-header">
         <div class="stat-card" id="stat-assets">
@@ -146,15 +248,87 @@
         </div>
       </div>
 
+      <!-- ── Dashboard panel ──────────────────────────────────────────────── -->
+      <section class="panel" id="panel-dashboard">
+        <div class="page-header">
+          <h1 class="page-title">Dashboard</h1>
+          <div class="page-actions">
+            <button class="btn btn-sm" onclick="loadDashboard()">Refresh</button>
+          </div>
+        </div>
+        <div id="dashboard-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
+        <!-- Action required cards (#1) -->
+        <div id="dashboard-action-required" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="settings-card">
+            <h3 class="settings-card-title">CVE par sévérité</h3>
+            <canvas id="dash-severity-chart" height="200"></canvas>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">Top 5 assets vulnérables</h3>
+            <canvas id="dash-top-assets-chart" height="200"></canvas>
+          </div>
+        </div>
+        <!-- Trend charts (#2) -->
+        <div id="dashboard-trends" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+          <div class="settings-card">
+            <h3 class="settings-card-title">CVE — 30 derniers jours</h3>
+            <canvas id="dash-trend-cve-chart" height="180"></canvas>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">Assets actifs (snapshot)</h3>
+            <div id="dash-active-assets-trend" style="display:flex;align-items:center;justify-content:center;height:180px;font-size:48px;font-weight:700;color:var(--success)"></div>
+          </div>
+        </div>
+        <!-- New widgets row -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Top 5 assets à risque</h3>
+            <div id="dash-top-risk-list"></div>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">SLA Breaches</h3>
+            <div id="dash-sla-breaches"></div>
+          </div>
+        </div>
+      </section>
+
       <!-- ── Assets panel ──────────────────────────────────────────────────── -->
       <section class="panel active" id="panel-assets">
         <div class="page-header">
           <h1 class="page-title">Assets</h1>
           <div class="page-actions">
-            <input id="asset-search" type="text" placeholder="Search by name, IP, MAC, hostname…" class="search-input" />
+            <input id="asset-search" type="text" placeholder="Search by name, IP, MAC, hostname, tag…" class="search-input" />
+            <select id="asset-filter-severity" class="search-input" style="width:130px" title="Filtrer par sévérité CVE">
+              <option value="">Toutes sévérités</option>
+              <option value="Critical">Critical</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
             <label class="toggle-label">
               <input type="checkbox" id="active-only" />
               <span>Active only</span>
+            </label>
+            <button class="btn btn-sm" id="bulk-scan-btn" onclick="openBulkScanMenu()" style="display:none">
+              Bulk scan ▾
+            </button>
+            <button class="btn btn-sm" id="bulk-edit-btn" onclick="openBulkEditModal()" style="display:none">
+              Modifier ▾
+            </button>
+            <button class="btn btn-sm" id="group-subnet-btn" onclick="toggleGroupBySubnet()" title="Grouper par sous-réseau">
+              Grouper /24
+            </button>
+            <button class="btn btn-sm" id="save-filter-btn" onclick="saveCurrentFilter()" title="Sauvegarder le filtre actuel">
+              ☆ Filtre
+            </button>
+            <select id="saved-filters-select" class="search-input" style="width:130px;display:none" onchange="applySavedFilter(this.value)" title="Filtres sauvegardés">
+              <option value="">Filtres sauvegardés</option>
+            </select>
+            <button class="btn btn-sm" onclick="exportAssetsCsv()">Export CSV</button>
+            <label class="btn btn-sm" style="cursor:pointer">
+              Import CSV
+              <input type="file" accept=".csv" style="display:none" onchange="importAssetsCsv(this.files[0])">
             </label>
             <button class="btn btn-sm" id="refresh-assets">Refresh</button>
           </div>
@@ -163,12 +337,103 @@
           <table id="asset-table">
             <thead>
               <tr>
-                <th>Name</th><th>IP</th><th>MAC</th><th>Hostname</th><th>Vendor</th>
-                <th>OS</th><th>Open ports</th><th>Active</th><th>Last seen</th>
+                <th><input type="checkbox" id="select-all-assets" onchange="toggleSelectAllAssets(this)" /></th>
+                <th>Name / Tags</th><th>IP</th><th>MAC</th><th>Hostname</th><th>Vendor</th>
+                <th>OS</th><th>Open ports</th><th>CVEs</th><th>Criticité</th><th>Risque</th><th>Active</th><th>Last seen</th><th>Âge scan</th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- ── Expositions panel (asset-level CVE view) ─────────────────────── -->
+      <section class="panel" id="panel-expositions">
+        <div class="page-header">
+          <h1 class="page-title">Expositions</h1>
+          <div class="page-actions">
+            <input id="exp-search" type="text" placeholder="CVE ID, asset, paquet…" class="search-input" />
+            <select id="exp-severity" class="search-input" style="width:130px">
+              <option value="">Toutes sévérités</option>
+              <option value="Critical">Critical</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+            <select id="exp-source" class="search-input" style="width:110px">
+              <option value="">Toutes sources</option>
+              <option value="ssh">SSH</option>
+              <option value="zap">ZAP</option>
+              <option value="nuclei">Nuclei</option>
+              <option value="trivy">Trivy</option>
+            </select>
+            <select id="exp-ack" class="search-input" style="width:130px">
+              <option value="none">Non-acknowled.</option>
+              <option value="">Toutes</option>
+              <option value="accepted">Accepté</option>
+              <option value="false_positive">Faux positif</option>
+              <option value="in_progress">En cours</option>
+            </select>
+            <button class="btn btn-sm" onclick="exportExpositionsCsv()" title="Exporter CSV filtré">Export CSV</button>
+            <button class="btn btn-sm" onclick="window.print()" title="Imprimer / PDF">Imprimer</button>
+            <button class="btn btn-sm" id="exp-kanban-btn" onclick="toggleExpKanban()" title="Vue Kanban">Kanban</button>
+            <button class="btn btn-sm" onclick="loadExpositions()">Refresh</button>
+          </div>
+        </div>
+        <!-- Bulk ack bar -->
+        <div id="exp-select-bar" class="exp-select-bar" style="display:none">
+          <span id="exp-selected-count" style="font-size:13px;color:var(--text-muted)"></span>
+          <button class="btn btn-sm btn-primary" onclick="openBulkAckModal()">Acker la sélection</button>
+          <button class="btn btn-sm" onclick="clearExpSelection()">Désélectionner</button>
+        </div>
+        <!-- Table view -->
+        <div id="exp-table-view">
+          <div class="table-wrap">
+            <table id="expositions-table">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" id="select-all-exp" onchange="toggleSelectAllExp(this)" /></th>
+                  <th>CVE</th><th>Sévérité</th><th>Score</th><th>EPSS</th><th>Asset</th>
+                  <th>Source</th><th>Paquet</th><th>Fix dispo</th><th>Plan d'action</th><th>Ack</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="expositions-tbody"></tbody>
+            </table>
+          </div>
+          <div id="exp-pagination" style="display:flex;gap:8px;justify-content:center;margin-top:12px"></div>
+        </div>
+        <!-- Kanban view (#8) -->
+        <div id="exp-kanban-view" style="display:none">
+          <div class="kanban-board">
+            <div class="kanban-col" id="kanban-none" data-status="none" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="onKanbanDrop(event,'none')">
+              <div class="kanban-col-title" style="color:var(--text-muted)">
+                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12"><circle cx="7" cy="7" r="5"/></svg>
+                Ouvert <span class="kanban-count" id="kanban-count-none">0</span>
+              </div>
+              <div id="kanban-cards-none"></div>
+            </div>
+            <div class="kanban-col" id="kanban-in_progress" data-status="in_progress" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="onKanbanDrop(event,'in_progress')">
+              <div class="kanban-col-title" style="color:var(--warning)">
+                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12"><circle cx="7" cy="7" r="5"/><path d="M7 4v3l2 2"/></svg>
+                En cours <span class="kanban-count" id="kanban-count-in_progress">0</span>
+              </div>
+              <div id="kanban-cards-in_progress"></div>
+            </div>
+            <div class="kanban-col" id="kanban-accepted" data-status="accepted" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="onKanbanDrop(event,'accepted')">
+              <div class="kanban-col-title" style="color:var(--success)">
+                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12"><circle cx="7" cy="7" r="5"/><path d="M4.5 7l2 2 3-3"/></svg>
+                Résolu <span class="kanban-count" id="kanban-count-accepted">0</span>
+              </div>
+              <div id="kanban-cards-accepted"></div>
+            </div>
+            <div class="kanban-col" id="kanban-false_positive" data-status="false_positive" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="onKanbanDrop(event,'false_positive')">
+              <div class="kanban-col-title" style="color:var(--info)">
+                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12"><circle cx="7" cy="7" r="5"/><path d="M5 5l4 4M9 5l-4 4"/></svg>
+                Faux positif <span class="kanban-count" id="kanban-count-false_positive">0</span>
+              </div>
+              <div id="kanban-cards-false_positive"></div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -186,7 +451,27 @@
               <option value="Low">Low</option>
               <option value="Unknown">Unknown</option>
             </select>
-            <button class="btn btn-sm" id="cve-enrich-btn" title="Enrichir les CVE sans données CVSS depuis OSV/NVD">Enrichir</button>
+            <select id="cve-epss-filter" class="search-input" style="width:130px" title="Filtre EPSS">
+              <option value="">EPSS — tous</option>
+              <option value="0">EPSS ≥ 0%</option>
+              <option value="10">EPSS ≥ 10%</option>
+              <option value="25">EPSS ≥ 25%</option>
+              <option value="50">EPSS ≥ 50%</option>
+            </select>
+            <select id="cve-maturity-filter" class="search-input" style="width:145px" title="Filtre maturité exploit">
+              <option value="">Toute maturité</option>
+              <option value="weaponized">⚠ Weaponized (KEV)</option>
+              <option value="exploit">EDB exploit</option>
+              <option value="poc">PoC GitHub</option>
+              <option value="none">Pas d'exploit</option>
+            </select>
+            <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
+              <input type="checkbox" id="cve-kev-filter"> KEV only
+            </label>
+            <button class="btn btn-sm" id="cve-epss-enrich-btn" title="Enrichir les scores EPSS">EPSS</button>
+            <button class="btn btn-sm" id="cve-kev-sync-btn" title="Synchroniser le catalogue CISA KEV">KEV</button>
+            <button class="btn btn-sm" id="cve-exploit-sync-btn" title="Synchroniser ExploitDB + PoC GitHub">Exploits</button>
+            <button class="btn btn-sm" id="cve-enrich-btn" title="Enrichir les CVE sans données CVSS depuis OSV/NVD">CVSS</button>
             <button class="btn btn-sm" id="refresh-cves">Refresh</button>
           </div>
         </div>
@@ -195,12 +480,12 @@
           <table id="cve-table-global">
             <thead>
               <tr>
-                <th>CVE</th><th>Sévérité</th><th>Score CVSS</th>
-                <th>Assets affectés</th><th>Description</th><th>Publié le</th>
+                <th>CVE</th><th>Sévérité</th><th>CVSS</th><th>EPSS</th><th>Menace</th>
+                <th>Assets</th><th>Description</th><th>Plan d'action</th><th>Publié le</th>
               </tr>
             </thead>
             <tbody id="cve-global-tbody">
-              <tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:24px">Chargement…</td></tr>
+              <tr><td colspan="9" style="color:var(--text-muted);text-align:center;padding:24px">Chargement…</td></tr>
             </tbody>
           </table>
         </div>
@@ -221,12 +506,26 @@
           <table id="scan-table">
             <thead>
               <tr>
-                <th>ID</th><th>Target</th><th>Modules</th><th>Status</th>
-                <th>Started</th><th>Finished</th><th>Assets found</th><th>Actions</th>
+                <th>Target</th><th>Modules</th><th>Status</th>
+                <th>Date</th><th>Assets</th><th>Planification</th><th>Actions</th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
+        </div>
+
+        <!-- Scan history timeline (shown when clicking a scan target) -->
+        <div id="scan-history-panel" style="display:none;margin-top:20px">
+          <div class="settings-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <h3 class="settings-card-title" style="margin:0" id="scan-history-title">Historique</h3>
+              <button class="btn btn-sm" onclick="closeScanHistory()">Fermer</button>
+            </div>
+            <div style="position:relative;height:200px;margin-bottom:16px">
+              <canvas id="scan-history-chart"></canvas>
+            </div>
+            <div id="scan-history-table"></div>
+          </div>
         </div>
       </section>
 
@@ -276,6 +575,45 @@
               </svg>
               ZAP Auto-scan
             </button>
+            <button class="subnav-item" data-subtab="admin-ssh-profiles">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="11" width="20" height="11" rx="2"/>
+                <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+                <circle cx="12" cy="16" r="1"/>
+              </svg>
+              SSH Profiles
+            </button>
+            <button class="subnav-item" data-subtab="admin-quota">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+                <path d="M7 8v4M12 6v6M17 9v3"/>
+              </svg>
+              Quota Usage
+            </button>
+            <button class="subnav-item" data-subtab="admin-audit">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <polyline points="10 9 9 9 8 9"/>
+              </svg>
+              Audit Log
+            </button>
+            <button class="subnav-item" data-subtab="admin-sla">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+              SLA Config
+            </button>
+            <button class="subnav-item" data-subtab="admin-notif">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              </svg>
+              Notifications
+            </button>
           </nav>
 
           <!-- Sub-panel content -->
@@ -295,7 +633,7 @@
                   <thead>
                     <tr>
                       <th>Email</th><th>Username</th><th>Full name</th>
-                      <th>Role</th><th>Provider</th><th>Active</th><th>Actions</th>
+                      <th>Role</th><th>Provider</th><th>Active</th><th>Quota/day</th><th>Actions</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -401,8 +739,17 @@
                   </label>
                   <div class="field-group">
                     <label class="field-label">Intervalle par défaut (minutes)</label>
-                    <input id="zap-global-interval" type="number" min="1" max="10080" value="60"
-                           placeholder="60" />
+                    <select id="zap-global-interval" class="form-select" style="max-width:220px">
+                      <option value="30">30 minutes</option>
+                      <option value="60" selected>1 heure</option>
+                      <option value="120">2 heures</option>
+                      <option value="240">4 heures</option>
+                      <option value="360">6 heures</option>
+                      <option value="720">12 heures</option>
+                      <option value="1440">24 heures</option>
+                      <option value="2880">48 heures</option>
+                      <option value="10080">7 jours</option>
+                    </select>
                     <span class="field-hint">
                       Peut être surchargé individuellement par asset. Max 7 jours (10 080 min).
                     </span>
@@ -420,15 +767,417 @@
               </div>
             </div>
 
+            <!-- SSH Profiles sub-panel -->
+            <div class="sub-panel" id="sub-admin-ssh-profiles">
+              <div class="sub-panel-header">
+                <h2>SSH Profiles</h2>
+                <div class="page-actions">
+                  <button class="btn btn-primary btn-sm" onclick="openSshProfileModal()">+ New profile</button>
+                  <button class="btn btn-sm" onclick="loadSshProfiles()">Refresh</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table id="ssh-profiles-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th><th>User</th><th>Port</th>
+                      <th>Password</th><th>Private Key</th><th>Created</th><th>Actions</th>
+                    </tr>
+                  </thead>
+                  <!-- tbody rendered by JS -->
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Quota Usage sub-panel (#18) -->
+            <div class="sub-panel" id="sub-admin-quota">
+              <div class="sub-panel-header">
+                <h2>Quota Usage</h2>
+                <div class="page-actions">
+                  <button class="btn btn-sm" onclick="loadQuotaUsage()">Refresh</button>
+                </div>
+              </div>
+              <div id="quota-chart-wrap" style="max-width:700px">
+                <canvas id="quota-chart" height="220"></canvas>
+              </div>
+              <div id="quota-table-wrap" style="margin-top:16px"></div>
+            </div>
+
+            <!-- Audit Log sub-panel -->
+            <div class="sub-panel" id="sub-admin-audit">
+              <div class="sub-panel-header">
+                <h2>Audit Log</h2>
+                <div class="page-actions">
+                  <button class="btn btn-sm" onclick="loadAuditLog()">Refresh</button>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-end">
+                <div class="field-group" style="margin:0;min-width:160px">
+                  <label class="field-label" style="font-size:11px">User</label>
+                  <input id="audit-filter-user" type="text" placeholder="Filter by user…" style="height:32px;font-size:13px" oninput="loadAuditLog()" />
+                </div>
+                <div class="field-group" style="margin:0;min-width:160px">
+                  <label class="field-label" style="font-size:11px">Action</label>
+                  <input id="audit-filter-action" type="text" placeholder="e.g. asset.update" style="height:32px;font-size:13px" oninput="loadAuditLog()" />
+                </div>
+                <div class="field-group" style="margin:0;min-width:160px">
+                  <label class="field-label" style="font-size:11px">Resource type</label>
+                  <input id="audit-filter-resource" type="text" placeholder="e.g. asset, user" style="height:32px;font-size:13px" oninput="loadAuditLog()" />
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table id="audit-table">
+                  <thead>
+                    <tr>
+                      <th>Timestamp</th><th>User</th><th>Action</th>
+                      <th>Resource type</th><th>Resource ID</th><th>Detail</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div id="audit-pagination" style="margin-top:8px;color:var(--text-muted);font-size:13px"></div>
+            </div>
+
+            <!-- SLA Config sub-panel -->
+            <div class="sub-panel" id="sub-admin-sla">
+              <div class="sub-panel-header">
+                <h2>SLA Configuration</h2>
+                <div class="page-actions">
+                  <button class="btn btn-sm" onclick="loadSlaConfig()">Refresh</button>
+                </div>
+              </div>
+              <div class="settings-card" style="max-width:520px">
+                <h3 class="settings-card-title">Délais de remédiation par sévérité</h3>
+                <div class="modal-fields" id="sla-config-fields">
+                  <div class="field-group">
+                    <label class="field-label">Critical (jours)</label>
+                    <input id="sla-critical" type="number" min="1" placeholder="7" />
+                  </div>
+                  <div class="field-group">
+                    <label class="field-label">High (jours)</label>
+                    <input id="sla-high" type="number" min="1" placeholder="30" />
+                  </div>
+                  <div class="field-group">
+                    <label class="field-label">Medium (jours)</label>
+                    <input id="sla-medium" type="number" min="1" placeholder="90" />
+                  </div>
+                  <div class="field-group">
+                    <label class="field-label">Low (jours)</label>
+                    <input id="sla-low" type="number" min="1" placeholder="180" />
+                  </div>
+                </div>
+                <div class="settings-actions">
+                  <button class="btn btn-sm" onclick="recomputeAllSlas()">Recalculer toutes les SLAs</button>
+                  <button class="btn btn-primary" onclick="saveSlaConfig()">Sauvegarder</button>
+                </div>
+                <div id="sla-config-status" class="status-bar hidden" style="margin-top:12px"></div>
+              </div>
+            </div>
+
+            <!-- Notifications sub-panel -->
+            <div class="sub-panel" id="sub-admin-notif">
+              <div class="sub-panel-header">
+                <h2>Notifications &amp; Webhooks</h2>
+                <div class="page-actions">
+                  <button class="btn btn-primary btn-sm" onclick="openNotifModal()">+ Nouveau webhook</button>
+                  <button class="btn btn-sm" onclick="loadNotifications()">Refresh</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table id="notif-table">
+                  <thead>
+                    <tr>
+                      <th>Nom</th><th>Type</th><th>URL</th><th>Événements</th><th>Actif</th><th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="notif-tbody">
+                    <tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:32px">Chargement…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
           </div><!-- /.admin-content -->
         </div><!-- /.admin-layout -->
+      </section>
+
+      <!-- ── Topology panel ─────────────────────────────────────────────────── -->
+      <section class="panel" id="panel-topology">
+        <div class="page-header">
+          <h1 class="page-title">Topologie réseau</h1>
+          <div class="page-actions">
+            <button class="btn btn-sm" id="topo-group-btn" onclick="toggleTopoGrouping()">Par subnet</button>
+            <button class="btn btn-sm" onclick="loadTopology()">Refresh</button>
+          </div>
+        </div>
+        <div class="topology-legend" id="topo-legend">
+          <span class="topo-legend-item"><span class="topo-dot" style="background:#f87171"></span>Critical</span>
+          <span class="topo-legend-item"><span class="topo-dot" style="background:#fb923c"></span>High</span>
+          <span class="topo-legend-item"><span class="topo-dot" style="background:#fbbf24"></span>Medium</span>
+          <span class="topo-legend-item"><span class="topo-dot" style="background:#34d399"></span>Low / Aucune</span>
+        </div>
+        <div class="topology-container" id="topology-container">
+          <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px">
+            Chargement de la topologie…
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Reports panel ──────────────────────────────────────────────────── -->
+      <section class="panel" id="panel-reports">
+        <div class="page-header">
+          <h1 class="page-title">Rapport exécutif</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" onclick="openExecutiveReport()">Rapport HTML</button>
+            <button class="btn btn-sm" onclick="exportExecutivePDF()">Export PDF</button>
+            <button class="btn btn-sm" onclick="exportXLSX()">Export Excel</button>
+            <button class="btn btn-sm" onclick="window.print()">Imprimer</button>
+            <button class="btn btn-sm" onclick="loadReportsPanel()">Refresh</button>
+          </div>
+        </div>
+        <div id="reports-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="settings-card" id="reports-sla-breaches">
+            <h3 class="settings-card-title">SLA Breaches</h3>
+            <div id="reports-sla-list">
+              <p style="color:var(--text-muted);font-size:13px">Chargement…</p>
+            </div>
+          </div>
+          <div class="settings-card" id="reports-top-risk">
+            <h3 class="settings-card-title">Top 5 assets à risque</h3>
+            <div id="reports-top-risk-list">
+              <p style="color:var(--text-muted);font-size:13px">Chargement…</p>
+            </div>
+          </div>
+        </div>
+        <div class="settings-card" style="margin-top:16px">
+          <h3 class="settings-card-title">Évolution 30 jours</h3>
+          <canvas id="reports-trend-chart" height="160"></canvas>
+        </div>
+      </section>
+
+      <!-- ── Remediation plan panel ──────────────────────────────────────────── -->
+      <section class="panel" id="panel-remediation">
+        <div class="page-header">
+          <h1 class="page-title">Suivi de remédiation</h1>
+          <div class="page-actions">
+            <select id="remediation-source-filter" style="padding:5px 8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);font-size:12px">
+              <option value="">Toutes les sources</option>
+              <option value="ssh">SSH</option>
+              <option value="zap">ZAP</option>
+              <option value="nuclei">Nuclei</option>
+              <option value="trivy">Trivy</option>
+            </select>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="remediation-kev-only" />
+              KEV uniquement
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="remediation-sla-only" />
+              SLA dépassé
+            </label>
+            <button class="btn btn-sm" onclick="loadRemediationBoard()">Vue Board</button>
+            <button class="btn btn-primary btn-sm" onclick="loadRemediation()">Refresh</button>
+          </div>
+        </div>
+
+        <!-- Remediation stats row -->
+        <div id="remediation-stats" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px"></div>
+
+        <!-- Remediation funnel / board -->
+        <div id="remediation-board" style="display:none;margin-bottom:16px">
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+            <div class="settings-card" style="padding:12px">
+              <h4 style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Ouvert</h4>
+              <div id="board-open"></div>
+            </div>
+            <div class="settings-card" style="padding:12px">
+              <h4 style="font-size:12px;color:var(--info);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Planifié</h4>
+              <div id="board-planned"></div>
+            </div>
+            <div class="settings-card" style="padding:12px">
+              <h4 style="font-size:12px;color:var(--warning);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">En cours</h4>
+              <div id="board-in_progress"></div>
+            </div>
+            <div class="settings-card" style="padding:12px">
+              <h4 style="font-size:12px;color:var(--success);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Résolu</h4>
+              <div id="board-resolved"></div>
+            </div>
+            <div class="settings-card" style="padding:12px">
+              <h4 style="font-size:12px;color:var(--danger);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Bloqué</h4>
+              <div id="board-blocked"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Priority list -->
+        <div id="remediation-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
+        <div id="remediation-list"></div>
+      </section>
+
+      <!-- ── Timeline panel ──────────────────────────────────────────────── -->
+      <section class="panel" id="panel-timeline">
+        <div class="page-header">
+          <h1 class="page-title">Timeline des découvertes</h1>
+          <div class="page-actions">
+            <button class="btn btn-sm" onclick="loadTimeline()">Refresh</button>
+          </div>
+        </div>
+        <div id="timeline-list" style="max-height:calc(100vh - 200px);overflow-y:auto"></div>
+      </section>
+
+      <!-- ── Compliance panel ────────────────────────────────────────────── -->
+      <section class="panel" id="panel-compliance">
+        <div class="page-header">
+          <h1 class="page-title">Conformité</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" onclick="runComplianceEval('iso27001')">ISO 27001</button>
+            <button class="btn btn-primary" onclick="runComplianceEval('nis2')">NIS2</button>
+            <button class="btn btn-primary" onclick="runComplianceEval('anssi')">ANSSI</button>
+            <button class="btn btn-sm" onclick="loadCompliance()">Refresh</button>
+          </div>
+        </div>
+        <div id="compliance-frameworks" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px"></div>
+        <div class="settings-card">
+          <h3 class="settings-card-title">Rapports récents</h3>
+          <div id="compliance-reports-list"></div>
+        </div>
+      </section>
+
+      <!-- ── Executive RSSI panel ────────────────────────────────────────── -->
+      <section class="panel" id="panel-executive">
+        <div class="page-header">
+          <h1 class="page-title">Vision 360° — Dashboard RSSI</h1>
+          <div class="page-actions">
+            <button class="btn btn-sm" onclick="exportExecutivePDF()">Export PDF</button>
+            <button class="btn btn-sm" onclick="exportXLSX()">Export Excel</button>
+            <button class="btn btn-sm" onclick="loadExecutive()">Refresh</button>
+          </div>
+        </div>
+
+        <!-- Row 1: KPIs principaux -->
+        <div id="exec-kpis" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px"></div>
+
+        <!-- Row 2: Risk gauge + Remediation funnel + MTTR -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Score de risque global</h3>
+            <div id="exec-risk-gauge" style="text-align:center;padding:16px"></div>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">Entonnoir de remédiation</h3>
+            <div id="exec-funnel"></div>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">Performance</h3>
+            <div id="exec-performance"></div>
+          </div>
+        </div>
+
+        <!-- Row 3: Trend chart + Severity heatmap -->
+        <div style="display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:16px">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Tendance 30 jours — CVEs</h3>
+            <div style="position:relative;height:220px"><canvas id="exec-trend-chart"></canvas></div>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">Heatmap sévérité × criticité</h3>
+            <div id="exec-heatmap"></div>
+          </div>
+        </div>
+
+        <!-- Row 4: Velocity chart + Burndown + Top assets -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Vélocité (CVEs/semaine)</h3>
+            <div style="position:relative;height:180px"><canvas id="exec-velocity-chart"></canvas></div>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">Burndown CVEs ouvertes</h3>
+            <div style="position:relative;height:180px"><canvas id="exec-burndown-chart"></canvas></div>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">Top assets à risque</h3>
+            <div id="exec-top-assets"></div>
+          </div>
+        </div>
+
+        <!-- Row 5: Coverage + SLA -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Couverture sécurité</h3>
+            <div id="exec-coverage"></div>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">SLA & Conformité</h3>
+            <div id="exec-sla"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Threat Intel panel ──────────────────────────────────────────── -->
+      <section class="panel" id="panel-threat-intel">
+        <div class="page-header">
+          <h1 class="page-title">Threat Intelligence</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" onclick="refreshThreatFeeds()">Rafraîchir les feeds</button>
+            <button class="btn btn-sm" onclick="loadThreatIntel()">Refresh</button>
+          </div>
+        </div>
+        <div id="threat-intel-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px"></div>
+        <div class="settings-card">
+          <h3 class="settings-card-title">IOCs récents</h3>
+          <div id="threat-ioc-list"></div>
+        </div>
       </section>
 
     </div><!-- /.main-area -->
   </div><!-- /#app-view -->
 
+  <!-- ── SSH Profile modal ─────────────────────────────────────────────────── -->
+  <div class="modal-overlay hidden" role="dialog" aria-modal="true" id="ssh-profile-modal" onclick="closeSshProfileModal(event)">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header">
+        <h2 id="ssh-profile-modal-title">New SSH Profile</h2>
+      </div>
+      <div class="modal-fields">
+        <div class="field-group">
+          <label class="field-label">Profile name</label>
+          <input id="sshp-name" type="text" placeholder="e.g. Linux servers" />
+        </div>
+        <div class="field-group">
+          <label class="field-label">SSH User</label>
+          <input id="sshp-user" type="text" placeholder="e.g. root" />
+        </div>
+        <div class="field-group">
+          <label class="field-label">SSH Port</label>
+          <input id="sshp-port" type="number" min="1" max="65535" placeholder="22 (default)" />
+        </div>
+        <div class="field-group">
+          <label class="field-label">SSH Password</label>
+          <input id="sshp-password" type="password" placeholder="Leave blank to keep existing"
+                 autocomplete="new-password" />
+          <span class="field-hint" id="sshp-password-hint"></span>
+        </div>
+        <div class="field-group">
+          <label class="field-label">SSH Private Key (PEM)</label>
+          <textarea id="sshp-key" rows="5"
+            placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
+            style="font-family:monospace;font-size:11px"></textarea>
+          <span class="field-hint" id="sshp-key-hint"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeSshProfileModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveSshProfile()">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── New Scan modal ────────────────────────────────────────────────────── -->
-  <div id="scan-modal" class="modal-overlay hidden" onclick="closeScanModal(event)">
+  <div id="scan-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="closeScanModal(event)">
     <div class="modal" style="max-width:520px">
       <div class="modal-header">
         <h3>New Scan</h3>
@@ -452,7 +1201,7 @@
   </div>
 
   <!-- ── Asset detail / edit modal ─────────────────────────────────────────── -->
-  <div id="asset-modal" class="modal-overlay hidden" onclick="closeAssetModal(event)">
+  <div id="asset-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="closeAssetModal(event)">
     <div class="modal" style="max-width:820px">
       <div class="modal-header">
         <h3 id="modal-title">Asset</h3>
@@ -470,6 +1219,12 @@
         <button class="modal-tab" data-modaltab="flaws">
           Sécurité
           <span class="modal-tab-badge" id="modal-cve-badge" style="display:none"></span>
+        </button>
+        <button class="modal-tab" data-modaltab="ssl">SSL/TLS</button>
+        <button class="modal-tab" data-modaltab="baseline">Baseline</button>
+        <button class="modal-tab" data-modaltab="fullaudit">
+          Full Audit
+          <span class="modal-tab-badge" id="fullaudit-badge" style="display:none;background:var(--danger)"></span>
         </button>
       </div>
 
@@ -504,20 +1259,29 @@
               <label class="field-label">OS version</label>
               <input id="modal-os-version" type="text" placeholder="e.g. Ubuntu 22.04" />
             </div>
-            <div class="field-group">
+            <div class="field-group" id="modal-ssh-profile-group">
+              <label class="field-label">SSH Profile (optional)</label>
+              <select id="modal-ssh-profile" class="form-select" onchange="_onSshProfileChange(this.value, this)">
+                <option value="">— No profile (use per-asset credentials) —</option>
+              </select>
+              <span class="field-hint" id="modal-ssh-profile-hint">Les credentials du profil sont utilisés si aucun credential par-asset n'est configuré.</span>
+            </div>
+            <!-- Banner shown when a profile is selected (hides individual cred fields) -->
+            <div id="modal-ssh-profile-banner" class="ssh-profile-banner" style="display:none"></div>
+            <div id="modal-ssh-user-group" class="field-group">
               <label class="field-label">SSH User</label>
               <input id="modal-ssh-user" type="text" placeholder="e.g. admin" />
             </div>
-            <div class="field-group">
+            <div id="modal-ssh-port-group" class="field-group">
               <label class="field-label">SSH Port</label>
               <input id="modal-ssh-port" type="number" placeholder="22" min="1" max="65535" />
             </div>
-            <div class="field-group">
+            <div id="modal-ssh-password-group" class="field-group">
               <label class="field-label">SSH Password</label>
               <input id="modal-ssh-password" type="password" placeholder="••••••••" autocomplete="new-password" />
               <span class="field-hint" id="modal-ssh-password-hint"></span>
             </div>
-            <div class="field-group">
+            <div id="modal-ssh-key-group" class="field-group">
               <label class="field-label">SSH Private Key (PEM)</label>
               <textarea id="modal-ssh-key" rows="3" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----" style="font-family:monospace;font-size:11px"></textarea>
               <span class="field-hint" id="modal-ssh-key-hint"></span>
@@ -532,6 +1296,16 @@
                 <button class="btn btn-sm" onclick="addDnsEntry()">+ Ajouter</button>
               </div>
             </div>
+            <!-- Tags -->
+            <div class="field-group">
+              <label class="field-label">Tags</label>
+              <div id="asset-tags-list" class="tag-list"></div>
+              <div style="display:flex;gap:8px;margin-top:6px">
+                <input id="asset-tag-input" type="text" placeholder="ex: prod, web, critique" style="flex:1"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();addAssetTag();}" />
+                <button class="btn btn-sm" onclick="addAssetTag()">+ Ajouter</button>
+              </div>
+            </div>
             <!-- ZAP auto-scan per-asset -->
             <label class="toggle-row">
               <input type="checkbox" id="modal-zap-auto" />
@@ -542,13 +1316,80 @@
             </label>
             <div class="field-group">
               <label class="field-label">Intervalle auto-scan (min, vide = global)</label>
-              <input id="modal-zap-interval" type="number" placeholder="60" min="1" max="10080" />
+              <select id="modal-zap-interval" class="form-select">
+                <option value="">— global —</option>
+                <option value="30">30 minutes</option>
+                <option value="60">1 heure</option>
+                <option value="120">2 heures</option>
+                <option value="240">4 heures</option>
+                <option value="360">6 heures</option>
+                <option value="720">12 heures</option>
+                <option value="1440">24 heures</option>
+                <option value="2880">48 heures</option>
+                <option value="10080">7 jours</option>
+              </select>
             </div>
             <!-- ZAP auto-scan target visibility -->
             <div id="zap-targets-section" style="display:none">
               <p class="field-label" style="margin-bottom:8px">Cibles auto-scan ZAP calculées</p>
               <div id="zap-targets-list" class="tag-list" style="flex-direction:column;gap:4px"></div>
               <div id="zap-next-scan" style="margin-top:8px;color:var(--text-muted);font-size:12px"></div>
+            </div>
+            <!-- SSH auto-scan per-asset -->
+            <label class="toggle-row">
+              <input type="checkbox" id="modal-ssh-auto" />
+              <div>
+                <div class="toggle-label-text">SSH auto-scan</div>
+                <div class="toggle-hint">Active le scan CVE SSH automatique récurrent pour cet asset</div>
+              </div>
+            </label>
+            <div class="field-group">
+              <label class="field-label">Intervalle SSH auto-scan (min)</label>
+              <select id="modal-ssh-interval" class="form-select">
+                <option value="">— désactivé —</option>
+                <option value="30">30 minutes</option>
+                <option value="60">1 heure</option>
+                <option value="120">2 heures</option>
+                <option value="240">4 heures</option>
+                <option value="360">6 heures</option>
+                <option value="720">12 heures</option>
+                <option value="1440">24 heures</option>
+                <option value="2880">48 heures</option>
+                <option value="10080">7 jours</option>
+              </select>
+            </div>
+            <!-- Trivy auto-scan per-asset -->
+            <label class="toggle-row">
+              <input type="checkbox" id="modal-trivy-auto" />
+              <div>
+                <div class="toggle-label-text">Trivy auto-scan</div>
+                <div class="toggle-hint">Active le scan Trivy Docker automatique récurrent pour cet asset</div>
+              </div>
+            </label>
+            <div class="field-group">
+              <label class="field-label">Intervalle Trivy auto-scan (min)</label>
+              <select id="modal-trivy-interval" class="form-select">
+                <option value="">— désactivé —</option>
+                <option value="30">30 minutes</option>
+                <option value="60">1 heure</option>
+                <option value="120">2 heures</option>
+                <option value="240">4 heures</option>
+                <option value="360">6 heures</option>
+                <option value="720">12 heures</option>
+                <option value="1440">24 heures</option>
+                <option value="2880">48 heures</option>
+                <option value="10080">7 jours</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label">Criticité métier</label>
+              <select id="modal-criticality" class="form-select">
+                <option value="">— Non définie —</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
             </div>
             <div class="field-group">
               <label class="field-label">Notes</label>
@@ -559,9 +1400,15 @@
 
         <!-- ── Ports tab ────────────────────────────────────────────── -->
         <div class="modal-tab-panel" id="mtab-ports">
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 0 10px">
+            <button class="btn btn-sm" id="ports-diff-btn" onclick="togglePortsDiff()" style="display:none">
+              Comparer avec snapshot précédent
+            </button>
+            <span id="ports-diff-info" style="color:var(--text-muted);font-size:12px"></span>
+          </div>
           <div class="table-wrap">
             <table id="modal-ports-table">
-              <thead><tr><th>Port</th><th>Proto</th><th>State</th><th>Service</th><th>Version</th></tr></thead>
+              <thead><tr><th></th><th>Port</th><th>Proto</th><th>State</th><th>Service</th><th>Version</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -611,96 +1458,258 @@
         </div><!-- /.modal-tab-panel overview -->
 
         <!-- ── Sécurité tab ───────────────────────────────────────────── -->
-        <div class="modal-tab-panel" id="mtab-flaws">
+        <div class="modal-tab-panel sec-tab-panel" id="mtab-flaws">
 
-          <!-- ── DAST section ────────────────────────────────────────── -->
-          <div class="scan-section" id="section-dast">
-            <div class="scan-section-header">
-              <span class="scan-type-badge dast">DAST</span>
-              <span>OWASP ZAP — Web Vulnerability Scanner</span>
+          <!-- Sub-navigation -->
+          <script>
+          function _switchSecPanel(name, btn) {
+            document.querySelectorAll('.sec-subnav-btn').forEach(function(b){ b.classList.remove('active'); });
+            document.querySelectorAll('.sec-panel').forEach(function(p){ p.style.display='none'; });
+            if (btn) btn.classList.add('active');
+            var p = document.getElementById('secpanel-'+name);
+            if (p) p.style.display='block';
+          }
+          function _setSevFilter(level, btn) {
+            document.querySelectorAll('.sev-filter-btn').forEach(function(b){ b.classList.remove('active'); });
+            if (btn) btn.classList.add('active');
+            document.querySelectorAll('.cve-severity-group').forEach(function(g){
+              g.style.display = (level === 'all' || g.dataset.sev === level) ? '' : 'none';
+            });
+          }
+          function _toggleSevGroup(id, btn) {
+            var body = document.getElementById(id);
+            if (!body) return;
+            var open = body.style.display !== 'none';
+            body.style.display = open ? 'none' : '';
+            if (btn) btn.setAttribute('aria-expanded', String(!open));
+          }
+          function _toggleTrivyGroup(id, btn) {
+            var body = document.getElementById(id);
+            if (!body) return;
+            var open = body.style.display !== 'none';
+            body.style.display = open ? 'none' : '';
+            if (btn) btn.setAttribute('aria-expanded', String(!open));
+          }
+          </script>
+          <nav class="sec-subnav">
+            <button class="sec-subnav-btn active" onclick="_switchSecPanel('cves',this)">
+              CVE <span class="sec-subnav-badge" id="sec-badge-cves" style="display:none"></span>
+            </button>
+            <button class="sec-subnav-btn" onclick="_switchSecPanel('zap',this)">
+              <span class="scan-type-badge dast" style="font-size:10px;padding:1px 6px">ZAP</span>
+              DAST <span class="sec-subnav-badge" id="sec-badge-zap" style="display:none"></span>
+            </button>
+            <button class="sec-subnav-btn" onclick="_switchSecPanel('ssh',this)">
+              <span class="scan-type-badge ssh" style="font-size:10px;padding:1px 6px">SSH</span>
+              Système
+            </button>
+            <button class="sec-subnav-btn" onclick="_switchSecPanel('nuclei',this)">
+              <span class="scan-type-badge nuclei" style="font-size:10px;padding:1px 6px">N</span>
+              Nuclei
+            </button>
+            <button class="sec-subnav-btn" onclick="_switchSecPanel('trivy',this)">
+              <span class="scan-type-badge trivy" style="font-size:10px;padding:1px 6px">T</span>
+              Trivy
+            </button>
+            <button class="sec-subnav-btn" onclick="_switchSecPanel('diff',this)">Diff</button>
+          </nav>
+
+          <!-- ── CVE panel ───────────────────────────────────────────── -->
+          <div class="sec-panel" id="secpanel-cves" style="display:block">
+
+            <!-- Severity score bar (stat chips + filter) -->
+            <div class="sev-score-bar" id="sev-score-bar">
+              <button class="sev-filter-btn active" data-sev="all" onclick="_setSevFilter('all',this)">
+                Toutes <span class="sev-filter-count" id="sev-count-all"></span>
+              </button>
+              <button class="sev-filter-btn sev-critical" data-sev="critical" onclick="_setSevFilter('critical',this)">
+                Critical <span class="sev-filter-count" id="sev-count-critical"></span>
+              </button>
+              <button class="sev-filter-btn sev-high" data-sev="high" onclick="_setSevFilter('high',this)">
+                High <span class="sev-filter-count" id="sev-count-high"></span>
+              </button>
+              <button class="sev-filter-btn sev-medium" data-sev="medium" onclick="_setSevFilter('medium',this)">
+                Medium <span class="sev-filter-count" id="sev-count-medium"></span>
+              </button>
+              <button class="sev-filter-btn sev-low" data-sev="low" onclick="_setSevFilter('low',this)">
+                Low <span class="sev-filter-count" id="sev-count-low"></span>
+              </button>
             </div>
 
-            <!-- ZAP scan launcher -->
+            <!-- CVE groups injected by JS -->
+            <div id="cve-priority-list"></div>
+
+            <!-- Legacy tbody kept for compat -->
+            <table id="cve-table" style="display:none"><tbody id="cve-tbody"></tbody></table>
+          </div>
+
+          <!-- ── ZAP / DAST panel ────────────────────────────────────── -->
+          <div class="sec-panel" id="secpanel-zap" style="display:none">
             <div class="zap-launcher">
               <div class="field-group" style="flex:1">
-                <label class="field-label">Target URL for ZAP scan</label>
+                <label class="field-label">Target URL</label>
                 <input id="zap-target-url" type="text" placeholder="http://192.168.1.1" />
               </div>
               <button class="btn btn-primary" id="zap-scan-btn" onclick="runZapScan()">
-                &#9654; Scan ZAP
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="13" height="13"><polygon points="3,2 13,8 3,14" fill="currentColor" stroke="none"/></svg>
+                Scan ZAP
               </button>
             </div>
             <div id="zap-status" class="status-bar hidden" style="margin-top:12px"></div>
-
-            <!-- Risk summary -->
             <div id="zap-risk-summary" class="risk-pills hidden"></div>
-
-            <!-- Report selector (visible if multiple completed scans) -->
             <div id="zap-report-selector" style="margin-top:14px;display:none">
               <label class="field-label" style="margin-bottom:6px;display:block">Rapport</label>
               <select id="zap-report-select" class="form-select" style="max-width:340px"
                       onchange="loadZapReportDetail(this.value)"></select>
             </div>
-
-            <!-- Alerts list -->
             <div style="margin-top:20px">
-              <p class="field-label" style="margin-bottom:10px">Alertes ZAP</p>
+              <p class="field-label" style="margin-bottom:10px">Alertes</p>
               <div id="flaws-list">
-                <p style="color:var(--text-muted);font-size:12px">Aucun rapport disponible — lancez un scan ZAP.</p>
+                <p style="color:var(--text-muted);font-size:12px">Aucun rapport — lancez un scan ZAP.</p>
               </div>
             </div>
-
-            <!-- ZAP reports history -->
             <div id="zap-history" style="margin-top:20px">
-              <p class="field-label" style="margin-bottom:10px">ZAP scan history</p>
+              <p class="field-label" style="margin-bottom:10px">Historique</p>
               <div id="zap-history-list"></div>
-            </div>
-          </div><!-- /.scan-section dast -->
-
-          <!-- ── CVE table (all sources) ─────────────────────────────── -->
-          <div id="cve-section" style="margin-top:20px">
-            <p class="field-label" style="margin-bottom:10px">Vulnerabilities (CVE) — toutes sources</p>
-            <div class="table-wrap">
-              <table id="cve-table">
-                <thead>
-                  <tr>
-                    <th>CVE</th><th>Composant</th><th>Version</th>
-                    <th>Version corrigée</th><th>Sévérité</th><th>Score CVSS</th><th>Source</th>
-                  </tr>
-                </thead>
-                <tbody id="cve-tbody">
-                  <tr><td colspan="7" style="color:var(--text-muted);text-align:center;padding:24px">
-                    No vulnerabilities detected yet
-                  </td></tr>
-                </tbody>
-              </table>
             </div>
           </div>
 
-          <!-- ── SSH CVE section ────────────────────────────────────── -->
-          <div class="scan-section" id="section-ssh" style="margin-top:20px">
-            <div class="scan-section-header">
-              <span class="scan-type-badge ssh">SSH</span>
-              <span>CVE Système — Audit de paquets</span>
-              <span id="ssh-conn-status" style="margin-left:auto;font-size:12px;color:var(--text-muted)"></span>
+          <!-- ── SSH panel ───────────────────────────────────────────── -->
+          <div class="sec-panel" id="secpanel-ssh" style="display:none">
+            <div class="sec-panel-header">
+              <div>
+                <div class="sec-panel-title">Audit de paquets système</div>
+                <div class="sec-panel-desc">Connexion SSH — détection des CVE via la base OVAL</div>
+              </div>
+              <span id="ssh-conn-status" class="sec-conn-status"></span>
             </div>
-            <div id="ssh-scan-body">
-              <!-- Populated by _renderSshSection() -->
-            </div>
-          </div><!-- /.scan-section ssh -->
+            <div id="ssh-scan-body"></div>
+          </div>
 
-          <!-- ── Nuclei multi-protocol section ──────────────────────── -->
-          <div class="scan-section" id="section-nuclei" style="margin-top:20px">
-            <div class="scan-section-header">
-              <span class="scan-type-badge nuclei">Nuclei</span>
-              <span>Scan multi-protocole — HTTP, DNS, FTP, SMB, bases de données…</span>
+          <!-- ── Nuclei panel ────────────────────────────────────────── -->
+          <div class="sec-panel" id="secpanel-nuclei" style="display:none">
+            <div class="sec-panel-header">
+              <div>
+                <div class="sec-panel-title">Scan multi-protocole</div>
+                <div class="sec-panel-desc">HTTP, DNS, FTP, SMB, bases de données…</div>
+              </div>
             </div>
-            <div id="nuclei-scan-body">
-              <!-- Populated by _renderNucleiSection() -->
+            <div id="nuclei-scan-body"></div>
+            <div id="nuclei-risk-summary" class="risk-pills hidden" style="margin-top:12px"></div>
+            <div id="nuclei-findings-list" style="margin-top:16px"></div>
+          </div>
+
+          <!-- ── Trivy panel ─────────────────────────────────────────── -->
+          <div class="sec-panel" id="secpanel-trivy" style="display:none">
+            <div class="sec-panel-header">
+              <div>
+                <div class="sec-panel-title">CVE conteneurs Docker</div>
+                <div class="sec-panel-desc">Scan Trivy via tunnel SSH</div>
+              </div>
+              <span id="trivy-docker-status" class="sec-conn-status"></span>
             </div>
-          </div><!-- /.scan-section nuclei -->
+            <div id="trivy-docker-body"></div>
+          </div>
+
+          <!-- ── Diff panel ──────────────────────────────────────────── -->
+          <div class="sec-panel" id="secpanel-diff" style="display:none">
+            <div class="sec-panel-header">
+              <div>
+                <div class="sec-panel-title">Comparaison de scans SSH</div>
+                <div class="sec-panel-desc">Visualise les paquets ajoutés / supprimés / mis à jour entre deux scans</div>
+              </div>
+            </div>
+            <div style="margin-top:14px">
+              <div class="table-wrap" style="max-height:180px;overflow-y:auto">
+                <table>
+                  <thead><tr><th>Date</th><th>Statut</th><th>CVEs</th><th>OS</th></tr></thead>
+                  <tbody id="ssh-scan-history-tbody">
+                    <tr><td colspan="4" style="color:var(--text-muted);text-align:center;padding:12px">Aucun historique.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style="display:flex;gap:10px;align-items:flex-end;margin-top:14px;flex-wrap:wrap">
+                <div class="field-group" style="flex:1;min-width:160px;margin-bottom:0">
+                  <label class="field-label">Scan A (ancien)</label>
+                  <select id="diff-scan-a" class="form-select"><option value="">— Choisir —</option></select>
+                </div>
+                <div class="field-group" style="flex:1;min-width:160px;margin-bottom:0">
+                  <label class="field-label">Scan B (récent)</label>
+                  <select id="diff-scan-b" class="form-select"><option value="">— Choisir —</option></select>
+                </div>
+                <button class="btn btn-primary btn-sm" id="run-diff-btn" onclick="runScanDiff()">Comparer</button>
+              </div>
+              <div id="diff-results" style="margin-top:16px"></div>
+            </div>
+          </div>
 
         </div><!-- /.modal-tab-panel flaws -->
+
+        <!-- ── SSL/TLS tab ──────────────────────────────────────────── -->
+        <div class="modal-tab-panel" id="mtab-ssl">
+          <div class="sec-panel-header">
+            <div>
+              <div class="sec-panel-title">Monitoring SSL/TLS</div>
+              <div class="sec-panel-desc">Vérification des certificats et de la configuration TLS</div>
+            </div>
+          </div>
+          <div class="scan-action-bar" style="margin-top:12px">
+            <button class="btn btn-primary btn-sm" id="ssl-scan-btn" onclick="runSslScan()">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="13" height="13"><polygon points="3,2 13,8 3,14" fill="currentColor" stroke="none"/></svg>
+              Lancer scan SSL
+            </button>
+            <span id="ssl-scan-status" class="scan-status-text"></span>
+          </div>
+          <div id="ssl-reports-body" style="margin-top:16px">
+            <p style="color:var(--text-muted);font-size:13px">Aucun scan SSL effectué.</p>
+          </div>
+        </div>
+
+        <!-- ── Baseline tab ─────────────────────────────────────────── -->
+        <div class="modal-tab-panel" id="mtab-baseline">
+          <div class="sec-panel-header">
+            <div>
+              <div class="sec-panel-title">Baseline &amp; Drift Detection</div>
+              <div class="sec-panel-desc">Comparer l'état actuel avec un snapshot de référence</div>
+            </div>
+          </div>
+          <div class="scan-action-bar" style="margin-top:12px">
+            <button class="btn btn-primary btn-sm" onclick="createBaseline()">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="13" height="13"><path d="M8 2v12M2 8h12"/></svg>
+              Créer snapshot baseline
+            </button>
+            <span id="baseline-status" class="scan-status-text"></span>
+          </div>
+          <div id="baseline-list" style="margin-top:16px">
+            <p style="color:var(--text-muted);font-size:13px">Aucun baseline disponible.</p>
+          </div>
+          <div id="baseline-diff-result" style="margin-top:16px"></div>
+        </div>
+
+        <!-- ── Full Audit tab ─────────────────────────────────────────── -->
+        <div class="modal-tab-panel" id="mtab-fullaudit">
+          <div class="sec-panel-header">
+            <div>
+              <div class="sec-panel-title">Full Audit</div>
+              <div class="sec-panel-desc">Orchestration complète : port scan → testssl → ssh-audit → default creds → SSH CVE → Nuclei → exploit validation → risk score</div>
+            </div>
+          </div>
+          <div class="scan-action-bar" style="margin-top:12px;flex-wrap:wrap;gap:8px">
+            <button class="btn btn-primary btn-sm" id="fullaudit-run-btn" onclick="runFullAudit()">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="13" height="13"><polygon points="3,2 13,8 3,14" fill="currentColor" stroke="none"/></svg>
+              Lancer Full Audit
+            </button>
+            <button class="btn btn-sm" id="fullaudit-report-btn" onclick="openAssetReport()" style="border-color:var(--accent);color:var(--accent)">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="13" height="13"><rect x="2" y="1" width="10" height="13" rx="1"/><path d="M5 5h6M5 8h6M5 11h4"/></svg>
+              Rapport HTML
+            </button>
+            <span id="fullaudit-status" class="scan-status-text"></span>
+          </div>
+          <div id="fullaudit-jobs-body" style="margin-top:16px">
+            <p style="color:var(--text-muted);font-size:13px">Aucun audit lancé.</p>
+          </div>
+        </div>
+
       </div><!-- /.modal-body -->
 
       <div class="modal-footer">
@@ -711,7 +1720,7 @@
   </div>
 
   <!-- ── User create / edit modal ──────────────────────────────────────────── -->
-  <div id="user-modal" class="modal-overlay hidden" onclick="closeUserModal(event)">
+  <div id="user-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="closeUserModal(event)">
     <div class="modal" style="max-width:460px">
       <div class="modal-header">
         <h3 id="user-modal-title">New user</h3>
@@ -745,6 +1754,11 @@
               <option value="admin">Admin</option>
             </select>
           </div>
+          <div class="field-group" id="um-quota-group">
+            <label class="field-label">Scan quota / day</label>
+            <input id="um-quota" type="number" min="0" placeholder="50 (default)" />
+            <span class="field-hint">Leave blank for unlimited. Applies to SSH, Trivy, Nuclei and ZAP scans.</span>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -754,10 +1768,194 @@
     </div>
   </div>
 
+  <!-- ── CVE Remediation modal ─────────────────────────────────────────────── -->
+  <div id="cve-remediation-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closeCveRemediationModal()">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <h3>Plan d'action — <span id="cve-remediation-cve-id" style="color:var(--accent)"></span></h3>
+        <button class="modal-close" onclick="closeCveRemediationModal()">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-fields">
+          <div class="field-group">
+            <label class="field-label">Plan de remédiation</label>
+            <textarea id="cve-remediation-input" rows="6"
+              placeholder="Ex: Mettre à jour le paquet openssl vers ≥3.1.2, planifié semaine 23. Responsable: équipe infra."></textarea>
+            <span class="field-hint">Ce plan est partagé pour tous les assets affectés par ce CVE.</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" onclick="closeCveRemediationModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveCveRemediation()">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Context menu (#6) ────────────────────────────────────────────────── -->
+  <div id="ctx-menu">
+    <div class="ctx-item" id="ctx-ssh">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><rect x="1" y="4" width="14" height="9" rx="2"/><path d="M4 4V3a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1"/></svg>
+      Lancer SSH scan
+    </div>
+    <div class="ctx-item" id="ctx-nuclei">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.5"/><line x1="8" y1="2" x2="8" y2="5.5"/></svg>
+      Lancer Nuclei
+    </div>
+    <hr class="ctx-separator">
+    <div class="ctx-item" id="ctx-copy-ip">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg>
+      Copier l'IP
+    </div>
+    <div class="ctx-item" id="ctx-details">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="9" y2="9"/></svg>
+      Voir les détails
+    </div>
+  </div>
+
+  <!-- ── Command palette (#12) ─────────────────────────────────────────────── -->
+  <div id="cmd-palette-overlay" class="hidden">
+    <div id="cmd-palette">
+      <input id="cmd-input" type="text" placeholder="Rechercher un asset, CVE, section…" autocomplete="off" />
+      <div id="cmd-results"></div>
+      <div id="cmd-footer">
+        <span class="cmd-key"><kbd>↑↓</kbd> naviguer</span>
+        <span class="cmd-key"><kbd>↵</kbd> sélectionner</span>
+        <span class="cmd-key"><kbd>Esc</kbd> fermer</span>
+        <span style="margin-left:auto;opacity:.5">Ctrl+K</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Side panel (#10, #14) ────────────────────────────────────────────── -->
+  <div id="side-panel">
+    <div class="side-panel-header">
+      <span class="side-panel-title" id="side-panel-title"></span>
+      <button class="side-panel-close" onclick="closeSidePanel()" title="Fermer">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
+      </button>
+    </div>
+    <div class="side-panel-body" id="side-panel-body"></div>
+  </div>
+
+  <!-- ── Bulk edit modal (#7) ──────────────────────────────────────────────── -->
+  <div id="bulk-edit-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closeBulkEditModal()">
+    <div class="modal" style="max-width:400px">
+      <div class="modal-header">
+        <h3 id="bulk-edit-title">Modifier la sélection</h3>
+        <button class="modal-close" onclick="closeBulkEditModal()">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px" id="bulk-edit-desc"></p>
+        <div class="modal-fields">
+          <div class="field-group">
+            <label class="field-label">OS Family <span style="color:var(--text-muted)">(laisser vide pour ne pas modifier)</span></label>
+            <input id="bulk-os-family" type="text" placeholder="e.g. Linux" list="dl-os-family" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Device type <span style="color:var(--text-muted)">(laisser vide pour ne pas modifier)</span></label>
+            <input id="bulk-device-type" type="text" placeholder="e.g. Server" list="dl-device-type" />
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" onclick="closeBulkEditModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveBulkEdit()">Appliquer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Bulk ack modal (#9) ───────────────────────────────────────────────── -->
+  <div id="bulk-ack-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closeBulkAckModal()">
+    <div class="modal" style="max-width:400px">
+      <div class="modal-header">
+        <h3>Acker la sélection</h3>
+        <button class="modal-close" onclick="closeBulkAckModal()">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px" id="bulk-ack-desc"></p>
+        <div class="modal-fields">
+          <div class="field-group">
+            <label class="field-label">Statut</label>
+            <select id="bulk-ack-status" class="form-select">
+              <option value="accepted">Accepté</option>
+              <option value="false_positive">Faux positif</option>
+              <option value="in_progress">En cours</option>
+              <option value="none">Réinitialiser</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Note <span style="color:var(--text-muted)">(optionnel)</span></label>
+            <textarea id="bulk-ack-note" rows="3" placeholder="Justification, ticket, etc."></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" onclick="closeBulkAckModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveBulkAck()">Appliquer</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Toast notifications ───────────────────────────────────────────────── -->
   <div id="toast-container" class="toast-container"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js"></script>
+  <!-- ── Notification / Webhook modal ──────────────────────────────────────── -->
+  <div id="notif-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closeNotifModal()">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <h3 id="notif-modal-title">Nouveau webhook</h3>
+        <button class="modal-close" onclick="closeNotifModal()">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-fields">
+          <div class="field-group">
+            <label class="field-label">Nom</label>
+            <input id="notif-name" type="text" placeholder="ex: Slack alertes critiques" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Type</label>
+            <select id="notif-type" class="form-select">
+              <option value="webhook">Webhook</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label class="field-label">URL du webhook</label>
+            <input id="notif-url" type="text" placeholder="https://hooks.slack.com/services/..." />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Événements déclencheurs</label>
+            <div class="notif-events-grid">
+              <label><input type="checkbox" name="notif-event" value="cve_critical" /> CVE Critique</label>
+              <label><input type="checkbox" name="notif-event" value="sla_breach" /> SLA Breach</label>
+              <label><input type="checkbox" name="notif-event" value="port_change" /> Changement de port</label>
+              <label><input type="checkbox" name="notif-event" value="asset_offline" /> Asset offline</label>
+              <label><input type="checkbox" name="notif-event" value="scan_done" /> Scan terminé</label>
+            </div>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Secret HMAC <span style="color:var(--text-muted)">(optionnel)</span></label>
+            <input id="notif-secret" type="password" placeholder="Laisser vide pour désactiver la signature" autocomplete="new-password"/>
+          </div>
+          <label class="toggle-row">
+            <input type="checkbox" id="notif-active" checked />
+            <div>
+              <div class="toggle-label-text">Actif</div>
+              <div class="toggle-hint">Désactiver pour suspendre les envois sans supprimer la config</div>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" id="notif-test-btn" onclick="testNotifWebhook()">Tester</button>
+        <button class="btn btn-sm" onclick="closeNotifModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveNotif()">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js" crossorigin="anonymous"></script>
+  <script src="/static/app.js?v=5.2"></script>
 </body>
 </html>

@@ -16,6 +16,8 @@ OIDC connector hook (future):
 
 from __future__ import annotations
 
+import re
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -24,11 +26,33 @@ from fastapi import HTTPException, status
 
 from netlanventory.core.config import get_settings
 
+# Bcrypt work factor — ANSSI recommends >= 12, we use 14 for future-proofing
+_BCRYPT_ROUNDS = 14
+
+# Minimum password requirements (ANSSI R22)
+_MIN_PASSWORD_LENGTH = 12
+_PASSWORD_PATTERN = re.compile(
+    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>/?]).+$"
+)
+
 
 # ── Password helpers ─────────────────────────────────────────────────────────
 
+def validate_password_strength(password: str) -> None:
+    """Enforce password complexity rules (ANSSI R22 compliance)."""
+    if len(password) < _MIN_PASSWORD_LENGTH:
+        raise ValueError(
+            f"Password must be at least {_MIN_PASSWORD_LENGTH} characters long."
+        )
+    if not _PASSWORD_PATTERN.match(password):
+        raise ValueError(
+            "Password must contain at least one uppercase, one lowercase, "
+            "one digit, and one special character."
+        )
+
+
 def hash_password(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt(rounds=_BCRYPT_ROUNDS)).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -37,7 +61,9 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 # ── JWT helpers ───────────────────────────────────────────────────────────────
 
-def create_access_token(user_id: str, role: str, provider: str = "local") -> str:
+def create_access_token(
+    user_id: str, role: str, provider: str = "local", jti: str | None = None
+) -> str:
     settings = get_settings()
     now = datetime.now(timezone.utc)
     expire = now + timedelta(minutes=settings.jwt_access_token_expire_minutes)
@@ -49,7 +75,14 @@ def create_access_token(user_id: str, role: str, provider: str = "local") -> str
         "exp": expire,
         "iss": "netlanventory",
     }
+    if jti is not None:
+        payload["jti"] = jti
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def generate_jti() -> str:
+    """Generate a unique JWT ID (jti) for session tracking."""
+    return str(uuid.uuid4())
 
 
 def decode_access_token(token: str) -> dict:

@@ -3,7 +3,8 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from netlanventory.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -30,6 +31,16 @@ class Scan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     modules_run: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     summary: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error_msg: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Partial results saved incrementally during long scans (survives restarts)
+    partial_results: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True, server_default="{}")
+
+    # ── Recurring scan support ───────────────────────────────────────────────
+    # When recurring=True, the scheduler will automatically re-launch this
+    # scan (same target + modules) every recurring_interval_hours.
+    recurring: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    recurring_interval_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    recurring_last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recurring_run_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
     # Relationships
     results: Mapped[list["ScanResult"]] = relationship(  # noqa: F821
@@ -37,4 +48,4 @@ class Scan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Scan target={self.target!r} status={self.status!r}>"
+        return f"<Scan target={self.target!r} status={self.status!r} recurring={self.recurring}>"

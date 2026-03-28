@@ -74,6 +74,49 @@ async def create_scan(
             detail=f"Unknown modules: {unknown}. Available: {registry.names()}",
         )
 
+    # Check if a scan with the same target already exists — reuse it
+    existing_result = await db.execute(
+        select(Scan)
+        .where(Scan.target == payload.target)
+        .options(selectinload(Scan.results))
+        .order_by(Scan.created_at.desc())
+        .limit(1)
+    )
+    existing = existing_result.scalar_one_or_none()
+
+    if existing and existing.status not in ("pending", "running"):
+        # Re-run the existing scan in place
+        for r in list(existing.results):
+            await db.delete(r)
+        existing.status = "pending"
+        existing.started_at = None
+        existing.finished_at = None
+        existing.summary = None
+        existing.error_msg = None
+        existing.partial_results = {}
+        existing.modules_run = payload.modules
+        await db.commit()
+
+        result = await db.execute(
+            select(Scan).where(Scan.id == existing.id).options(selectinload(Scan.results))
+        )
+        scan = result.scalar_one()
+
+        background_tasks.add_task(
+            _run_scan,
+            scan_id=scan.id,
+            target=payload.target,
+            modules=payload.modules,
+            options=payload.options,
+        )
+        logger.info("Scan reused in place", scan_id=str(scan.id), target=payload.target)
+        return scan
+
+    if existing and existing.status in ("pending", "running"):
+        # Already running — return it as-is
+        return existing
+
+    # No existing scan for this target — create a new one
     scan = Scan(
         target=payload.target,
         status="pending",
@@ -81,7 +124,6 @@ async def create_scan(
     )
     db.add(scan)
     await db.commit()
-    # Re-query with results eagerly loaded to avoid lazy-load during serialization
     result = await db.execute(
         select(Scan).where(Scan.id == scan.id).options(selectinload(Scan.results))
     )
@@ -104,21 +146,31 @@ async def rerun_scan(
     background_tasks: BackgroundTasks,
     db: DbDep,
 ) -> Scan:
-    """Create a new scan using the same target and modules as an existing scan."""
+    """Re-run an existing scan in place (same row, reset status, clear old results)."""
     result = await db.execute(
-        select(Scan).where(Scan.id == scan_id)
+        select(Scan).where(Scan.id == scan_id).options(selectinload(Scan.results))
     )
-    original = result.scalar_one_or_none()
-    if not original:
+    scan = result.scalar_one_or_none()
+    if not scan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
 
-    scan = Scan(
-        target=original.target,
-        status="pending",
-        modules_run=original.modules_run,
-    )
-    db.add(scan)
+    if scan.status in ("pending", "running"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Scan already running")
+
+    # Clear previous results
+    for r in list(scan.results):
+        await db.delete(r)
+
+    # Reset scan state
+    scan.status = "pending"
+    scan.started_at = None
+    scan.finished_at = None
+    scan.summary = None
+    scan.error_msg = None
+    scan.partial_results = {}
     await db.commit()
+
+    # Re-load cleanly
     result = await db.execute(
         select(Scan).where(Scan.id == scan.id).options(selectinload(Scan.results))
     )
@@ -132,7 +184,41 @@ async def rerun_scan(
         options={},
     )
 
-    logger.info("Rerun scan queued", original_scan_id=str(scan_id), new_scan_id=str(scan.id))
+    logger.info("Scan re-run in place", scan_id=str(scan_id))
+    return scan
+
+
+@router.put("/{scan_id}/recurring", response_model=ScanOut)
+async def set_recurring(
+    scan_id: uuid.UUID,
+    db: DbDep,
+    recurring: bool = Query(...),
+    interval_hours: int = Query(24, ge=1, le=8760),
+) -> Scan:
+    """Set recurring rescan on an existing scan.
+
+    Query params:
+      - recurring: true/false
+      - interval_hours: 1-8760 (default 24)
+    """
+    result = await db.execute(
+        select(Scan).where(Scan.id == scan_id).options(selectinload(Scan.results))
+    )
+    scan = result.scalar_one_or_none()
+    if not scan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+
+    scan.recurring = recurring
+    scan.recurring_interval_hours = interval_hours if recurring else None
+    await db.flush()
+    await db.refresh(scan)
+
+    logger.info(
+        "Recurring scan updated",
+        scan_id=str(scan_id),
+        recurring=recurring,
+        interval_hours=interval_hours,
+    )
     return scan
 
 
@@ -143,6 +229,56 @@ async def delete_scan(scan_id: uuid.UUID, db: DbDep) -> None:
     if not scan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
     await db.delete(scan)
+
+
+@router.get("/{scan_id}/history")
+async def get_scan_history(scan_id: uuid.UUID, db: DbDep) -> list[dict]:
+    """Get the execution history for a scan (timeline of all runs)."""
+    from netlanventory.models.scan_history import ScanHistory
+    result = await db.execute(
+        select(ScanHistory)
+        .where(ScanHistory.scan_id == scan_id)
+        .order_by(ScanHistory.started_at.desc())
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "id": str(h.id),
+            "target": h.target,
+            "status": h.status,
+            "started_at": h.started_at.isoformat() if h.started_at else None,
+            "finished_at": h.finished_at.isoformat() if h.finished_at else None,
+            "assets_found": h.assets_found,
+            "new_assets": h.new_assets,
+            "modules_run": h.modules_run,
+            "summary": h.summary,
+        }
+        for h in rows
+    ]
+
+
+@router.get("/history/by-target/{target:path}")
+async def get_target_history(target: str, db: DbDep) -> list[dict]:
+    """Get execution history across all scans for a given target range."""
+    from netlanventory.models.scan_history import ScanHistory
+    result = await db.execute(
+        select(ScanHistory)
+        .where(ScanHistory.target == target)
+        .order_by(ScanHistory.started_at.asc())
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "id": str(h.id),
+            "target": h.target,
+            "status": h.status,
+            "started_at": h.started_at.isoformat() if h.started_at else None,
+            "finished_at": h.finished_at.isoformat() if h.finished_at else None,
+            "assets_found": h.assets_found,
+            "new_assets": h.new_assets,
+        }
+        for h in rows
+    ]
 
 
 # ── Background scan execution ────────────────────────────────────────────────
@@ -220,5 +356,39 @@ async def _run_scan(
             scan.finished_at = datetime.now(timezone.utc)
             scan.summary = summary
             await session.commit()
+
+        # Save a snapshot in scan_history for timeline tracking
+        try:
+            from netlanventory.models.scan_history import ScanHistory
+            total_assets = sum(
+                m.get("assets_found", 0) for m in summary.get("modules", {}).values()
+            )
+            # Count how many assets were newly created in this scan (discovered_at ~ scan start)
+            from netlanventory.models.asset import Asset
+            new_count = 0
+            if scan and scan.started_at:
+                new_result = await session.execute(
+                    select(func.count()).select_from(Asset).where(
+                        Asset.created_at >= scan.started_at
+                    )
+                )
+                new_count = new_result.scalar_one() or 0
+
+            history = ScanHistory(
+                scan_id=scan_id,
+                target=target,
+                status=overall_status,
+                started_at=scan.started_at if scan else None,
+                finished_at=scan.finished_at if scan else None,
+                assets_found=total_assets,
+                new_assets=new_count,
+                modules_run=modules,
+                summary=summary,
+                error_msg=scan.error_msg if scan else None,
+            )
+            session.add(history)
+            await session.commit()
+        except Exception:
+            logger.exception("Failed to save scan history snapshot")
 
         logger.info("Scan complete", scan_id=str(scan_id), status=overall_status)

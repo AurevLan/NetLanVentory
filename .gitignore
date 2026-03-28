@@ -41,3 +41,4 @@ Thumbs.db
 # Alembic
 # Keep versions tracked, exclude __pycache__
 alembic/versions/__pycache__/
+NetLanVentory/

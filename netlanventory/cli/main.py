@@ -5,6 +5,7 @@ from __future__ import annotations
 import click
 
 from netlanventory.cli.commands.assets import assets_cmd
+from netlanventory.cli.commands.crypto import crypto_cmd
 from netlanventory.cli.commands.modules import modules_cmd
 from netlanventory.cli.commands.scan import scan_cmd
 
@@ -40,6 +41,7 @@ def cli(ctx: click.Context, api_url: str) -> None:
 cli.add_command(scan_cmd)
 cli.add_command(assets_cmd)
 cli.add_command(modules_cmd)
+cli.add_command(crypto_cmd)
 
 
 @cli.command("serve")

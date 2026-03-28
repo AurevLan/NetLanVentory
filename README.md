@@ -1,8 +1,22 @@
 # NetLanVentory
 
 [![Latest release](https://img.shields.io/github/v/release/AurevLan/NetLanVentory)](https://github.com/AurevLan/NetLanVentory/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/AurevLan/NetLanVentory/ci.yml?branch=main&label=CI)](https://github.com/AurevLan/NetLanVentory/actions)
+[![Tests](https://img.shields.io/badge/tests-288%20(278%20passed)-brightgreen)](tests/)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://python.org)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
+[![Security](https://img.shields.io/badge/security-ANSSI%20%7C%20OWASP-critical)](SECURITY.md)
 
-Modular network scanning and inventory tool. Discover hosts, scan ports, fingerprint services and operating systems, manage DNS associations, run ZAP web vulnerability scans, run Nuclei multi-protocol scans, audit Linux package CVEs via SSH, and browse everything through a REST API or a dark-theme web dashboard.
+> **Open-source network inventory, vulnerability scanning, and compliance platform.**
+> Discover hosts, scan ports, fingerprint services, audit CVEs via SSH/ZAP/Nuclei/Trivy, and manage your entire fleet through a tactical dark-theme dashboard.
+
+**Why NetLanVentory?**
+- **All-in-one** — ARP discovery, port scanning, DAST (ZAP), SAST (Nuclei), SSH CVE audit, Docker image scanning (Trivy), SSL/TLS analysis (testssl.sh), SSH config audit (ssh-audit), default credential testing, and HTTP header auditing in a single platform
+- **Zero config scanning** — auto-detects open ports and services, builds scan targets automatically
+- **Compliance ready** — ISO 27001, NIS2, and ANSSI framework evaluation built-in
+- **Security-first** — ANSSI-compliant password policy, CSP nonce, HSTS, non-root Docker, encrypted credential storage
+- **Fully dockerized** — single `docker compose up` deploys everything (PostgreSQL, ZAP, Nuclei, Trivy, testssl.sh)
 
 ## Screenshots
 
@@ -75,18 +89,34 @@ Modular network scanning and inventory tool. Discover hosts, scan ports, fingerp
 - **On-demand enrichment** — "Enrichir" button triggers a global background enrichment pass via OSV.dev and NVD for any CVE still missing CVSS score or description
 - **CVE detail view** — `GET /api/v1/cves/{id}` returns CVSS score, severity, description, published date, and the full list of affected assets
 
+### Vision 360° RSSI
+- **Executive dashboard** — risk score gauge, MTTR, velocity (CVEs/week), burndown chart, 30-day trends, severity × criticality heatmap, remediation funnel, coverage bars, SLA metrics, forecast to zero
+- **Remediation workflow** — track CVE lifecycle (open → planned → in_progress → resolved | blocked), assign to team members, set due dates, Kanban board view
+- **KPI snapshots** — daily automated snapshots of all metrics for long-term trend analysis
+- **Persistent SLA** — configurable per severity (critical 3d, high 7d, medium 30d, low 90d), stored in database
+- **Compliance** — ISO 27001, NIS2, ANSSI framework evaluation with control scoring
+
+### Scan planification & automation
+- **Planifier un rescan** — any completed scan can be set to auto-repeat at a configurable interval (hourly, 6h, 12h, daily, weekly, monthly) directly from the Scans tab
+- **Re-run in place** — re-running a scan updates the same row instead of creating duplicates
+- **Inline controls** — dropdown interval selector + "Planifier" button, green badge when active with countdown to next run
+- **Scheduler** — checks every 60 seconds; auto-triggers ZAP, SSH, Trivy, and network rescans when intervals elapse
+
 ### Security & authentication
 - **JWT authentication** — all API endpoints require a valid Bearer token (except `/api/v1/auth/login`); `sub`, `exp`, and `iss` claims required; issuer verified as `netlanventory`
+- **ANSSI R22 password policy** — 12+ characters, uppercase, lowercase, digit, special character; bcrypt 14 rounds
 - **Role-based access** — `admin` role required for user management and global settings
 - **OIDC / SSO** — optional OpenID Connect provider configured via the admin panel
 - **User management** — create, activate/deactivate and delete users from the dashboard
-- **HTTP security headers** — every response includes `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, and `Content-Security-Policy`
-- **Rate limiting** — 10 req/min on login, 20 req/min on ZAP trigger, 10 req/min on Nuclei trigger, 5 req/min on SSH trigger, 200 req/min global default; returns HTTP 429 on breach
-- **Input validation** — IP addresses, MAC addresses, SSH port range (1–65535), FQDNs (RFC-1123), and ZAP target URLs (http/https only) are validated at the API boundary
+- **HTTP security headers** — HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, Content-Security-Policy, Cross-Origin-Opener-Policy
+- **Rate limiting** — 10 req/min on login, 20 req/min on ZAP trigger, 10 req/min on Nuclei trigger, 5 req/min on SSH trigger, 200 req/min global default
+- **Input validation** — IP addresses, host/port regex, Docker image names, FQDNs validated at the API boundary
+- **Docker hardened** — non-root user, cap_drop ALL, mandatory secrets, no-new-privileges
 
 ### Infrastructure
 - **REST API** — FastAPI with OpenAPI docs at `/docs`
-- **Web dashboard** — dark-theme SPA at `http://localhost:8000`
+- **Web dashboard** — SOC Nightwatch dark-theme SPA at `http://localhost:8443`
+- **Hash routing** — browser back/forward buttons work, URLs are shareable (`/#/assets`, `/#/topology`)
 - **CLI** — `netlv` command with Rich-formatted tables and live progress
 
 ---
@@ -107,11 +137,11 @@ docker compose up --build
 
 | Service | URL |
 |---------|-----|
-| Dashboard | http://localhost:8000 |
-| API docs (Swagger) | http://localhost:8000/docs |
-| ReDoc | http://localhost:8000/redoc |
+| Dashboard | http://localhost:8443 |
+| API docs (Swagger) | http://localhost:8443/docs |
+| ReDoc | http://localhost:8443/redoc |
 
-> **Note:** The app container uses `network_mode: host` so scapy can send raw ARP frames. It requires `NET_ADMIN` and `NET_RAW` capabilities (set automatically by Docker Compose).
+> **Security note:** The app container runs as a non-root user (`netlv`) with `cap_drop: ALL` + only `NET_RAW` and `NET_ADMIN` capabilities (required for ARP scans). All secrets must be set in `.env` — the app refuses to start with default values in production mode.
 
 ## Default admin account
 
@@ -353,27 +383,68 @@ NetLanVentory/
 ## Running tests
 
 ```bash
-pip install -e ".[dev]"
-pytest tests/ -v
+# Via Docker (recommended — no local Python needed)
+docker compose --profile test up --build tests
+
+# Or run the full recette script
+./scripts/recette.sh
+
+# Quick smoke tests only
+./scripts/recette.sh --quick
+
+# Security regression tests only
+./scripts/recette.sh --security
+
+# With Makefile
+make recette          # lint + types + tests + coverage
+make test-security    # security tests only
+make test-coverage    # with HTML coverage report
 ```
 
-Tests use SQLite in-memory — no PostgreSQL required.
+Tests use SQLite in-memory — no PostgreSQL required. **288 tests** across 20 test files covering:
+- Security regression (CSP, HSTS, CORS, auth enforcement, input validation, JWT, crypto)
+- RSSI 360° vision (executive KPIs, remediation workflow, SLA, compliance, timeline)
+- All 180+ API endpoints (CRUD, scans, admin, compliance)
+- Unit tests (auth, passwords, scoring, compliance, circuit breaker)
+- Integration tests (assets, CVE enrichment, caching)
 
 ## Tech stack
 
 | Layer | Technology |
 |-------|-----------|
-| Language | Python 3.11 |
-| API framework | FastAPI + Uvicorn |
-| Database | PostgreSQL 16 (asyncpg / SQLAlchemy 2.0) |
+| Language | Python 3.11+ |
+| API framework | FastAPI 0.135+ / Uvicorn 0.42+ |
+| Database | PostgreSQL 16 (asyncpg / SQLAlchemy 2.0.48+) |
 | Migrations | Alembic |
-| Scanning | scapy, python-nmap |
-| Web vulnerability scanning | OWASP ZAP |
-| Multi-protocol vulnerability scanning | ProjectDiscovery Nuclei |
+| Network scanning | scapy (ARP), python-nmap (ports/services/OS) |
+| Web vulnerability scanning | OWASP ZAP (DAST) |
+| Multi-protocol scanning | ProjectDiscovery Nuclei |
+| Docker image scanning | Aquasec Trivy |
+| SSL/TLS analysis | testssl.sh |
+| SSH configuration audit | ssh-audit |
 | Rate limiting | slowapi |
+| Authentication | JWT (PyJWT) + bcrypt (14 rounds) |
+| Encryption | Fernet (AES-128-CBC + HMAC-SHA256) |
 | CLI | Click + Rich |
 | Logging | structlog |
-| Container | Docker Compose |
+| Linting | Ruff (with bandit security rules) |
+| Type checking | MyPy (strict mode) |
+| Testing | pytest-asyncio (288 tests) |
+| Container | Docker Compose (multi-stage build) |
+
+## Contributing
+
+Contributions are welcome! Here are some areas where help is appreciated:
+
+- **Frontend modernization** — migrate from vanilla JS to a component framework (Vue/Svelte) with TypeScript
+- **E2E testing** — Playwright/Cypress tests for the dashboard
+- **Scan plugins** — new scanner modules (Nessus integration, cloud security scanning)
+- **Alerting** — Slack/Teams/email notifications on critical CVE discovery
+- **RBAC granularity** — per-asset or per-subnet access control
+- **API rate limiting** — per-user quotas instead of global IP-based limits
+- **Internationalization** — French/English toggle for the dashboard
+
+Please see [SECURITY.md](SECURITY.md) for responsible disclosure of vulnerabilities.
 
 ## Changelog
 

@@ -1,17 +1,17 @@
-"""Background ZAP auto-scan scheduler.
+"""Background auto-scan scheduler.
 
 Runs as an asyncio task in the app lifespan. Every 60 seconds it checks
-all assets where ZAP auto-scan is enabled and triggers scans when the
-configured interval has elapsed since the last scan.
+all assets where ZAP, SSH, or Trivy auto-scan is enabled and triggers
+scans when the configured interval has elapsed since the last scan.
 """
 
 from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
 from netlanventory.core.logging import get_logger
@@ -26,9 +26,13 @@ _WEB_PORTS_ALL = _WEB_PORTS_HTTP | _WEB_PORTS_HTTPS
 _CHECK_INTERVAL_SECONDS = 60  # how often the scheduler wakes up to check
 
 
+_THREAT_FEED_INTERVAL_SECONDS = 6 * 3600  # 6 hours
+_last_threat_feed_refresh: datetime | None = None
+
+
 async def scheduler_loop() -> None:
-    """Infinite loop: wake every 60 s and trigger due ZAP scans."""
-    logger.info("ZAP auto-scan scheduler started")
+    """Infinite loop: wake every 60 s and trigger due ZAP, SSH, Trivy scans and other checks."""
+    logger.info("Auto-scan scheduler started (ZAP + SSH + Trivy + scheduled rescans + threat feeds + new assets)")
     while True:
         await asyncio.sleep(_CHECK_INTERVAL_SECONDS)
         try:
@@ -37,6 +41,48 @@ async def scheduler_loop() -> None:
             raise
         except Exception:
             logger.exception("ZAP scheduler error — will retry next cycle")
+        try:
+            await _check_and_trigger_ssh_auto_scans()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("SSH scheduler error — will retry next cycle")
+        try:
+            await _check_and_trigger_trivy_auto_scans()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Trivy scheduler error — will retry next cycle")
+        try:
+            await _check_new_assets()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("New-assets check error — will retry next cycle")
+        try:
+            await _maybe_refresh_threat_feeds()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Threat feeds refresh error — will retry next cycle")
+        try:
+            await _check_scheduled_reports()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Scheduled reports check error — will retry next cycle")
+        try:
+            await _check_scheduled_scans()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Scheduled scans check error — will retry next cycle")
+        try:
+            await _take_daily_kpi_snapshot()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("KPI snapshot error — will retry next cycle")
 
 
 async def _check_and_trigger_auto_scans() -> None:
@@ -163,3 +209,441 @@ async def _check_and_trigger_auto_scans() -> None:
                 )
 
         await session.commit()
+
+
+async def _check_and_trigger_ssh_auto_scans() -> None:
+    """Check all assets and trigger SSH CVE scans where due."""
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.models.asset import Asset
+    from netlanventory.models.ssh_scan_report import SshScanReport
+    from netlanventory.api.routers.ssh_scan import _run_ssh_scan
+
+    factory = get_session_factory()
+
+    async with factory() as session:
+        assets_result = await session.execute(
+            select(Asset)
+            .where(Asset.is_active.is_(True))
+            .where(Asset.ssh_auto_scan_enabled.is_(True))
+            .options(selectinload(Asset.ssh_profile))
+        )
+        assets = assets_result.scalars().all()
+
+        now = datetime.now(timezone.utc)
+
+        for asset in assets:
+            # Must have SSH credentials to scan
+            if not asset.has_ssh_credentials:
+                continue
+
+            if not asset.ip:
+                continue
+
+            interval_minutes = asset.ssh_scan_interval_minutes or 60
+
+            last = asset.ssh_last_auto_scan_at
+            if last is not None:
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                elapsed_minutes = (now - last).total_seconds() / 60
+                if elapsed_minutes < interval_minutes:
+                    continue
+
+            # Mark before launching to avoid double-trigger
+            asset.ssh_last_auto_scan_at = now
+            await session.flush()
+
+            report = SshScanReport(asset_id=asset.id, status="pending")
+            session.add(report)
+            await session.flush()
+            await session.refresh(report)
+
+            logger.info(
+                "SSH auto-scan triggered",
+                asset_id=str(asset.id),
+                ip=asset.ip,
+            )
+
+            asyncio.create_task(
+                _run_ssh_scan(report_id=report.id, asset_id=asset.id),
+                name=f"ssh-auto-{asset.id}-{report.id}",
+            )
+
+        await session.commit()
+
+
+async def _check_and_trigger_trivy_auto_scans() -> None:
+    """Check all assets and trigger Trivy Docker scans where due."""
+    import shutil
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.models.asset import Asset
+    from netlanventory.models.trivy_docker_report import TrivyDockerReport
+    from netlanventory.api.routers.trivy_docker_scan import _run_trivy_docker_scan, TRIVY_BINARY
+
+    if not shutil.which(TRIVY_BINARY):
+        return  # Trivy not installed, skip silently
+
+    factory = get_session_factory()
+
+    async with factory() as session:
+        assets_result = await session.execute(
+            select(Asset)
+            .where(Asset.is_active.is_(True))
+            .where(Asset.trivy_auto_scan_enabled.is_(True))
+            .options(selectinload(Asset.ssh_profile))
+        )
+        assets = assets_result.scalars().all()
+
+        now = datetime.now(timezone.utc)
+
+        for asset in assets:
+            if not asset.has_ssh_credentials:
+                continue
+
+            if not asset.ip:
+                continue
+
+            interval_minutes = asset.trivy_scan_interval_minutes or 60
+
+            last = asset.trivy_last_auto_scan_at
+            if last is not None:
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                elapsed_minutes = (now - last).total_seconds() / 60
+                if elapsed_minutes < interval_minutes:
+                    continue
+
+            # Mark before launching to avoid double-trigger
+            asset.trivy_last_auto_scan_at = now
+            await session.flush()
+
+            report = TrivyDockerReport(asset_id=asset.id, status="pending")
+            session.add(report)
+            await session.flush()
+            await session.refresh(report)
+
+            logger.info(
+                "Trivy auto-scan triggered",
+                asset_id=str(asset.id),
+                ip=asset.ip,
+            )
+
+            asyncio.create_task(
+                _run_trivy_docker_scan(report_id=report.id, asset_id=asset.id),
+                name=f"trivy-auto-{asset.id}-{report.id}",
+            )
+
+        await session.commit()
+
+
+async def _check_new_assets() -> None:
+    """Notify about high/critical assets discovered in the last 5 minutes."""
+    from datetime import timedelta
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.core.notifications import notify_new_critical_asset
+    from netlanventory.models.asset import Asset
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+    factory = get_session_factory()
+
+    async with factory() as session:
+        result = await session.execute(
+            select(Asset).where(
+                Asset.created_at >= cutoff,
+                Asset.criticality.in_(["high", "critical"]),
+                Asset.is_active.is_(True),
+            )
+        )
+        new_critical = result.scalars().all()
+        for asset in new_critical:
+            await notify_new_critical_asset(asset)
+
+
+async def _maybe_refresh_threat_feeds() -> None:
+    """Refresh threat intelligence feeds every 6 hours."""
+    global _last_threat_feed_refresh
+
+    now = datetime.now(timezone.utc)
+    if _last_threat_feed_refresh is not None:
+        elapsed = (now - _last_threat_feed_refresh).total_seconds()
+        if elapsed < _THREAT_FEED_INTERVAL_SECONDS:
+            return
+
+    from netlanventory.core.config import get_settings
+    from netlanventory.core.threat_feeds import refresh_abusech_feed, refresh_otx_feed
+
+    _last_threat_feed_refresh = now
+    settings = get_settings()
+
+    if settings.otx_api_key:
+        try:
+            count = await refresh_otx_feed(settings.otx_api_key)
+            logger.info("OTX feed refreshed", count=count)
+        except Exception:  # noqa: BLE001
+            logger.exception("OTX feed refresh failed")
+
+    try:
+        count = await refresh_abusech_feed()
+        logger.info("Abuse.ch feed refreshed", count=count)
+    except Exception:  # noqa: BLE001
+        logger.exception("Abuse.ch feed refresh failed")
+
+
+async def _check_scheduled_reports() -> None:
+    """Send overdue scheduled reports."""
+    from datetime import timedelta
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.core.email_sender import send_report_email
+    from netlanventory.models.scheduled_report import ScheduledReport
+
+    now = datetime.now(timezone.utc)
+    factory = get_session_factory()
+
+    async with factory() as session:
+        result = await session.execute(
+            select(ScheduledReport).where(
+                ScheduledReport.enabled.is_(True),
+                ScheduledReport.next_run_at <= now,
+            )
+        )
+        due_reports = result.scalars().all()
+
+        interval_map = {
+            "daily": timedelta(days=1),
+            "weekly": timedelta(weeks=1),
+            "monthly": timedelta(days=30),
+        }
+
+        for report in due_reports:
+            try:
+                subject = f"[NetLanVentory] {report.name} — {report.report_type} report"
+                html_body = f"<h1>NetLanVentory Report: {report.name}</h1><p>Type: {report.report_type}</p>"
+
+                await send_report_email(
+                    recipients=report.recipients,
+                    subject=subject,
+                    html_body=html_body,
+                    pdf_attachment=None,
+                )
+
+                report.last_sent_at = now
+                report.next_run_at = now + interval_map.get(report.schedule, timedelta(days=1))
+                logger.info("Scheduled report sent", name=report.name, recipients=report.recipients)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to send scheduled report", name=report.name)
+
+        await session.commit()
+
+
+async def _check_scheduled_scans() -> None:
+    """Trigger recurring scans when their interval has elapsed.
+
+    Re-runs the SAME scan in place (resets status, clears old results)
+    instead of creating a new scan row. The scan list stays clean.
+    """
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.models.scan import Scan
+    from netlanventory.models.scan_result import ScanResult
+    from netlanventory.api.routers.scans import _run_scan
+
+    factory = get_session_factory()
+    now = datetime.now(timezone.utc)
+
+    async with factory() as session:
+        result = await session.execute(
+            select(Scan).where(
+                Scan.recurring.is_(True),
+                Scan.recurring_interval_hours.isnot(None),
+                # Don't re-trigger a scan that's already running
+                Scan.status.notin_(["pending", "running"]),
+            )
+        )
+        recurring_scans = result.scalars().all()
+
+        for scan in recurring_scans:
+            interval = scan.recurring_interval_hours or 24
+
+            last = scan.recurring_last_triggered_at or scan.finished_at or scan.created_at
+            if last is not None:
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                elapsed_hours = (now - last).total_seconds() / 3600
+                if elapsed_hours < interval:
+                    continue
+
+            modules = scan.modules_run or []
+            if not modules:
+                continue
+
+            # Clear previous results
+            old_results = await session.execute(
+                select(ScanResult).where(ScanResult.scan_id == scan.id)
+            )
+            for r in old_results.scalars().all():
+                await session.delete(r)
+
+            # Reset scan state in place
+            scan.status = "pending"
+            scan.started_at = None
+            scan.finished_at = None
+            scan.summary = None
+            scan.error_msg = None
+            scan.partial_results = {}
+            scan.recurring_last_triggered_at = now
+            scan.recurring_run_count = (scan.recurring_run_count or 0) + 1
+            await session.flush()
+
+            logger.info(
+                "Recurring scan triggered (in-place)",
+                scan_id=str(scan.id),
+                target=scan.target,
+                modules=modules,
+                run_count=scan.recurring_run_count,
+            )
+
+            asyncio.create_task(
+                _run_scan(scan.id, scan.target, modules, {}),
+                name=f"recurring-{scan.id}",
+            )
+
+        await session.commit()
+
+
+async def _take_daily_kpi_snapshot() -> None:
+    """Create a daily KPI snapshot if one does not already exist for today."""
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.models.asset import Asset
+    from netlanventory.models.asset_cve import AssetCve
+    from netlanventory.models.cve import Cve
+    from netlanventory.models.kpi_snapshot import KpiSnapshot
+
+    factory = get_session_factory()
+    today = date.today()
+    now = datetime.now(timezone.utc)
+
+    async with factory() as session:
+        # Check if snapshot already exists for today
+        existing = (
+            await session.execute(
+                select(KpiSnapshot).where(KpiSnapshot.date == today)
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return
+
+        # ── Asset metrics ────────────────────────────────────────────
+        total_assets = (
+            await session.execute(select(func.count()).select_from(Asset))
+        ).scalar_one()
+
+        active_assets = (
+            await session.execute(
+                select(func.count()).select_from(Asset).where(Asset.is_active.is_(True))
+            )
+        ).scalar_one()
+
+        # ── CVE metrics ──────────────────────────────────────────────
+        total_cves = (
+            await session.execute(select(func.count()).select_from(AssetCve))
+        ).scalar_one()
+
+        # Critical and High CVE counts (by Cve severity)
+        sev_rows = (
+            await session.execute(
+                select(Cve.severity, func.count(AssetCve.id).label("cnt"))
+                .join(AssetCve, AssetCve.cve_id == Cve.id)
+                .group_by(Cve.severity)
+            )
+        ).all()
+        sev_map = {r.severity or "Unknown": r.cnt for r in sev_rows}
+        critical_cves = sev_map.get("Critical", 0)
+        high_cves = sev_map.get("High", 0)
+
+        open_cves = (
+            await session.execute(
+                select(func.count())
+                .select_from(AssetCve)
+                .where(AssetCve.remediation_status != "resolved")
+            )
+        ).scalar_one()
+
+        resolved_cves = (
+            await session.execute(
+                select(func.count())
+                .select_from(AssetCve)
+                .where(AssetCve.remediation_status == "resolved")
+            )
+        ).scalar_one()
+
+        # ── MTTR (last 90 days) ──────────────────────────────────────
+        cutoff_90d = now - timedelta(days=90)
+        mttr_result = (
+            await session.execute(
+                select(
+                    func.avg(
+                        func.extract("epoch", AssetCve.remediation_resolved_at)
+                        - func.extract("epoch", AssetCve.discovered_at)
+                    )
+                    / 3600.0
+                )
+                .where(
+                    AssetCve.remediation_status == "resolved",
+                    AssetCve.remediation_resolved_at.isnot(None),
+                    AssetCve.remediation_resolved_at >= cutoff_90d,
+                )
+            )
+        ).scalar_one_or_none()
+        mttr_hours: float | None = round(mttr_result, 2) if mttr_result is not None else None
+
+        # ── SLA breach count ─────────────────────────────────────────
+        sla_breach_count = (
+            await session.execute(
+                select(func.count())
+                .select_from(AssetCve)
+                .where(AssetCve.sla_breached.is_(True))
+            )
+        ).scalar_one()
+
+        # ── Risk score average ───────────────────────────────────────
+        risk_score_avg_result = (
+            await session.execute(
+                select(func.avg(Asset.risk_score)).where(Asset.risk_score.isnot(None))
+            )
+        ).scalar_one_or_none()
+        risk_score_avg: float | None = (
+            round(risk_score_avg_result, 2) if risk_score_avg_result is not None else None
+        )
+
+        # ── Scan coverage ────────────────────────────────────────────
+        cutoff_scan = now - timedelta(days=7)
+        assets_recently_scanned = (
+            await session.execute(
+                select(func.count())
+                .select_from(Asset)
+                .where(
+                    Asset.is_active.is_(True),
+                    Asset.last_seen >= cutoff_scan,
+                )
+            )
+        ).scalar_one()
+        denom = max(active_assets, 1)
+        scan_coverage_pct = round(assets_recently_scanned / denom * 100, 1)
+
+        # ── Insert snapshot ──────────────────────────────────────────
+        snapshot = KpiSnapshot(
+            date=today,
+            total_assets=total_assets,
+            active_assets=active_assets,
+            total_cves=total_cves,
+            critical_cves=critical_cves,
+            high_cves=high_cves,
+            open_cves=open_cves,
+            resolved_cves=resolved_cves,
+            mttr_hours=mttr_hours,
+            sla_breach_count=sla_breach_count,
+            risk_score_avg=risk_score_avg,
+            scan_coverage_pct=scan_coverage_pct,
+        )
+        session.add(snapshot)
+        await session.commit()
+        logger.info("Daily KPI snapshot recorded", date=str(today))

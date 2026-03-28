@@ -1,5 +1,16 @@
-# ── Stage 0: Nuclei binary ────────────────────────────────────────────────────
+# ── Stage 0a: Nuclei binary ───────────────────────────────────────────────────
 FROM projectdiscovery/nuclei:latest AS nuclei-bin
+
+# ── Stage 0b: Trivy binary ────────────────────────────────────────────────────
+FROM ghcr.io/aquasecurity/trivy:latest AS trivy-bin
+
+# ── Stage 0c: testssl.sh ──────────────────────────────────────────────────────
+FROM debian:bookworm-slim AS testssl-bin
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -sSL https://github.com/drwetter/testssl.sh/raw/3.2/testssl.sh \
+    -o /usr/local/bin/testssl.sh && chmod +x /usr/local/bin/testssl.sh
 
 # ── Stage 1: Builder ──────────────────────────────────────────────────────────
 FROM python:3.14-slim AS builder
@@ -44,44 +55,68 @@ FROM python:3.14-slim
 
 LABEL org.opencontainers.image.title="NetLanVentory"
 LABEL org.opencontainers.image.description="Modular network scanning and inventory tool"
-LABEL org.opencontainers.image.version="0.1.0"
+LABEL org.opencontainers.image.version="0.12.0"
 
 # Install runtime system dependencies
-# nmap: port/OS scanning   libpcap-dev: ARP capture (scapy)   iputils-ping: ping fallback
+# nmap: port/OS scanning   iputils-ping: ping discovery
+# openssl: required by testssl.sh   dnsutils: dig used by testssl.sh
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nmap \
-    libpcap-dev \
     libpq5 \
     postgresql-client \
     iputils-ping \
     net-tools \
+    openssl \
+    dnsutils \
+    bsdextrautils \
     && rm -rf /var/lib/apt/lists/*
+
+# Install ssh-audit (Python package, no system dep needed)
+RUN pip install --no-cache-dir ssh-audit
 
 # Copy Nuclei binary from dedicated stage
 COPY --from=nuclei-bin /usr/local/bin/nuclei /usr/local/bin/nuclei
 
+# Copy Trivy binary from dedicated stage
+COPY --from=trivy-bin /usr/local/bin/trivy /usr/local/bin/trivy
+
+# Copy testssl.sh from dedicated stage
+COPY --from=testssl-bin /usr/local/bin/testssl.sh /usr/local/bin/testssl.sh
+
 # Copy installed Python packages from builder
 COPY --from=builder /install /usr/local
+
+# ── Security: non-root user with NET_RAW capability ──────────────────────────
+# Create a dedicated service account. The container runs as non-root by default.
+# Raw socket access (ARP scans) is granted via NET_RAW capability in docker-compose.yml.
+RUN groupadd --system netlv && \
+    useradd --system --gid netlv --create-home --shell /usr/sbin/nologin netlv && \
+    # nmap needs setuid for raw socket operations when run as non-root
+    chmod u+s /usr/bin/nmap
 
 WORKDIR /app
 
 # Copy application source
-COPY netlanventory/ ./netlanventory/
-COPY alembic/ ./alembic/
-COPY alembic.ini .
+COPY --chown=netlv:netlv netlanventory/ ./netlanventory/
+COPY --chown=netlv:netlv alembic/ ./alembic/
+COPY --chown=netlv:netlv alembic.ini .
 
-# Network scanning requires raw socket access — run as root
-# (NET_ADMIN + NET_RAW capabilities are set in docker-compose.yml)
+# Create temp directories with correct ownership
+RUN mkdir -p /tmp/netlv && chown netlv:netlv /tmp/netlv
+
+# Switch to non-root user
+USER netlv
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    TMPDIR=/tmp/netlv
 
-EXPOSE 8000
+EXPOSE 8443
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8443/health')" || exit 1
 
 CMD ["python", "-m", "uvicorn", "netlanventory.api.app:app", \
-     "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+     "--host", "0.0.0.0", "--port", "8443", "--workers", "1"]

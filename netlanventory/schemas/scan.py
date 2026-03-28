@@ -47,6 +47,11 @@ class ScanOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     results: list[ScanResultOut] = []
+    # Recurring rescan
+    recurring: bool = False
+    recurring_interval_hours: int | None = None
+    recurring_last_triggered_at: datetime | None = None
+    recurring_run_count: int = 0
 
 
 class ScanList(BaseModel):

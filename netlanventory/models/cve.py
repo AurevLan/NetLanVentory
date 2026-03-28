@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Float, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from netlanventory.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -25,6 +26,36 @@ class Cve(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     cvss_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Free-text remediation / action plan (admin-editable)
+    remediation: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # EPSS (Exploit Prediction Scoring System) — enriched via FIRST.org bulk CSV
+    epss_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    epss_percentile: Mapped[float | None] = mapped_column(Float, nullable=True)
+    epss_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # CISA KEV (Known Exploited Vulnerabilities)
+    kev_date_added: Mapped[date | None] = mapped_column(Date, nullable=True)
+    kev_ransomware_use: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+    # ExploitDB
+    exploit_db_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # PoC on GitHub (nomi-sec/PoC-in-GitHub)
+    poc_available: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    poc_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    # Composite maturity: none | poc | exploit | weaponized
+    exploit_maturity: Mapped[str] = mapped_column(String(20), default="none", server_default="none")
+
+    # Last threat-intel sync timestamp
+    threat_intel_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # MITRE ATT&CK techniques associated with this CVE
+    # [{technique_id, technique_name, tactics: [str]}]
+    mitre_techniques: Mapped[list | None] = mapped_column(JSONB, nullable=True, server_default="[]")
+    mitre_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     asset_cves: Mapped[list["AssetCve"]] = relationship(  # noqa: F821

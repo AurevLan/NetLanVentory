@@ -22,6 +22,7 @@ class UserUpdate(BaseModel):
     # Only admins may change roles; password changes use a dedicated field
     role: str | None = Field(default=None, pattern="^(admin|user)$")
     password: str | None = Field(default=None, min_length=8)
+    scan_quota_per_day: int | None = Field(default=None, ge=0)
 
 
 class UserOut(BaseModel):
@@ -36,6 +37,7 @@ class UserOut(BaseModel):
     auth_provider: str
     created_at: datetime
     updated_at: datetime
+    scan_quota_per_day: int | None = None
 
 
 class UserList(BaseModel):

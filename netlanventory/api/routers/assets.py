@@ -10,11 +10,15 @@ from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from netlanventory.api.dependencies import get_db
+from netlanventory.api.dependencies import actor_from_user, get_current_active_user, get_db
+from netlanventory.core.audit import log_action
 from netlanventory.core.crypto import encrypt
 from netlanventory.models.asset import Asset
 from netlanventory.models.asset_cve import AssetCve
 from netlanventory.models.asset_dns import AssetDns
+from netlanventory.models.asset_tag import AssetTag
+from pydantic import BaseModel
+
 from netlanventory.schemas.asset import (
     AssetCreate,
     AssetList,
@@ -26,12 +30,15 @@ from netlanventory.schemas.asset import (
 router = APIRouter(prefix="/assets", tags=["assets"])
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
+CurrentUserDep = Annotated[object, Depends(get_current_active_user)]
 
 _ASSET_OPTIONS = [
     selectinload(Asset.ports),
     selectinload(Asset.zap_reports),
     selectinload(Asset.cves).selectinload(AssetCve.cve),
     selectinload(Asset.dns_entries),
+    selectinload(Asset.ssh_profile),
+    selectinload(Asset.tags),
 ]
 
 
@@ -129,7 +136,12 @@ async def create_asset(payload: AssetCreate, db: DbDep) -> Asset:
 
 
 @router.patch("/{asset_id}", response_model=AssetOut)
-async def update_asset(asset_id: uuid.UUID, payload: AssetUpdate, db: DbDep) -> Asset:
+async def update_asset(
+    asset_id: uuid.UUID,
+    payload: AssetUpdate,
+    db: DbDep,
+    current_user: CurrentUserDep,
+) -> Asset:
     result = await db.execute(select(Asset).where(Asset.id == asset_id))
     asset = result.scalar_one_or_none()
     if not asset:
@@ -146,6 +158,17 @@ async def update_asset(asset_id: uuid.UUID, payload: AssetUpdate, db: DbDep) -> 
         setattr(asset, field, value)
 
     await db.flush()
+
+    actor = actor_from_user(current_user)
+    await log_action(
+        db,
+        user=actor,
+        action="asset.update",
+        resource_type="asset",
+        resource_id=str(asset_id),
+        detail={"fields": list(payload.model_dump(exclude_unset=True).keys())},
+    )
+
     result = await db.execute(
         select(Asset).where(Asset.id == asset_id).options(*_ASSET_OPTIONS)
     )
@@ -159,3 +182,54 @@ async def delete_asset(asset_id: uuid.UUID, db: DbDep) -> None:
     if not asset:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
     await db.delete(asset)
+
+
+# ── Bulk operations ───────────────────────────────────────────────────────────
+
+class BulkUpdateRequest(BaseModel):
+    ids: list[uuid.UUID]
+    os_family: str | None = None
+    device_type: str | None = None
+
+
+class BulkUpdateResult(BaseModel):
+    updated: int
+
+
+@router.post("/bulk-update", response_model=BulkUpdateResult)
+async def bulk_update_assets(
+    payload: BulkUpdateRequest,
+    db: DbDep,
+    current_user: CurrentUserDep,
+) -> BulkUpdateResult:
+    """Update os_family and/or device_type for multiple assets at once."""
+    if not payload.ids:
+        return BulkUpdateResult(updated=0)
+    if payload.os_family is None and payload.device_type is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="At least one field (os_family, device_type) must be provided.",
+        )
+
+    result = await db.execute(
+        select(Asset).where(Asset.id.in_(payload.ids))
+    )
+    assets = result.scalars().all()
+
+    for asset in assets:
+        if payload.os_family is not None:
+            asset.os_family = payload.os_family or None
+        if payload.device_type is not None:
+            asset.device_type = payload.device_type or None
+
+    await db.flush()
+    actor = actor_from_user(current_user)
+    await log_action(
+        db,
+        user=actor,
+        action="asset.bulk_update",
+        resource_type="asset",
+        resource_id=",".join(str(i) for i in payload.ids[:10]),
+        detail={"count": len(assets), "os_family": payload.os_family, "device_type": payload.device_type},
+    )
+    return BulkUpdateResult(updated=len(assets))
