@@ -48,6 +48,10 @@ def compute_risk_score(
     default_creds_vulnerable_count: int = 0,
     ssh_audit_critical_count: int = 0,
     exploit_verified_count: int = 0,
+    privesc_risk_count: int = 0,
+    firewall_active: bool | None = None,
+    rootkit_infected_count: int = 0,
+    brute_force_sources: int = 0,
 ) -> float:
     """Return a unified risk score in [0, 100].
 
@@ -68,6 +72,14 @@ def compute_risk_score(
         Number of critical CVEs detected by ssh-audit (e.g. Terrapin).
     exploit_verified_count:
         Number of CVEs confirmed exploitable via Nuclei exploit validation.
+    privesc_risk_count:
+        Number of privilege escalation risk findings (NOPASSWD sudo, GTFOBins SUID, etc.).
+    firewall_active:
+        Whether a host firewall is active. None = not scanned. False = no firewall.
+    rootkit_infected_count:
+        Number of rootkit infections detected.
+    brute_force_sources:
+        Number of unique IPs performing brute-force attacks on the asset.
     """
     criticality_factor = _CRITICALITY_FACTORS.get(asset_criticality.lower(), 1.0)
     exposure_factor = 1.0 + 0.1 * open_port_count
@@ -101,6 +113,22 @@ def compute_risk_score(
     # TLS grade penalty (misconfigured TLS = MITM, downgrade, BEAST, Heartbleed)
     grade_upper = (testssl_grade or "").strip().upper()
     penalties += _TESTSSL_GRADE_PENALTY.get(grade_upper, 0.0)
+
+    # Privilege escalation paths — NOPASSWD sudo, GTFOBins SUID, dangerous caps
+    if privesc_risk_count > 0:
+        penalties += 10.0 + min(privesc_risk_count - 1, 4) * 3.0
+
+    # No firewall — all services directly exposed
+    if firewall_active is False:
+        penalties += 15.0
+
+    # Rootkit detected — asset likely compromised
+    if rootkit_infected_count > 0:
+        penalties += 30.0 + min(rootkit_infected_count - 1, 2) * 5.0
+
+    # Active brute-force — asset under attack
+    if brute_force_sources > 0:
+        penalties += 5.0 + min(brute_force_sources - 1, 4) * 2.0
 
     # Penalties are also weighted by criticality (a critical asset with open Redis is worse)
     # but cap the factor at 1.5 to avoid double-counting with CVE criticality
@@ -205,6 +233,58 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
     if dc_report:
         dc_vulnerable = dc_report.vulnerable_count
 
+    # Latest privesc risk count
+    privesc_risks = 0
+    from netlanventory.models.privesc_report import PrivescReport
+    pe_result = await session.execute(
+        select(PrivescReport)
+        .where(PrivescReport.asset_id == asset_id, PrivescReport.status == "completed")
+        .order_by(PrivescReport.created_at.desc())
+        .limit(1)
+    )
+    pe_report = pe_result.scalar_one_or_none()
+    if pe_report:
+        privesc_risks = pe_report.risk_findings_count
+
+    # Latest firewall status
+    firewall_active: bool | None = None
+    from netlanventory.models.firewall_report import FirewallReport as FwReport
+    fw_result = await session.execute(
+        select(FwReport)
+        .where(FwReport.asset_id == asset_id, FwReport.status == "completed")
+        .order_by(FwReport.created_at.desc())
+        .limit(1)
+    )
+    fw_report = fw_result.scalar_one_or_none()
+    if fw_report:
+        firewall_active = fw_report.firewall_active
+
+    # Latest rootkit infected count
+    rootkit_infected = 0
+    from netlanventory.models.rootkit_report import RootkitReport as RkReport
+    rk_result = await session.execute(
+        select(RkReport)
+        .where(RkReport.asset_id == asset_id, RkReport.status == "completed")
+        .order_by(RkReport.created_at.desc())
+        .limit(1)
+    )
+    rk_report = rk_result.scalar_one_or_none()
+    if rk_report:
+        rootkit_infected = rk_report.infected_count
+
+    # Latest brute-force source count
+    brute_force = 0
+    from netlanventory.models.auth_log_report import AuthLogReport as AlReport
+    al_result = await session.execute(
+        select(AlReport)
+        .where(AlReport.asset_id == asset_id, AlReport.status == "completed")
+        .order_by(AlReport.created_at.desc())
+        .limit(1)
+    )
+    al_report = al_result.scalar_one_or_none()
+    if al_report:
+        brute_force = al_report.brute_force_sources
+
     score = compute_risk_score(
         asset_criticality=asset.criticality or "medium",
         active_cvss_scores=cvss_scores,
@@ -213,6 +293,10 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
         default_creds_vulnerable_count=dc_vulnerable,
         ssh_audit_critical_count=ssh_audit_critical,
         exploit_verified_count=exploit_verified_count,
+        privesc_risk_count=privesc_risks,
+        firewall_active=firewall_active,
+        rootkit_infected_count=rootkit_infected,
+        brute_force_sources=brute_force,
     )
 
     asset.risk_score = score
@@ -225,5 +309,9 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
         testssl_grade=testssl_grade,
         ssh_critical=ssh_audit_critical,
         exploit_verified=exploit_verified_count,
+        privesc_risks=privesc_risks,
+        firewall_active=firewall_active,
+        rootkit_infected=rootkit_infected,
+        brute_force=brute_force,
     )
     return score

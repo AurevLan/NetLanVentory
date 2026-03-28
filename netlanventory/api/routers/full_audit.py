@@ -2,14 +2,19 @@
 
 Triggers a complete, sequential security audit of a single asset:
 
-  Step 1 — port_scan       nmap TCP (+ basic service detection)
-  Step 2 — testssl         deep TLS audit on discovered HTTPS ports
-  Step 3 — ssh_audit       SSH config audit on port 22 (or asset.ssh_port)
-  Step 4 — default_creds   nmap NSE default credential check
-  Step 5 — ssh_scan        SSH package→CVE scan (if credentials configured)
-  Step 6 — nuclei          multi-protocol vuln scan (based on open ports)
-  Step 7 — exploit_val     Nuclei CVE validation (if CVEs were found)
-  Step 8 — risk_score      recompute unified risk score
+  Step 1  — port_scan       nmap TCP (+ basic service detection)
+  Step 2  — testssl         deep TLS audit on discovered HTTPS ports
+  Step 3  — ssh_audit       SSH config audit on port 22 (or asset.ssh_port)
+  Step 4  — default_creds   nmap NSE default credential check
+  Step 5  — ssh_scan        SSH package→CVE scan (if credentials configured)
+  Step 6  — nuclei          multi-protocol vuln scan (based on open ports)
+  Step 7  — exploit_val     Nuclei CVE validation (if CVEs were found)
+  Step 8  — privesc_audit   privileged access audit (users, sudoers, SUID)
+  Step 9  — firewall_audit  host firewall rules analysis
+  Step 10 — rootkit_audit   rootkit detection (chkrootkit / rkhunter)
+  Step 11 — docker_bench    Docker daemon security audit
+  Step 12 — auth_log_audit  authentication log analysis
+  Step 13 — risk_score      recompute unified risk score
 
 Each step updates the job's `steps` JSONB column with status + detail.
 Sub-report IDs are stored on the job for traceability.
@@ -41,9 +46,14 @@ from netlanventory.core.limiter import limiter
 from netlanventory.core.logging import get_logger
 from netlanventory.models.asset import Asset
 from netlanventory.models.asset_cve import AssetCve
+from netlanventory.models.auth_log_report import AuthLogReport
 from netlanventory.models.default_creds_report import DefaultCredsReport
+from netlanventory.models.docker_bench_report import DockerBenchReport
+from netlanventory.models.firewall_report import FirewallReport
 from netlanventory.models.full_audit_job import FullAuditJob
 from netlanventory.models.nuclei_report import NucleiReport
+from netlanventory.models.privesc_report import PrivescReport
+from netlanventory.models.rootkit_report import RootkitReport
 from netlanventory.models.ssh_audit_report import SshAuditReport
 from netlanventory.models.ssh_scan_report import SshScanReport
 from netlanventory.models.testssl_report import TestsslReport
@@ -81,6 +91,11 @@ class FullAuditJobOut(BaseModel):
     default_creds_report_id: uuid.UUID | None
     ssh_scan_report_id: uuid.UUID | None
     nuclei_report_id: uuid.UUID | None
+    privesc_report_id: uuid.UUID | None = None
+    firewall_report_id: uuid.UUID | None = None
+    rootkit_report_id: uuid.UUID | None = None
+    docker_bench_report_id: uuid.UUID | None = None
+    auth_log_report_id: uuid.UUID | None = None
     error_msg: str | None
     started_at: datetime | None
     finished_at: datetime | None
@@ -290,7 +305,22 @@ async def _run_full_audit(job_id: uuid.UUID, asset_id: uuid.UUID) -> None:
                 factory, job_id, asset_id, asset, open_ports, cve_links, settings
             )
 
-            # ── Step 8 — Risk Score ────────────────────────────────────────────
+            # ── Step 8 — Privileged Access Audit ──────────────────────────────
+            privesc_report_id = await _step_privesc(factory, job_id, asset_id, has_creds)
+
+            # ── Step 9 — Firewall Rules Audit ─────────────────────────────────
+            firewall_report_id = await _step_firewall(factory, job_id, asset_id, has_creds)
+
+            # ── Step 10 — Rootkit Detection ───────────────────────────────────
+            rootkit_report_id = await _step_rootkit(factory, job_id, asset_id, has_creds)
+
+            # ── Step 11 — Docker Bench Security ───────────────────────────────
+            docker_bench_report_id = await _step_docker_bench(factory, job_id, asset_id, has_creds)
+
+            # ── Step 12 — Auth Log Analysis ───────────────────────────────────
+            auth_log_report_id = await _step_auth_log(factory, job_id, asset_id, has_creds)
+
+            # ── Step 13 — Risk Score ──────────────────────────────────────────
             await _step_risk_score(factory, job_id, asset_id)
 
             # ── Finalise ───────────────────────────────────────────────────────
@@ -307,6 +337,11 @@ async def _run_full_audit(job_id: uuid.UUID, asset_id: uuid.UUID) -> None:
                 job.default_creds_report_id = default_creds_report_id
                 job.ssh_scan_report_id = ssh_scan_report_id
                 job.nuclei_report_id = nuclei_report_id
+                job.privesc_report_id = privesc_report_id
+                job.firewall_report_id = firewall_report_id
+                job.rootkit_report_id = rootkit_report_id
+                job.docker_bench_report_id = docker_bench_report_id
+                job.auth_log_report_id = auth_log_report_id
                 await session.commit()
 
             logger.info("Full audit completed", job_id=str(job_id), asset_id=str(asset_id))
@@ -757,6 +792,189 @@ async def _step_risk_score(factory, job_id: uuid.UUID, asset_id: uuid.UUID) -> N
                 "status": "completed",
                 "detail": f"score: {score}" if score is not None else "no data",
             })
+
+
+# ── Internal audit steps (SSH-based, Steps 8-12) ─────────────────────────────
+
+
+async def _step_privesc(
+    factory, job_id: uuid.UUID, asset_id: uuid.UUID, has_creds: bool
+) -> uuid.UUID | None:
+    """Run privileged access audit via SSH."""
+    if not has_creds:
+        async with factory() as session:
+            job = await _load_job(session, job_id)
+            if job:
+                await _set_step_inline(job, session, "privesc_audit",
+                    {"status": "skipped", "reason": "no SSH credentials"})
+        return None
+
+    async with factory() as session:
+        job = await _load_job(session, job_id)
+        if job:
+            await _set_step_inline(job, session, "privesc_audit", {"status": "running"})
+        report = PrivescReport(asset_id=asset_id, status="pending")
+        session.add(report)
+        await session.flush()
+        report_id = report.id
+        await session.commit()
+
+    from netlanventory.api.routers.privesc_audit import _run_privesc_audit
+    await _run_privesc_audit(report_id=report_id, asset_id=asset_id)
+
+    async with factory() as session:
+        report = (await session.execute(select(PrivescReport).where(PrivescReport.id == report_id))).scalar_one_or_none()
+        detail = f"{report.risk_findings_count} risks, {report.suid_count} SUID, {report.sudoers_count} sudoers" if report else "no result"
+        job = await _load_job(session, job_id)
+        if job:
+            await _set_step_inline(job, session, "privesc_audit",
+                {"status": report.status if report else "failed", "detail": detail})
+    return report_id
+
+
+async def _step_firewall(
+    factory, job_id: uuid.UUID, asset_id: uuid.UUID, has_creds: bool
+) -> uuid.UUID | None:
+    """Run firewall rules audit via SSH."""
+    if not has_creds:
+        async with factory() as session:
+            job = await _load_job(session, job_id)
+            if job:
+                await _set_step_inline(job, session, "firewall_audit",
+                    {"status": "skipped", "reason": "no SSH credentials"})
+        return None
+
+    async with factory() as session:
+        job = await _load_job(session, job_id)
+        if job:
+            await _set_step_inline(job, session, "firewall_audit", {"status": "running"})
+        report = FirewallReport(asset_id=asset_id, status="pending")
+        session.add(report)
+        await session.flush()
+        report_id = report.id
+        await session.commit()
+
+    from netlanventory.api.routers.firewall_audit import _run_firewall_audit
+    await _run_firewall_audit(report_id=report_id, asset_id=asset_id)
+
+    async with factory() as session:
+        report = (await session.execute(select(FirewallReport).where(FirewallReport.id == report_id))).scalar_one_or_none()
+        detail = f"backend={report.backend}, active={report.firewall_active}, risks={report.risk_findings_count}" if report else "no result"
+        job = await _load_job(session, job_id)
+        if job:
+            await _set_step_inline(job, session, "firewall_audit",
+                {"status": report.status if report else "failed", "detail": detail})
+    return report_id
+
+
+async def _step_rootkit(
+    factory, job_id: uuid.UUID, asset_id: uuid.UUID, has_creds: bool
+) -> uuid.UUID | None:
+    """Run rootkit detection via SSH."""
+    if not has_creds:
+        async with factory() as session:
+            job = await _load_job(session, job_id)
+            if job:
+                await _set_step_inline(job, session, "rootkit_audit",
+                    {"status": "skipped", "reason": "no SSH credentials"})
+        return None
+
+    async with factory() as session:
+        job = await _load_job(session, job_id)
+        if job:
+            await _set_step_inline(job, session, "rootkit_audit", {"status": "running"})
+        report = RootkitReport(asset_id=asset_id, status="pending")
+        session.add(report)
+        await session.flush()
+        report_id = report.id
+        await session.commit()
+
+    from netlanventory.api.routers.rootkit_audit import _run_rootkit_audit
+    await _run_rootkit_audit(report_id=report_id, asset_id=asset_id)
+
+    async with factory() as session:
+        report = (await session.execute(select(RootkitReport).where(RootkitReport.id == report_id))).scalar_one_or_none()
+        detail = f"tool={report.tool_used}, infected={report.infected_count}, suspects={report.suspects_count}" if report else "no result"
+        job = await _load_job(session, job_id)
+        if job:
+            await _set_step_inline(job, session, "rootkit_audit",
+                {"status": report.status if report else "failed", "detail": detail})
+    return report_id
+
+
+async def _step_docker_bench(
+    factory, job_id: uuid.UUID, asset_id: uuid.UUID, has_creds: bool
+) -> uuid.UUID | None:
+    """Run Docker daemon security audit via SSH."""
+    if not has_creds:
+        async with factory() as session:
+            job = await _load_job(session, job_id)
+            if job:
+                await _set_step_inline(job, session, "docker_bench",
+                    {"status": "skipped", "reason": "no SSH credentials"})
+        return None
+
+    async with factory() as session:
+        job = await _load_job(session, job_id)
+        if job:
+            await _set_step_inline(job, session, "docker_bench", {"status": "running"})
+        report = DockerBenchReport(asset_id=asset_id, status="pending")
+        session.add(report)
+        await session.flush()
+        report_id = report.id
+        await session.commit()
+
+    from netlanventory.api.routers.docker_bench_audit import _run_docker_bench
+    await _run_docker_bench(report_id=report_id, asset_id=asset_id)
+
+    async with factory() as session:
+        report = (await session.execute(select(DockerBenchReport).where(DockerBenchReport.id == report_id))).scalar_one_or_none()
+        if report and report.findings and not report.findings.get("docker_available", True):
+            detail = "Docker not available"
+        elif report:
+            detail = f"score={report.score}%, warns={report.warn_count}"
+        else:
+            detail = "no result"
+        job = await _load_job(session, job_id)
+        if job:
+            await _set_step_inline(job, session, "docker_bench",
+                {"status": report.status if report else "failed", "detail": detail})
+    return report_id
+
+
+async def _step_auth_log(
+    factory, job_id: uuid.UUID, asset_id: uuid.UUID, has_creds: bool
+) -> uuid.UUID | None:
+    """Run authentication log analysis via SSH."""
+    if not has_creds:
+        async with factory() as session:
+            job = await _load_job(session, job_id)
+            if job:
+                await _set_step_inline(job, session, "auth_log_audit",
+                    {"status": "skipped", "reason": "no SSH credentials"})
+        return None
+
+    async with factory() as session:
+        job = await _load_job(session, job_id)
+        if job:
+            await _set_step_inline(job, session, "auth_log_audit", {"status": "running"})
+        report = AuthLogReport(asset_id=asset_id, status="pending")
+        session.add(report)
+        await session.flush()
+        report_id = report.id
+        await session.commit()
+
+    from netlanventory.api.routers.auth_log_audit import _run_auth_log_audit
+    await _run_auth_log_audit(report_id=report_id, asset_id=asset_id)
+
+    async with factory() as session:
+        report = (await session.execute(select(AuthLogReport).where(AuthLogReport.id == report_id))).scalar_one_or_none()
+        detail = f"failed={report.failed_logins_count}, brute_force={report.brute_force_sources}" if report else "no result"
+        job = await _load_job(session, job_id)
+        if job:
+            await _set_step_inline(job, session, "auth_log_audit",
+                {"status": report.status if report else "failed", "detail": detail})
+    return report_id
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────

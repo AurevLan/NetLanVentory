@@ -30,11 +30,19 @@ from netlanventory.models.zap_report import ZapReport
 from netlanventory.models.hardening_report import HardeningReport
 from netlanventory.models.headers_audit_report import HeadersAuditReport
 from netlanventory.models.msf_validation_report import MsfValidationReport
+from netlanventory.models.privesc_report import PrivescReport
+from netlanventory.models.firewall_report import FirewallReport
+from netlanventory.models.rootkit_report import RootkitReport
+from netlanventory.models.docker_bench_report import DockerBenchReport
+from netlanventory.models.auth_log_report import AuthLogReport
 
 __all__ = [
-    "Base", "Asset", "AssetBaseline", "AssetCve", "AssetDns", "AssetTag", "AuditLog", "Cve",
-    "DefaultCredsReport", "GlobalSettings", "HardeningReport", "HeadersAuditReport",
+    "Base", "Asset", "AssetBaseline", "AssetCve", "AssetDns", "AssetTag", "AuditLog",
+    "AuthLogReport", "Cve",
+    "DefaultCredsReport", "DockerBenchReport", "FirewallReport", "FullAuditJob",
+    "GlobalSettings", "HardeningReport", "HeadersAuditReport",
     "MsfValidationReport", "NotificationConfig", "NucleiReport", "OidcProvider",
-    "Port", "Scan", "ScanQuotaLog", "ScanResult", "SshAuditReport", "SshProfile", "SshScanReport",
-    "FullAuditJob", "SslScanReport", "TestsslReport", "TrivyDockerReport", "User", "UserSession", "ZapReport",
+    "Port", "PrivescReport", "RootkitReport",
+    "Scan", "ScanQuotaLog", "ScanResult", "SshAuditReport", "SshProfile", "SshScanReport",
+    "SslScanReport", "TestsslReport", "TrivyDockerReport", "User", "UserSession", "ZapReport",
 ]

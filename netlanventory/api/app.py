@@ -65,6 +65,14 @@ from netlanventory.api.routers import tickets as tickets_router
 from netlanventory.api.routers import saved_filters as saved_filters_router
 from netlanventory.api.routers import scheduled_reports as scheduled_reports_router
 from netlanventory.api.routers import scheduled_scans as scheduled_scans_router
+from netlanventory.api.routers import privesc_audit as privesc_audit_router
+from netlanventory.api.routers import firewall_audit as firewall_audit_router
+from netlanventory.api.routers import rootkit_audit as rootkit_audit_router
+from netlanventory.api.routers import docker_bench_audit as docker_bench_router
+from netlanventory.api.routers import auth_log_audit as auth_log_router
+from netlanventory.api.routers import ioc_correlation as ioc_correlation_router
+from netlanventory.api.routers import audit_diff as audit_diff_router
+from netlanventory.api.routers import stix_export as stix_export_router
 from netlanventory.core.auth import hash_password
 from netlanventory.core.config import get_settings
 from netlanventory.core.database import close_engine, get_engine, get_session_factory
@@ -365,6 +373,16 @@ def create_app() -> FastAPI:
     app.include_router(saved_filters_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(scheduled_reports_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(scheduled_scans_router.router, prefix=api_prefix, dependencies=_auth)
+
+    # New feature routers (0.12.0) — internal audit suite + transverse
+    app.include_router(privesc_audit_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(firewall_audit_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(rootkit_audit_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(docker_bench_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(auth_log_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(ioc_correlation_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(audit_diff_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(stix_export_router.router, prefix=api_prefix, dependencies=_auth)
 
     # Serve static dashboard if the directory exists
     if STATIC_DIR.exists():
