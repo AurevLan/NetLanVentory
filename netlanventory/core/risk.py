@@ -155,14 +155,18 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
     Returns the new score (also written to asset.risk_score), or None if not found.
     """
     from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
+    from sqlalchemy.orm import load_only, selectinload
 
     from netlanventory.models.asset import Asset
     from netlanventory.models.asset_cve import AssetCve
+    from netlanventory.models.auth_log_report import AuthLogReport
     from netlanventory.models.cve import Cve
-    from netlanventory.models.testssl_report import TestsslReport
-    from netlanventory.models.ssh_audit_report import SshAuditReport
     from netlanventory.models.default_creds_report import DefaultCredsReport
+    from netlanventory.models.firewall_report import FirewallReport
+    from netlanventory.models.privesc_report import PrivescReport
+    from netlanventory.models.rootkit_report import RootkitReport
+    from netlanventory.models.ssh_audit_report import SshAuditReport
+    from netlanventory.models.testssl_report import TestsslReport
 
     # Load asset with ports and CVEs
     result = await session.execute(
@@ -188,102 +192,86 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
         if link.exploit_verified:
             exploit_verified_count += 1
 
+    # ── Scalar queries for latest report data ─────────────────────────────
+    # Use load_only() to avoid loading relationship-heavy ORM objects that
+    # could trigger lazy back_populates access via the identity map.
+
     # Latest testssl grade
     testssl_grade: str | None = None
-    ts_result = await session.execute(
-        select(TestsslReport)
-        .where(
-            TestsslReport.asset_id == asset_id,
-            TestsslReport.status == "completed",
-        )
+    ts_row = (await session.execute(
+        select(TestsslReport.grade)
+        .where(TestsslReport.asset_id == asset_id, TestsslReport.status == "completed")
         .order_by(TestsslReport.created_at.desc())
         .limit(1)
-    )
-    ts_report = ts_result.scalar_one_or_none()
-    if ts_report:
-        testssl_grade = ts_report.grade
+    )).first()
+    if ts_row:
+        testssl_grade = ts_row[0]
 
     # Latest ssh-audit critical count
     ssh_audit_critical = 0
-    sa_result = await session.execute(
-        select(SshAuditReport)
-        .where(
-            SshAuditReport.asset_id == asset_id,
-            SshAuditReport.status == "completed",
-        )
+    sa_row = (await session.execute(
+        select(SshAuditReport.critical_count)
+        .where(SshAuditReport.asset_id == asset_id, SshAuditReport.status == "completed")
         .order_by(SshAuditReport.created_at.desc())
         .limit(1)
-    )
-    sa_report = sa_result.scalar_one_or_none()
-    if sa_report:
-        ssh_audit_critical = sa_report.critical_count
+    )).first()
+    if sa_row:
+        ssh_audit_critical = sa_row[0]
 
     # Latest default_creds vulnerable count
     dc_vulnerable = 0
-    dc_result = await session.execute(
-        select(DefaultCredsReport)
-        .where(
-            DefaultCredsReport.asset_id == asset_id,
-            DefaultCredsReport.status == "completed",
-        )
+    dc_row = (await session.execute(
+        select(DefaultCredsReport.vulnerable_count)
+        .where(DefaultCredsReport.asset_id == asset_id, DefaultCredsReport.status == "completed")
         .order_by(DefaultCredsReport.created_at.desc())
         .limit(1)
-    )
-    dc_report = dc_result.scalar_one_or_none()
-    if dc_report:
-        dc_vulnerable = dc_report.vulnerable_count
+    )).first()
+    if dc_row:
+        dc_vulnerable = dc_row[0]
 
     # Latest privesc risk count
     privesc_risks = 0
-    from netlanventory.models.privesc_report import PrivescReport
-    pe_result = await session.execute(
-        select(PrivescReport)
+    pe_row = (await session.execute(
+        select(PrivescReport.risk_findings_count)
         .where(PrivescReport.asset_id == asset_id, PrivescReport.status == "completed")
         .order_by(PrivescReport.created_at.desc())
         .limit(1)
-    )
-    pe_report = pe_result.scalar_one_or_none()
-    if pe_report:
-        privesc_risks = pe_report.risk_findings_count
+    )).first()
+    if pe_row:
+        privesc_risks = pe_row[0]
 
     # Latest firewall status
     firewall_active: bool | None = None
-    from netlanventory.models.firewall_report import FirewallReport as FwReport
-    fw_result = await session.execute(
-        select(FwReport)
-        .where(FwReport.asset_id == asset_id, FwReport.status == "completed")
-        .order_by(FwReport.created_at.desc())
+    fw_row = (await session.execute(
+        select(FirewallReport.firewall_active)
+        .where(FirewallReport.asset_id == asset_id, FirewallReport.status == "completed")
+        .order_by(FirewallReport.created_at.desc())
         .limit(1)
-    )
-    fw_report = fw_result.scalar_one_or_none()
-    if fw_report:
-        firewall_active = fw_report.firewall_active
+    )).first()
+    if fw_row:
+        firewall_active = fw_row[0]
 
     # Latest rootkit infected count
     rootkit_infected = 0
-    from netlanventory.models.rootkit_report import RootkitReport as RkReport
-    rk_result = await session.execute(
-        select(RkReport)
-        .where(RkReport.asset_id == asset_id, RkReport.status == "completed")
-        .order_by(RkReport.created_at.desc())
+    rk_row = (await session.execute(
+        select(RootkitReport.infected_count)
+        .where(RootkitReport.asset_id == asset_id, RootkitReport.status == "completed")
+        .order_by(RootkitReport.created_at.desc())
         .limit(1)
-    )
-    rk_report = rk_result.scalar_one_or_none()
-    if rk_report:
-        rootkit_infected = rk_report.infected_count
+    )).first()
+    if rk_row:
+        rootkit_infected = rk_row[0]
 
     # Latest brute-force source count
     brute_force = 0
-    from netlanventory.models.auth_log_report import AuthLogReport as AlReport
-    al_result = await session.execute(
-        select(AlReport)
-        .where(AlReport.asset_id == asset_id, AlReport.status == "completed")
-        .order_by(AlReport.created_at.desc())
+    al_row = (await session.execute(
+        select(AuthLogReport.brute_force_sources)
+        .where(AuthLogReport.asset_id == asset_id, AuthLogReport.status == "completed")
+        .order_by(AuthLogReport.created_at.desc())
         .limit(1)
-    )
-    al_report = al_result.scalar_one_or_none()
-    if al_report:
-        brute_force = al_report.brute_force_sources
+    )).first()
+    if al_row:
+        brute_force = al_row[0]
 
     score = compute_risk_score(
         asset_criticality=asset.criticality or "medium",

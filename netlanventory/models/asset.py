@@ -137,19 +137,24 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         "MsfValidationReport", back_populates="asset", cascade="all, delete-orphan"
     )
     privesc_reports: Mapped[list["PrivescReport"]] = relationship(  # noqa: F821
-        "PrivescReport", back_populates="asset", cascade="all, delete-orphan"
+        "PrivescReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
     )
     firewall_reports: Mapped[list["FirewallReport"]] = relationship(  # noqa: F821
-        "FirewallReport", back_populates="asset", cascade="all, delete-orphan"
+        "FirewallReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
     )
     rootkit_reports: Mapped[list["RootkitReport"]] = relationship(  # noqa: F821
-        "RootkitReport", back_populates="asset", cascade="all, delete-orphan"
+        "RootkitReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
     )
     docker_bench_reports: Mapped[list["DockerBenchReport"]] = relationship(  # noqa: F821
-        "DockerBenchReport", back_populates="asset", cascade="all, delete-orphan"
+        "DockerBenchReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
     )
     auth_log_reports: Mapped[list["AuthLogReport"]] = relationship(  # noqa: F821
-        "AuthLogReport", back_populates="asset", cascade="all, delete-orphan"
+        "AuthLogReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
     )
 
     @property
