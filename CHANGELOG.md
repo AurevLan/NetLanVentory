@@ -9,6 +9,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.13.0] — 2026-03-28
+
+### Added
+- **Internal audit suite** — 5 new SSH-based audit modules for comprehensive host security assessment
+  - **Privileged access audit** (`POST /assets/{id}/privesc-audit`) — enumerates users, sudoers (NOPASSWD detection), SUID/SGID binaries (GTFOBins risk flagging), Linux capabilities, SSH authorized keys, world-writable sensitive files, empty-password and UID 0 accounts
+  - **Firewall rules audit** (`POST /assets/{id}/firewall-audit`) — auto-detects backend (iptables/nftables/ufw/firewalld), analyses default chain policies, enumerates rules, flags risky exposed ports (MySQL, Redis, MongoDB, Docker API, etc.), correlates with listening services
+  - **Rootkit detection** (`POST /assets/{id}/rootkit-audit`) — runs chkrootkit and rkhunter (if available), manual checks for hidden processes, hidden ports, suspicious files in /dev and /tmp, deleted executables, loaded kernel modules
+  - **Docker daemon security** (`POST /assets/{id}/docker-bench`) — CIS Docker Benchmark checks: socket permissions, user namespace, inter-container communication, content trust, privileged containers, host PID/network sharing, logging driver, daemon.json analysis
+  - **Auth log analysis** (`POST /assets/{id}/auth-log-audit`) — parses journalctl/auth.log/secure, detects brute-force attacks (>20 failed attempts/IP), tracks failed/successful logins by user and source, alerts on root login from external IPs
+- **IOC ↔ Asset correlation** (`GET /threat-intel/correlations`) — matches all collected threat IOCs (OTX, abuse.ch) against active assets by IP and DNS domain; per-asset correlation endpoint; severity/type/source breakdown
+- **Audit diff / comparison** (`GET /assets/{id}/audit-diff`) — compares two full-audit jobs (N vs N-1): CVE delta (new/resolved/persistent), risk score evolution, per-step comparison (testssl grade, ssh-audit issues, default creds), overall posture assessment (improved/degraded/unchanged)
+- **STIX 2.1 export** (`GET /export/stix/assets/{id}`, `GET /export/stix/all`) — native JSON STIX bundle (no external dependency): assets as Infrastructure, CVEs as Vulnerability with NVD references, open ports as observed-data, IOC matches as Indicator; deterministic IDs for deduplication
+- **Full audit pipeline extended** from 8 to 13 steps: port_scan → testssl → ssh_audit → default_creds → ssh_scan → nuclei → exploit_validation → **privesc_audit → firewall_audit → rootkit_audit → docker_bench → auth_log_audit** → risk_score
+- **Risk scoring enriched** with 4 new penalty factors:
+  - Privilege escalation paths: +10 to +22 points (NOPASSWD sudo, GTFOBins SUID, dangerous capabilities)
+  - No active firewall: +15 points
+  - Rootkit detected: +30 to +40 points (highest after default credentials)
+  - Active brute-force: +5 to +13 points
+- **109 new tests** (384 total, from 275) across 4 new test files:
+  - `test_internal_audit_endpoints.py` — 20 smoke tests for all 5 internal audit POST/GET endpoints
+  - `test_internal_audit_parsers.py` — 41 unit tests for all parsing helpers (passwd, sudoers, capabilities, iptables, ufw, ss, chkrootkit, rkhunter, lastlog, IP classification, risk analysis)
+  - `test_risk_score_extended.py` — 25 tests for new risk penalties (privesc, firewall, rootkit, brute-force, combinations, backwards compatibility)
+  - `test_transverse_features.py` — 13 tests for IOC correlation, audit diff, STIX export
+
+### Database
+- Migration 0051: creates `privesc_reports`, `firewall_reports`, `rootkit_reports`, `docker_bench_reports`, `auth_log_reports` tables; adds 5 FK columns to `full_audit_jobs`
+
+---
+
 ## [v0.12.0] — 2026-03-28
 
 ### Added
@@ -290,6 +319,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Administration panel**: user management, auth settings
 - **Dashboard UI**: sidebar navigation, asset list, Security tab with ZAP reports and CVE display, Overview and Failles tabs
 
+[v0.13.0]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.13.0
+[v0.12.0]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.12.0
 [v0.6.0]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.6.0
 [v0.5.1]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.5.1
 [v0.5.0]: https://github.com/AurevLan/NetLanVentory/releases/tag/v0.5.0
