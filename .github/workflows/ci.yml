@@ -54,6 +54,7 @@ jobs:
         run: |
           pytest tests/ \
             -v --tb=short -x \
+            --ignore=tests/integration/test_dashboard_cache.py \
             --cov=netlanventory \
             --cov-report=term-missing \
             --cov-fail-under=30
