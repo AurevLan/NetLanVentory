@@ -39,7 +39,7 @@ dependencies = [
     "slowapi>=0.1.9",
     # Async utilities
     "anyio>=4.9.0",
-    "httpx>=0.28.0",
+    "httpx>=0.28.1",
     # SSH connectivity (SSH CVE scan)
     "asyncssh>=2.21.0",
     # Symmetric encryption (SSH credential storage)
@@ -53,7 +53,7 @@ dev = [
     "pytest>=8.5.0",
     "pytest-asyncio>=0.26.0",
     "pytest-cov>=6.1.0",
-    "httpx>=0.28.0",
+    "httpx>=0.28.1",
     "aiosqlite>=0.21.0",
     "ruff>=0.11.0",
     "mypy>=1.15.0",
