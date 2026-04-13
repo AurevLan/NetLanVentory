@@ -60,7 +60,7 @@ dev = [
     # "pytest-postgresql>=6.1.0",  # removed: tests use SQLite, not psycopg
     "respx>=0.22.0",
     "bandit>=1.9.0",
-    "safety>=3.3.0",
+    "safety>=3.7.0",
     "pip-audit>=2.9.0",
 ]
 cache = ["redis>=5.2.0"]
