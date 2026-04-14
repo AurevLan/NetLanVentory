@@ -2,6 +2,7 @@
 
 from netlanventory.models.asset import Asset
 from netlanventory.models.asset_baseline import AssetBaseline
+from netlanventory.models.attack_path import AttackPath
 from netlanventory.models.asset_tag import AssetTag
 from netlanventory.models.asset_cve import AssetCve
 from netlanventory.models.asset_dns import AssetDns
@@ -15,8 +16,10 @@ from netlanventory.models.notification_config import NotificationConfig
 from netlanventory.models.oidc_provider import OidcProvider
 from netlanventory.models.port import Port
 from netlanventory.models.saved_filter import SavedFilter
+from netlanventory.models.remediation_job import RemediationJob, RemediationStatus
 from netlanventory.models.scan import Scan
 from netlanventory.models.scan_history import ScanHistory
+from netlanventory.models.scan_priority import ScanPriority
 from netlanventory.models.scan_quota import ScanQuotaLog
 from netlanventory.models.scan_result import ScanResult
 from netlanventory.models.scheduled_report import ScheduledReport
@@ -48,19 +51,23 @@ from netlanventory.models.dangling_cname_report import DanglingCnameReport
 from netlanventory.models.dns_email_report import DnsEmailReport
 from netlanventory.models.js_secrets_report import JsSecretsReport
 from netlanventory.models.tech_fingerprint_report import TechFingerprintReport
+from netlanventory.models.triage_recommendation import TriageRecommendation, TriageUrgency
 
 __all__ = [
-    "Base", "Asset", "AssetBaseline", "AssetCve", "AssetDns", "AssetTag", "AuditLog",
+    "Base", "Asset", "AssetBaseline", "AssetCve", "AssetDns", "AssetTag", "AttackPath",
+    "AuditLog",
     "AuthLogReport", "ComplianceReport", "Cve",
     "DanglingCnameReport", "DefaultCredsReport", "DnsEmailReport",
     "DockerBenchReport", "FirewallReport", "FullAuditJob",
     "GlobalSettings", "HardeningReport", "HeadersAuditReport",
     "JsSecretsReport", "KpiSnapshot", "MsfValidationReport",
     "NotificationConfig", "NucleiReport", "OidcProvider",
-    "Port", "PrivescReport", "RootkitReport",
-    "SavedFilter", "Scan", "ScanHistory", "ScanQuotaLog", "ScanResult",
+    "Port", "PrivescReport",
+    "RemediationJob", "RemediationStatus", "RootkitReport",
+    "SavedFilter", "Scan", "ScanHistory", "ScanPriority", "ScanQuotaLog", "ScanResult",
     "ScheduledReport", "ScheduledScan", "SlaConfig",
     "SshAuditReport", "SshProfile", "SshScanReport",
     "SslScanReport", "TechFingerprintReport", "TestsslReport", "ThreatIoc", "TicketConfig",
+    "TriageRecommendation", "TriageUrgency",
     "TrivyDockerReport", "User", "UserSession", "ZapReport",
 ]

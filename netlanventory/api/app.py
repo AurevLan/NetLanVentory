@@ -51,6 +51,7 @@ from netlanventory.api.routers import exploit_validation as exploit_validation_r
 from netlanventory.api.routers import testssl as testssl_router
 from netlanventory.api.routers import ssh_audit as ssh_audit_router
 from netlanventory.api.routers import default_creds as default_creds_router
+from netlanventory.api.routers import compensating_controls as compensating_controls_router
 from netlanventory.api.routers import full_audit as full_audit_router
 from netlanventory.api.routers import remediation as remediation_router
 from netlanventory.api.routers import priority_matrix as priority_matrix_router
@@ -407,6 +408,9 @@ def create_app() -> FastAPI:
     app.include_router(tech_fingerprint_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(js_secrets_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(dangling_cname_router.router, prefix=api_prefix, dependencies=_auth)
+
+    # New feature routers (0.14.0) — innovation roadmap #2: Compensating Controls
+    app.include_router(compensating_controls_router.router, prefix=api_prefix, dependencies=_auth)
 
     # Serve static dashboard if the directory exists
     if STATIC_DIR.exists():
