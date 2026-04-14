@@ -34,10 +34,13 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Literal
 
+import hashlib
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from netlanventory.core.cache import cache_get_json, cache_invalidate_prefix, cache_set_json
 from netlanventory.core.logging import get_logger
 from netlanventory.models.asset import Asset
 from netlanventory.models.cve import Cve
@@ -363,3 +366,94 @@ async def compute_for_asset_cve(
         return None
     ctx = await build_context(session, asset)
     return compute_effective_severity(cve, ctx)
+
+
+# ── Redis cache layer ─────────────────────────────────────────────────────────
+#
+# Key convention: effsev:{asset_id}:{cve_id}
+# We deliberately do NOT include the controls hash in the key — instead, the
+# cached payload embeds the hash and the consumer compares. On a hash mismatch
+# we treat it as a miss and recompute. This makes invalidation by asset cheap
+# (one prefix delete) and robust against stale entries.
+
+_CACHE_TTL_SECONDS = 24 * 3600          # 24 h hard TTL ceiling
+_CACHE_PREFIX = "effsev:"
+
+
+def _context_hash(ctx: ControlContext) -> str:
+    """Stable hash of the inputs that influence severity, for cache validation."""
+    parts = [
+        sorted(ctx.asset_tags),
+        ctx.is_internet_facing,
+        getattr(ctx.firewall, "id", None) and str(ctx.firewall.id),
+        getattr(ctx.privesc, "id", None) and str(ctx.privesc.id),
+        getattr(ctx.headers, "id", None) and str(ctx.headers.id),
+    ]
+    raw = repr(parts)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+async def get_or_compute_effective_severity(
+    session: AsyncSession,
+    asset_id: uuid.UUID,
+    cve_id: str,
+    *,
+    ctx: ControlContext | None = None,
+) -> EffectiveSeverity | None:
+    """Cached wrapper around `compute_for_asset_cve`.
+
+    Reads Redis first; on hit and matching context hash returns immediately.
+    Otherwise computes, stores, and returns. Falls through gracefully if Redis
+    is unavailable.
+    """
+    cache_key = f"{_CACHE_PREFIX}{asset_id}:{cve_id}"
+    cached = await cache_get_json(cache_key)
+
+    if ctx is None:
+        asset = (
+            await session.execute(
+                select(Asset).where(Asset.id == asset_id).options(selectinload(Asset.tags))
+            )
+        ).scalar_one_or_none()
+        if asset is None:
+            return None
+        ctx = await build_context(session, asset)
+
+    expected_hash = _context_hash(ctx)
+    if cached and cached.get("ctx_hash") == expected_hash:
+        # Re-hydrate from JSON
+        return EffectiveSeverity(
+            base=cached["base"],
+            effective=cached["effective"],
+            kev_clamped=cached.get("kev_clamped", False),
+            factors=[
+                ControlFactor(
+                    rule=f["rule"],
+                    delta=f["delta"],
+                    evidence=f["evidence"],
+                    confidence=f["confidence"],
+                )
+                for f in cached.get("factors", [])
+            ],
+        )
+
+    cve = (
+        await session.execute(select(Cve).where(Cve.cve_id == cve_id))
+    ).scalar_one_or_none()
+    if cve is None:
+        return None
+
+    eff = compute_effective_severity(cve, ctx)
+    payload = eff.to_dict()
+    payload["ctx_hash"] = expected_hash
+    await cache_set_json(cache_key, payload, ttl=_CACHE_TTL_SECONDS)
+    return eff
+
+
+async def invalidate_asset_cache(asset_id: uuid.UUID) -> None:
+    """Drop all cached effective severities for an asset.
+
+    Call this whenever a new FirewallReport/PrivescReport/HeadersAuditReport
+    completes, when asset tags change, or after a CVE is acknowledged.
+    """
+    await cache_invalidate_prefix(f"{_CACHE_PREFIX}{asset_id}:")

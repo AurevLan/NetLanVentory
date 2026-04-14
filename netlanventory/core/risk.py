@@ -194,6 +194,18 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
     open_port_count = sum(1 for p in (asset.ports or []) if p.state == "open")
 
     # Active CVE CVSS scores — exclude acknowledged as false_positive / accepted
+    # When compensating controls are enabled, replace each raw CVSS by the
+    # post-controls effective severity computed from the asset's hardening
+    # signals (firewall, privesc, headers/WAF, tags, KEV clamp).
+    from netlanventory.core.config import get_settings
+    settings = get_settings()
+    use_cc = settings.use_compensating_controls
+
+    ctx = None
+    if use_cc:
+        from netlanventory.core.compensating_controls import build_context, compute_effective_severity
+        ctx = await build_context(session, asset)
+
     cvss_scores: list[float] = []
     exploit_verified_count = 0
     for link in (asset.cves or []):
@@ -201,7 +213,11 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
             continue
         cve = link.cve
         if cve and cve.cvss_score is not None:
-            cvss_scores.append(cve.cvss_score)
+            if use_cc and ctx is not None:
+                eff = compute_effective_severity(cve, ctx)
+                cvss_scores.append(eff.effective)
+            else:
+                cvss_scores.append(cve.cvss_score)
         if link.exploit_verified:
             exploit_verified_count += 1
 

@@ -185,6 +185,12 @@ class Settings(BaseSettings):
     masscan_binary: str = Field(default="masscan", description="Path to masscan binary (requires root/CAP_NET_RAW)")
     masscan_default_rate: int = Field(default=10000, description="Default masscan packets/second rate")
 
+    # Compensating Controls (innovation #2). Default OFF — opt-in after shadow validation.
+    use_compensating_controls: bool = Field(
+        default=False,
+        description="Use effective severity (post-controls) in risk score computation",
+    )
+
     @computed_field
     @property
     def sync_database_url(self) -> str:
