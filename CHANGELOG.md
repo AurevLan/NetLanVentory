@@ -9,6 +9,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.14.0] — 2026-04-14
+
+### Added — Innovation roadmap (5 axes)
+
+- **#2 Compensating controls engine** (`netlanventory/core/compensating_controls.py`) — per-CVE effective severity computed from KEV clamp, criticality tag, firewall posture, privesc state, WAF headers, network isolation. Endpoints: `GET /assets/{id}/effective-severities`, `GET /assets/{id}/cves/{cve_id}/effective-severity`. Feature-flagged via `use_compensating_controls` + new `shadow_mode_compensating_controls` flag to log would-be downgrades for 2 weeks of validation before flipping.
+- **#5 Smart re-scan scheduler** (`netlanventory/core/scan_priority.py`, migration 0054) — per-(asset, module) priority score with `max_age_hours` famine guard and cooldown. Nightly sweep forces rescan of under-prioritised assets. Endpoints: `GET /scheduler/priorities`, `GET /scheduler/budget`, `POST /scheduler/priorities/{id}/{module}/boost`.
+- **#1 Attack path graph engine** (`netlanventory/core/attack_paths.py`, migration 0053) — networkx-based reachability graph with V1 adjacency by `/24`. Persists top-N critical chains `(source → target, hops, total_weight)`. Endpoints: `GET /attack-paths/critical`, `GET /attack-paths/asset/{id}/{inbound,outbound}`, `POST /attack-paths/refresh`.
+- **#3 AI-triage** (`netlanventory/core/ai_triage.py`, migration 0056) — Ollama-first (RGPD), Anthropic/OpenAI optional. Prompt-versioned cache with `input_hash` and `cached_until`. Strict Pydantic validation of LLM output (`urgency`, `one_liner`, `reasoning`). Endpoint: `GET /triage/{cve_id}/asset/{id}`.
+- **#8 Remediation workflow** (`netlanventory/core/remediation_workflow.py`, migration 0055) — full state machine `draft → dry_run_pending → dry_run_done → awaiting_approval → approved → running → succeeded|failed|healthcheck_failed → rolled_back`. 4-eyes approval, playbook HMAC signature, execution log. Endpoints under `/remediation/`.
+- **Remediation worker container** (`remediation_worker/`) — out-of-process Ansible executor, profile `remediation` in compose, read-only FS, cap-drop ALL, SSH key via docker secret, polls API only (no DB access), healthcheck mandatory for `criticality:critical` jobs.
+- **Innovation UI module** (`netlanventory/api/static/innovation.js`, 367 lines) — 5 dashboard sections (compensating controls, attack paths, scheduler priorities, remediation kanban, AI triage) rendered standalone without touching the 9k-line `app.js`.
+
+### Fixed
+
+- **Remediation enum PG collision** (migrations 0055/0056) — rename `remediation_status` → `remediation_job_status`, `create_type=False` + `values_callable`, avoids SQLAlchemy/Alembic double-creation of the PG enum type.
+- **Remediation router serialization** — `_to_out(job)` now runs before `commit()` on all 7 endpoints; `commit()` expires ORM attributes so serialization must happen after `flush()` but before commit.
+- **Hardening router** — fixed indentation so `lynis_index`/`warnings`/`suggestions` are populated in the `lynis_available` branch instead of being unreachable.
+- **`database.get_engine`** — drops `pool_size`/`max_overflow` when `DATABASE_URL` starts with `sqlite`; StaticPool rejects those kwargs and broke any production engine path under the test container.
+- **Scheduler test harness** — hoist `get_settings`, `get_session_factory`, `httpx`, `Scan`, `_run_scan`, `_download_epss_map` to module level so tests can patch them via `patch.object(sched, ...)`.
+
+### Tests
+
+- **180 new tests** covering the 5 innovation axes.
+- Full suite: **564 passed, 7 skipped** (up from 384).
+
+---
+
 ## [v0.13.0] — 2026-03-28
 
 ### Added
