@@ -20,7 +20,7 @@ TRIAGE_URGENCY_VALUES = ("now", "24h", "7d", "30d", "none")
 
 def upgrade() -> None:
     triage_urgency = ENUM(
-        *TRIAGE_URGENCY_VALUES, name="triage_urgency", create_type=True
+        *TRIAGE_URGENCY_VALUES, name="triage_urgency", create_type=False
     )
     triage_urgency.create(op.get_bind(), checkfirst=True)
 
@@ -36,7 +36,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "urgency",
-            sa.Enum(*TRIAGE_URGENCY_VALUES, name="triage_urgency", create_type=False),
+            triage_urgency,
             nullable=False,
         ),
         sa.Column("one_liner", sa.String(300), nullable=False),
@@ -73,4 +73,6 @@ def downgrade() -> None:
     op.drop_index("ix_triage_recommendations_asset_id", table_name="triage_recommendations")
     op.drop_index("ix_triage_recommendations_cve_id", table_name="triage_recommendations")
     op.drop_table("triage_recommendations")
-    ENUM(name="triage_urgency").drop(op.get_bind(), checkfirst=True)
+    ENUM(*TRIAGE_URGENCY_VALUES, name="triage_urgency").drop(
+        op.get_bind(), checkfirst=True
+    )

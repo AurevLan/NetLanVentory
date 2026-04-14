@@ -554,16 +554,15 @@ async def test_scheduler_loop_calls_all_tasks():
                 called.add(n)
             patches[name] = patch.object(sched, name, side_effect=noop)
 
-        with _asyncio.TaskGroup() as tg:
+        for p in patches.values():
+            p.start()
+        try:
+            await sched.scheduler_loop()
+        except (_asyncio.CancelledError, ExceptionGroup):
+            pass
+        finally:
             for p in patches.values():
-                p.start()
-            try:
-                await sched.scheduler_loop()
-            except (_asyncio.CancelledError, ExceptionGroup):
-                pass
-            finally:
-                for p in patches.values():
-                    p.stop()
+                p.stop()
 
     # Verify all tasks were called in one cycle
     for name in task_names:

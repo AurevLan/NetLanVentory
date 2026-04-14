@@ -30,12 +30,14 @@ REMEDIATION_STATUS_VALUES = (
 
 
 def upgrade() -> None:
-    remediation_status = ENUM(
+    # Single ENUM object reused for both creation and the column to avoid
+    # SQLAlchemy auto-creating it twice.
+    remediation_job_status = ENUM(
         *REMEDIATION_STATUS_VALUES,
-        name="remediation_status",
-        create_type=True,
+        name="remediation_job_status",
+        create_type=False,
     )
-    remediation_status.create(op.get_bind(), checkfirst=True)
+    remediation_job_status.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         "remediation_jobs",
@@ -53,7 +55,7 @@ def upgrade() -> None:
         sa.Column("playbook_signature", sa.String(128), nullable=True),
         sa.Column(
             "status",
-            sa.Enum(*REMEDIATION_STATUS_VALUES, name="remediation_status", create_type=False),
+            remediation_job_status,
             nullable=False,
             server_default="draft",
         ),
@@ -103,4 +105,6 @@ def downgrade() -> None:
     op.drop_index("ix_remediation_jobs_cve_id", table_name="remediation_jobs")
     op.drop_index("ix_remediation_jobs_asset_id", table_name="remediation_jobs")
     op.drop_table("remediation_jobs")
-    ENUM(name="remediation_status").drop(op.get_bind(), checkfirst=True)
+    ENUM(*REMEDIATION_STATUS_VALUES, name="remediation_job_status").drop(
+        op.get_bind(), checkfirst=True
+    )

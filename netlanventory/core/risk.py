@@ -200,26 +200,47 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
     from netlanventory.core.config import get_settings
     settings = get_settings()
     use_cc = settings.use_compensating_controls
+    shadow_cc = settings.shadow_mode_compensating_controls
 
     ctx = None
-    if use_cc:
+    if use_cc or shadow_cc:
         from netlanventory.core.compensating_controls import build_context, compute_effective_severity
         ctx = await build_context(session, asset)
 
     cvss_scores: list[float] = []
     exploit_verified_count = 0
+    # Shadow-mode telemetry: count downgrades that *would* have applied
+    shadow_downgrades = 0
+    shadow_total_delta = 0.0
+
     for link in (asset.cves or []):
         if link.ack_status in ("false_positive", "accepted"):
             continue
         cve = link.cve
         if cve and cve.cvss_score is not None:
-            if use_cc and ctx is not None:
+            if ctx is not None and (use_cc or shadow_cc):
                 eff = compute_effective_severity(cve, ctx)
-                cvss_scores.append(eff.effective)
+                if shadow_cc and not use_cc:
+                    # Telemetry only — do NOT apply
+                    if eff.effective < cve.cvss_score:
+                        shadow_downgrades += 1
+                        shadow_total_delta += (cve.cvss_score - eff.effective)
+                    cvss_scores.append(cve.cvss_score)
+                else:
+                    cvss_scores.append(eff.effective)
             else:
                 cvss_scores.append(cve.cvss_score)
         if link.exploit_verified:
             exploit_verified_count += 1
+
+    if shadow_cc and not use_cc and shadow_downgrades > 0:
+        logger.info(
+            "compensating_controls_shadow",
+            asset_id=str(asset_id),
+            cves_evaluated=len(cvss_scores),
+            would_downgrade=shadow_downgrades,
+            total_delta=round(shadow_total_delta, 2),
+        )
 
     # ── Scalar queries for latest report data ─────────────────────────────
     # Use load_only() to avoid loading relationship-heavy ORM objects that

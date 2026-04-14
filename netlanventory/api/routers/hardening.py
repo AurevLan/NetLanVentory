@@ -444,7 +444,8 @@ async def _collect_findings(
     # ── Lynis (agentless — auto-deploys if not installed) ──────────────────
     findings["lynis"] = await _run_lynis(conn, report_id)
     findings["lynis_available"] = findings["lynis"].get("available", True)
-    findings["lynis_index"] = findings["lynis"].get("hardening_index")
+    if findings["lynis_available"]:
+        findings["lynis_index"] = findings["lynis"].get("hardening_index")
         findings["warnings"] = findings["lynis"].get("warnings", [])
         findings["suggestions"] = findings["lynis"].get("suggestions", [])
     else:

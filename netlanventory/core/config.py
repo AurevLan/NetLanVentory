@@ -190,6 +190,14 @@ class Settings(BaseSettings):
         default=False,
         description="Use effective severity (post-controls) in risk score computation",
     )
+    shadow_mode_compensating_controls: bool = Field(
+        default=False,
+        description=(
+            "Compute and log effective severity *without* applying it to the risk "
+            "score. Used to validate the rules on real data for 2 weeks before "
+            "flipping use_compensating_controls=True in production."
+        ),
+    )
 
     @computed_field
     @property

@@ -53,7 +53,12 @@ class RemediationJob(Base):
     playbook_signature: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     status: Mapped[RemediationStatus] = mapped_column(
-        PgEnum(RemediationStatus, name="remediation_status", create_type=True),
+        PgEnum(
+            RemediationStatus,
+            name="remediation_job_status",
+            create_type=False,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
         nullable=False,
         server_default=RemediationStatus.DRAFT.value,
         index=True,

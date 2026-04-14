@@ -174,8 +174,9 @@ async def create_job(
         resource_type="remediation_job", resource_id=str(job.id),
         detail={"asset_id": str(payload.asset_id), "cve_id": payload.cve_id},
     )
+    out = _to_out(job)
     await db.commit()
-    return _to_out(job)
+    return out
 
 
 @router.post("/{job_id}/dry-run", response_model=JobOut)
@@ -187,8 +188,9 @@ async def request_dry_run_endpoint(
         await request_dry_run(db, job)
     except Exception as exc:
         _handle_state_error(exc)
+    out = _to_out(job)
     await db.commit()
-    return _to_out(job)
+    return out
 
 
 @router.post("/{job_id}/dry-run-result", response_model=JobOut)
@@ -202,8 +204,9 @@ async def post_dry_run_result(
         await record_dry_run_result(db, job, summary)
     except Exception as exc:
         _handle_state_error(exc)
+    out = _to_out(job)
     await db.commit()
-    return _to_out(job)
+    return out
 
 
 @router.post("/{job_id}/submit", response_model=JobOut)
@@ -213,8 +216,9 @@ async def submit_endpoint(job_id: uuid.UUID, db: DbDep, _user: UserDep) -> JobOu
         await submit_for_approval(db, job)
     except Exception as exc:
         _handle_state_error(exc)
+    out = _to_out(job)
     await db.commit()
-    return _to_out(job)
+    return out
 
 
 @router.post("/{job_id}/approve", response_model=JobOut)
@@ -234,8 +238,9 @@ async def approve_endpoint(
         db, user=actor, action="remediation.approve",
         resource_type="remediation_job", resource_id=str(job.id),
     )
+    out = _to_out(job)
     await db.commit()
-    return _to_out(job)
+    return out
 
 
 @router.post("/{job_id}/start", response_model=JobOut)
@@ -247,8 +252,9 @@ async def start_endpoint(
         await start_execution(db, job)
     except Exception as exc:
         _handle_state_error(exc)
+    out = _to_out(job)
     await db.commit()
-    return _to_out(job)
+    return out
 
 
 @router.post("/{job_id}/execution-result", response_model=JobOut)
@@ -266,8 +272,9 @@ async def post_execution_result(
         )
     except Exception as exc:
         _handle_state_error(exc)
+    out = _to_out(job)
     await db.commit()
-    return _to_out(job)
+    return out
 
 
 @router.post("/{job_id}/rollback", response_model=JobOut)
@@ -279,5 +286,6 @@ async def rollback_endpoint(
         await rollback(db, job, log=payload.log)
     except Exception as exc:
         _handle_state_error(exc)
+    out = _to_out(job)
     await db.commit()
-    return _to_out(job)
+    return out

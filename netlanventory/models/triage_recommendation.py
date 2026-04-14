@@ -42,7 +42,12 @@ class TriageRecommendation(Base):
     )
 
     urgency: Mapped[TriageUrgency] = mapped_column(
-        PgEnum(TriageUrgency, name="triage_urgency", create_type=True),
+        PgEnum(
+            TriageUrgency,
+            name="triage_urgency",
+            create_type=False,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
         nullable=False,
     )
     one_liner: Mapped[str] = mapped_column(String(300), nullable=False)
