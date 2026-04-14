@@ -54,7 +54,9 @@ from netlanventory.api.routers import default_creds as default_creds_router
 from netlanventory.api.routers import attack_paths as attack_paths_router
 from netlanventory.api.routers import compensating_controls as compensating_controls_router
 from netlanventory.api.routers import full_audit as full_audit_router
+from netlanventory.api.routers import remediation_workflow as remediation_workflow_router
 from netlanventory.api.routers import scheduler_priorities as scheduler_priorities_router
+from netlanventory.api.routers import triage as triage_router
 from netlanventory.api.routers import remediation as remediation_router
 from netlanventory.api.routers import priority_matrix as priority_matrix_router
 from netlanventory.api.routers import hardening as hardening_router
@@ -417,6 +419,10 @@ def create_app() -> FastAPI:
     app.include_router(scheduler_priorities_router.router, prefix=api_prefix, dependencies=_auth)
     # Innovation roadmap #1: Attack Path Graph
     app.include_router(attack_paths_router.router, prefix=api_prefix, dependencies=_auth)
+    # Innovation roadmap #3: AI-Triage (feature-flagged via AI_TRIAGE_ENABLED)
+    app.include_router(triage_router.router, prefix=api_prefix, dependencies=_auth)
+    # Innovation roadmap #8: Remediation Workflow (state machine + 4-eyes)
+    app.include_router(remediation_workflow_router.router, prefix=api_prefix, dependencies=_auth)
 
     # Serve static dashboard if the directory exists
     if STATIC_DIR.exists():

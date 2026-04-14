@@ -35,6 +35,8 @@ _last_sla_compute: datetime | None = None
 _last_default_scan: datetime | None = None
 _last_ssh_profile_test: datetime | None = None
 _last_ioc_correlation: datetime | None = None
+_last_attack_paths_refresh: datetime | None = None
+_last_scan_priorities_recompute: datetime | None = None
 
 
 async def scheduler_loop() -> None:
@@ -60,6 +62,9 @@ async def scheduler_loop() -> None:
         ("KEV sync", _maybe_sync_kev),
         ("SLA compute", _maybe_compute_sla),
         ("KPI snapshot", _take_daily_kpi_snapshot),
+        # Innovation roadmap hooks
+        ("Attack paths refresh", _maybe_refresh_attack_paths),
+        ("Scan priorities recompute", _maybe_recompute_scan_priorities),
     ]
     while True:
         await asyncio.sleep(_CHECK_INTERVAL_SECONDS)
@@ -1144,3 +1149,79 @@ async def _maybe_auto_correlate_iocs() -> None:
                         logger.exception("IOC auto-correlation notification failed")
 
         logger.info("IOC auto-correlation complete", matches=matches)
+
+
+# ── Innovation roadmap hooks (#1, #5) ────────────────────────────────────────
+
+
+_ATTACK_PATHS_INTERVAL_HOURS = 24
+_SCAN_PRIORITIES_INTERVAL_HOURS = 1
+
+
+async def _maybe_refresh_attack_paths() -> None:
+    """Recompute the attack-path graph once a day (innovation #1)."""
+    global _last_attack_paths_refresh
+
+    now = datetime.now(timezone.utc)
+    if _last_attack_paths_refresh is not None:
+        if (now - _last_attack_paths_refresh).total_seconds() < _ATTACK_PATHS_INTERVAL_HOURS * 3600:
+            return
+
+    from netlanventory.core.attack_paths import refresh_attack_paths
+    from netlanventory.core.database import get_session_factory
+
+    factory = get_session_factory()
+    async with factory() as session:
+        try:
+            count = await refresh_attack_paths(session)
+            logger.info("attack_paths_scheduler_refresh_done", count=count)
+            _last_attack_paths_refresh = now
+        except Exception:
+            logger.exception("attack_paths_scheduler_refresh_failed")
+
+
+async def _maybe_recompute_scan_priorities() -> None:
+    """Recompute priorities for every active asset hourly (innovation #5).
+
+    Cheap: one query per asset (a few rows each). Splits the work across
+    cycles by skipping if the engine is younger than the interval.
+    """
+    global _last_scan_priorities_recompute
+
+    now = datetime.now(timezone.utc)
+    if _last_scan_priorities_recompute is not None:
+        if (now - _last_scan_priorities_recompute).total_seconds() < _SCAN_PRIORITIES_INTERVAL_HOURS * 3600:
+            return
+
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.core.scan_priority import recompute_for_asset
+    from netlanventory.models.asset import Asset
+
+    # Modules tracked by the priority queue. Keep small and stable.
+    tracked_modules = ["ssh_scan", "trivy_docker", "nuclei", "headers_audit"]
+
+    factory = get_session_factory()
+    async with factory() as session:
+        try:
+            asset_ids = (
+                await session.execute(
+                    select(Asset.id).where(Asset.is_active.is_(True))
+                )
+            ).scalars().all()
+
+            for asset_id in asset_ids:
+                try:
+                    await recompute_for_asset(session, asset_id, tracked_modules)
+                except Exception:
+                    logger.exception(
+                        "scan_priority_recompute_failed", asset_id=str(asset_id)
+                    )
+            await session.commit()
+            logger.info(
+                "scan_priorities_recomputed",
+                assets=len(asset_ids),
+                modules=len(tracked_modules),
+            )
+            _last_scan_priorities_recompute = now
+        except Exception:
+            logger.exception("scan_priorities_recompute_loop_failed")
