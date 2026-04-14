@@ -1,4 +1,4 @@
-"""Trivy Docker scan router — scan container images on a remote host via SSH socket forwarding.
+"""Trivy Docker scan router — agentless container image scanning.
 
 Flow for POST (trigger):
   1. Validate asset has SSH credentials (per-asset or profile)
@@ -6,9 +6,11 @@ Flow for POST (trigger):
   3. Background task:
      a. SSH connect with existing credentials
      b. Check Docker is available + list running containers
-     c. Forward /var/run/docker.sock over SSH to a local temp socket
-     d. Run `trivy image --docker-host unix://SOCK --format json` for each unique image
+     c. Stream each image via `docker save` over SSH (no Trivy needed on target)
+     d. Run `trivy image --input -` locally on the streamed image
      e. Parse Trivy JSON, persist CVEs in AssetCve (source="trivy")
+
+100% agentless — Trivy runs locally, Docker images are streamed via SSH.
 """
 
 from __future__ import annotations
@@ -194,8 +196,6 @@ async def _run_trivy_docker_scan(report_id: uuid.UUID, asset_id: uuid.UUID) -> N
             report.status = "running"
             await session.flush()
 
-            local_sock_path: str | None = None
-
             try:
                 # ── Resolve SSH credentials ────────────────────────────────
                 ssh_kwargs = _build_ssh_kwargs(asset)
@@ -260,54 +260,38 @@ async def _run_trivy_docker_scan(report_id: uuid.UUID, asset_id: uuid.UUID) -> N
                         unique_images=len(unique_images),
                     )
 
-                    # ── Forward remote Docker socket to local temp path ────
-                    sock_fd, local_sock_path = tempfile.mkstemp(
-                        prefix="trivy-docker-", suffix=".sock"
-                    )
-                    os.close(sock_fd)
-                    os.unlink(local_sock_path)  # asyncssh needs the path free to create it
+                    # ── Clear existing trivy findings ONCE before scanning ──
+                    existing_links = (
+                        await session.execute(
+                            select(AssetCve).where(AssetCve.asset_id == asset_id)
+                        )
+                    ).scalars().all()
+                    for link in existing_links:
+                        sources = [s for s in (link.source or "").split(",") if s and s != "trivy"]
+                        if not sources:
+                            await session.delete(link)
+                        else:
+                            link.source = ",".join(sources)
+                    await session.flush()
+                    session.expire_all()
 
-                    listener = await conn.forward_local_path(
-                        local_sock_path, "/var/run/docker.sock"
-                    )
+                    # ── Scan each image agentlessly ──────────────────────
+                    # Stream image via `docker save` over SSH → pipe to local `trivy image --input -`
+                    total_cve_count = 0
+                    images_scanned = 0
+                    cve_row_cache: dict[str, object] = {}
 
-                    try:
-                        # ── Clear existing trivy findings ONCE before scanning ──
-                        existing_links = (
-                            await session.execute(
-                                select(AssetCve).where(AssetCve.asset_id == asset_id)
-                            )
-                        ).scalars().all()
-                        for link in existing_links:
-                            sources = [s for s in (link.source or "").split(",") if s and s != "trivy"]
-                            if not sources:
-                                await session.delete(link)
-                            else:
-                                link.source = ",".join(sources)
-                        await session.flush()
-                        # Expire identity map so deleted objects are gone from session cache
-                        session.expire_all()
+                    for image in unique_images:
+                        cve_count, new_cve_ids = await _scan_image_agentless(
+                            session, conn, asset_id, image, cve_row_cache
+                        )
+                        total_cve_count += cve_count
+                        images_scanned += 1
+                        cve_ids_to_enrich.extend(new_cve_ids)
 
-                        # ── Run Trivy per unique image ─────────────────────
-                        total_cve_count = 0
-                        images_scanned = 0
-                        # Track CVE rows created in this scan to avoid duplicate queries
-                        cve_row_cache: dict[str, object] = {}
-
-                        for image in unique_images:
-                            cve_count, new_cve_ids = await _scan_image_with_trivy(
-                                session, asset_id, image, local_sock_path, cve_row_cache
-                            )
-                            total_cve_count += cve_count
-                            images_scanned += 1
-                            cve_ids_to_enrich.extend(new_cve_ids)
-
-                        report.status = "completed"
-                        report.images_scanned = images_scanned
-                        report.cves_found = total_cve_count
-
-                    finally:
-                        listener.close()
+                    report.status = "completed"
+                    report.images_scanned = images_scanned
+                    report.cves_found = total_cve_count
 
             except (asyncssh.DisconnectError, asyncssh.PermissionDenied, OSError) as exc:
                 logger.warning(
@@ -325,13 +309,6 @@ async def _run_trivy_docker_scan(report_id: uuid.UUID, asset_id: uuid.UUID) -> N
                 )
                 report.status = "failed"
                 report.error_msg = f"Unexpected error: {exc}"
-            finally:
-                if local_sock_path and os.path.exists(local_sock_path):
-                    try:
-                        os.unlink(local_sock_path)
-                    except OSError:
-                        pass
-
             # Update trivy_last_auto_scan_at if trivy_auto_scan_enabled
             if asset.trivy_auto_scan_enabled:
                 from datetime import datetime, timezone as _tz
@@ -406,6 +383,79 @@ async def _scan_image_with_trivy(
 
     except Exception as exc:
         logger.warning("Trivy subprocess error", image=image, error=str(exc))
+        return 0, []
+
+    return await _persist_trivy_cves(session, asset_id, image, data, cve_row_cache or {})
+
+
+async def _scan_image_agentless(
+    session: AsyncSession,
+    conn: asyncssh.SSHClientConnection,
+    asset_id: uuid.UUID,
+    image: str,
+    cve_row_cache: dict | None = None,
+) -> tuple[int, list[str]]:
+    """Stream a Docker image via SSH `docker save` and scan locally with Trivy.
+
+    100% agentless — Trivy is only needed on the NetLanVentory server, not on the target.
+    """
+    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._/-]*(?::[a-zA-Z0-9._-]+)?$", image):
+        logger.warning("Invalid Docker image name, skipping", image=image)
+        return 0, []
+
+    try:
+        # Stream image tarball from remote Docker → pipe into local Trivy
+        # Using ssh to pipe: ssh target "docker save IMAGE" | trivy image --input - --format json
+        trivy_cmd = [
+            TRIVY_BINARY,
+            "image",
+            "--input", "/dev/stdin",
+            "--format", "json",
+            "--quiet",
+            "--no-progress",
+            "--scanners", "vuln",
+        ]
+
+        # Start local trivy process
+        trivy_proc = await asyncio.create_subprocess_exec(
+            *trivy_cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        # Stream docker save output from remote host
+        docker_save_cmd = f"docker save '{image}' 2>/dev/null"
+        ssh_result = await conn.run(docker_save_cmd, check=False, encoding=None)
+
+        if ssh_result.returncode != 0 or not ssh_result.stdout:
+            logger.warning("docker save failed for image", image=image)
+            trivy_proc.kill()
+            await trivy_proc.communicate()
+            return 0, []
+
+        # Feed the image tarball to trivy
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                trivy_proc.communicate(input=ssh_result.stdout), timeout=TRIVY_TIMEOUT
+            )
+        except TimeoutError:
+            trivy_proc.kill()
+            await trivy_proc.communicate()
+            logger.warning("Trivy image scan timed out", image=image)
+            return 0, []
+
+        if not stdout_bytes:
+            return 0, []
+
+        try:
+            data = json.loads(stdout_bytes.decode("utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            logger.warning("Trivy JSON parse error", image=image)
+            return 0, []
+
+    except Exception as exc:
+        logger.warning("Agentless Trivy scan error", image=image, error=str(exc))
         return 0, []
 
     return await _persist_trivy_cves(session, asset_id, image, data, cve_row_cache or {})

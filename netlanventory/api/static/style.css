@@ -338,6 +338,12 @@ body {
   overflow: hidden;
 }
 .stat-card:last-child { border-right: none; }
+/* In grid layouts (exec-kpis), use border instead of border-right */
+[style*="grid-template-columns"] > .stat-card {
+  border-right: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
 .stat-card::after {
   content: '';
   position: absolute;
@@ -609,6 +615,8 @@ thead th {
   top: 0;
   z-index: 2;
 }
+thead th[data-sort-key] { cursor: pointer; }
+thead th[data-sort-key]:hover { color: var(--accent); }
 tbody tr {
   border-bottom: 1px solid var(--border-muted);
   transition: background .08s;
@@ -938,9 +946,10 @@ tbody tr.clickable { cursor: pointer; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px 22px;
-  max-width: 680px;
   transition: border-color .15s;
 }
+/* Limit width only in admin settings context, not in dashboard grids */
+#panel-admin .settings-card { max-width: 680px; }
 .settings-card:hover { border-color: var(--border-active); }
 .settings-card-title {
   font-size: 12.5px;

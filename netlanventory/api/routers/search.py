@@ -8,14 +8,18 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netlanventory.api.dependencies import get_db
+from netlanventory.core.limiter import limiter
+from netlanventory.core.logging import get_logger
 from netlanventory.models.asset import Asset
 from netlanventory.models.cve import Cve
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -37,7 +41,9 @@ class SearchResponse(BaseModel):
 
 
 @router.get("", response_model=SearchResponse)
+@limiter.limit("30/minute")
 async def global_search(
+    request: Request,
     db: DbDep,
     q: str = Query(..., min_length=2, max_length=200),
     types: str = Query("assets,cves", description="Comma-separated list: assets,cves"),
@@ -60,7 +66,8 @@ async def global_search(
         if "cves" in search_types:
             cve_results = await _search_cves_fts(db, q_clean, limit)
             results.extend(cve_results)
-    except Exception:
+    except Exception as exc:
+        logger.debug("fts_search_fallback_to_ilike", error=str(exc))
         # Fallback to simple ILIKE search
         if "assets" in search_types:
             results.extend(await _search_assets_ilike(db, q_clean, limit))

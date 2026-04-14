@@ -145,3 +145,38 @@ services:
       timeout: 10s
       start_period: 20s
       retries: 3
+
+  # ── Remediation worker (innovation #8) ────────────────────────────────────
+  # Out-of-process executor for Ansible playbooks. Talks to the API only,
+  # no DB access. Disabled by default — uncomment the profile or remove it
+  # to enable.
+  remediation-worker:
+    profiles: ["remediation"]
+    build:
+      context: .
+      dockerfile: remediation_worker/Dockerfile
+    restart: unless-stopped
+    networks:
+      - internal
+    environment:
+      NLV_API_URL:           "http://app:8443/api/v1"
+      NLV_API_TOKEN:         ${REMEDIATION_WORKER_TOKEN:-}
+      POLL_INTERVAL_SECONDS: ${REMEDIATION_POLL_SECONDS:-10}
+      ANSIBLE_TIMEOUT_SECONDS: ${REMEDIATION_ANSIBLE_TIMEOUT:-1800}
+      SSH_KEY_PATH:          /run/secrets/ssh_private_key
+    secrets:
+      - ssh_private_key
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      app:
+        condition: service_healthy
+
+secrets:
+  ssh_private_key:
+    file: ${REMEDIATION_SSH_KEY_FILE:-./remediation_worker/.gitkeep}

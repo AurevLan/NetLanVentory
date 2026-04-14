@@ -28,6 +28,7 @@ from netlanventory.api.dependencies import actor_from_user, get_current_active_u
 from netlanventory.core.audit import log_action
 from netlanventory.core.config import get_settings
 from netlanventory.core.database import get_session_factory
+from netlanventory.core.http_safe import SafeAsyncClient, SsrfBlockedError, assert_url_safe
 from netlanventory.core.limiter import limiter
 from netlanventory.core.logging import get_logger
 from netlanventory.models.asset import Asset
@@ -132,6 +133,10 @@ async def trigger_headers_audit(
         raise HTTPException(status_code=404, detail="Asset not found")
 
     target_url_str = str(payload.target_url)
+    try:
+        assert_url_safe(target_url_str, allow_private=True)
+    except SsrfBlockedError as exc:
+        raise HTTPException(status_code=400, detail=f"Target rejected: {exc}") from exc
 
     report = HeadersAuditReport(
         asset_id=asset_id,
@@ -271,10 +276,10 @@ async def _check_headers(target_url: str) -> dict:
     misconfigured: list[dict] = []
     details: dict[str, str] = {}
 
-    async with httpx.AsyncClient(
-        follow_redirects=True,
+    async with SafeAsyncClient(
         timeout=15.0,
         verify=False,  # self-signed certs common on internal assets
+        allow_private=True,
     ) as client:
         response = await client.get(target_url)
 
@@ -296,7 +301,8 @@ async def _check_headers(target_url: str) -> dict:
             if validator is not None:
                 try:
                     valid = validator(value)
-                except Exception:
+                except Exception as exc:
+                    logger.debug("header_validator_error", header=header_name, error=str(exc))
                     valid = False
                 if not valid:
                     misconfigured.append({

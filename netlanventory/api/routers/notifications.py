@@ -29,6 +29,10 @@ _ALLOWED_EVENTS = {
     "port_change",
     "asset_offline",
     "scan_done",
+    "ioc_match",
+    "new_asset",
+    "new_critical_asset",
+    "ssh_profile_failed",
 }
 
 

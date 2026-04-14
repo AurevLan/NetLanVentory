@@ -20,13 +20,15 @@ def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         settings = get_settings()
-        _engine = create_async_engine(
-            settings.database_url,
-            echo=settings.app_debug,
-            pool_pre_ping=True,
-            pool_size=10,
-            max_overflow=20,
-        )
+        kwargs: dict = {
+            "echo": settings.app_debug,
+            "pool_pre_ping": True,
+        }
+        # SQLite (used in tests) doesn't accept pool_size/max_overflow with StaticPool.
+        if not settings.database_url.startswith("sqlite"):
+            kwargs["pool_size"] = 10
+            kwargs["max_overflow"] = 20
+        _engine = create_async_engine(settings.database_url, **kwargs)
     return _engine
 
 

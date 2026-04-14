@@ -8,6 +8,7 @@ Unified formula combining:
   - Default credentials found (direct access = highest penalty)
   - TLS grade (testssl.sh)
   - SSH configuration weaknesses (ssh-audit)
+  - IOC correlation (threat intelligence feed matches on IP/domain)
 
 Score is normalised to [0, 100].
 """
@@ -48,6 +49,12 @@ def compute_risk_score(
     default_creds_vulnerable_count: int = 0,
     ssh_audit_critical_count: int = 0,
     exploit_verified_count: int = 0,
+    privesc_risk_count: int = 0,
+    firewall_active: bool | None = None,
+    rootkit_infected_count: int = 0,
+    brute_force_sources: int = 0,
+    ioc_match_count: int = 0,
+    ioc_max_severity: str | None = None,
 ) -> float:
     """Return a unified risk score in [0, 100].
 
@@ -68,6 +75,18 @@ def compute_risk_score(
         Number of critical CVEs detected by ssh-audit (e.g. Terrapin).
     exploit_verified_count:
         Number of CVEs confirmed exploitable via Nuclei exploit validation.
+    privesc_risk_count:
+        Number of privilege escalation risk findings (NOPASSWD sudo, GTFOBins SUID, etc.).
+    firewall_active:
+        Whether a host firewall is active. None = not scanned. False = no firewall.
+    rootkit_infected_count:
+        Number of rootkit infections detected.
+    brute_force_sources:
+        Number of unique IPs performing brute-force attacks on the asset.
+    ioc_match_count:
+        Number of IOC matches (IP or domain) found in threat intelligence feeds.
+    ioc_max_severity:
+        Highest severity among matched IOCs ('critical', 'high', 'medium', 'low').
     """
     criticality_factor = _CRITICALITY_FACTORS.get(asset_criticality.lower(), 1.0)
     exposure_factor = 1.0 + 0.1 * open_port_count
@@ -102,6 +121,28 @@ def compute_risk_score(
     grade_upper = (testssl_grade or "").strip().upper()
     penalties += _TESTSSL_GRADE_PENALTY.get(grade_upper, 0.0)
 
+    # Privilege escalation paths — NOPASSWD sudo, GTFOBins SUID, dangerous caps
+    if privesc_risk_count > 0:
+        penalties += 10.0 + min(privesc_risk_count - 1, 4) * 3.0
+
+    # No firewall — all services directly exposed
+    if firewall_active is False:
+        penalties += 15.0
+
+    # Rootkit detected — asset likely compromised
+    if rootkit_infected_count > 0:
+        penalties += 30.0 + min(rootkit_infected_count - 1, 2) * 5.0
+
+    # Active brute-force — asset under attack
+    if brute_force_sources > 0:
+        penalties += 5.0 + min(brute_force_sources - 1, 4) * 2.0
+
+    # IOC correlation — asset IP/domain found in threat intelligence feeds
+    if ioc_match_count > 0:
+        severity_weight = {"critical": 25.0, "high": 15.0, "medium": 8.0, "low": 3.0}
+        base_penalty = severity_weight.get((ioc_max_severity or "").lower(), 8.0)
+        penalties += base_penalty + min(ioc_match_count - 1, 4) * 3.0
+
     # Penalties are also weighted by criticality (a critical asset with open Redis is worse)
     # but cap the factor at 1.5 to avoid double-counting with CVE criticality
     penalty_factor = min(criticality_factor, 1.5)
@@ -127,14 +168,18 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
     Returns the new score (also written to asset.risk_score), or None if not found.
     """
     from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
+    from sqlalchemy.orm import load_only, selectinload
 
     from netlanventory.models.asset import Asset
     from netlanventory.models.asset_cve import AssetCve
+    from netlanventory.models.auth_log_report import AuthLogReport
     from netlanventory.models.cve import Cve
-    from netlanventory.models.testssl_report import TestsslReport
-    from netlanventory.models.ssh_audit_report import SshAuditReport
     from netlanventory.models.default_creds_report import DefaultCredsReport
+    from netlanventory.models.firewall_report import FirewallReport
+    from netlanventory.models.privesc_report import PrivescReport
+    from netlanventory.models.rootkit_report import RootkitReport
+    from netlanventory.models.ssh_audit_report import SshAuditReport
+    from netlanventory.models.testssl_report import TestsslReport
 
     # Load asset with ports and CVEs
     result = await session.execute(
@@ -149,61 +194,166 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
     open_port_count = sum(1 for p in (asset.ports or []) if p.state == "open")
 
     # Active CVE CVSS scores — exclude acknowledged as false_positive / accepted
+    # When compensating controls are enabled, replace each raw CVSS by the
+    # post-controls effective severity computed from the asset's hardening
+    # signals (firewall, privesc, headers/WAF, tags, KEV clamp).
+    from netlanventory.core.config import get_settings
+    settings = get_settings()
+    use_cc = settings.use_compensating_controls
+    shadow_cc = settings.shadow_mode_compensating_controls
+
+    ctx = None
+    if use_cc or shadow_cc:
+        from netlanventory.core.compensating_controls import build_context, compute_effective_severity
+        ctx = await build_context(session, asset)
+
     cvss_scores: list[float] = []
     exploit_verified_count = 0
+    # Shadow-mode telemetry: count downgrades that *would* have applied
+    shadow_downgrades = 0
+    shadow_total_delta = 0.0
+
     for link in (asset.cves or []):
         if link.ack_status in ("false_positive", "accepted"):
             continue
         cve = link.cve
         if cve and cve.cvss_score is not None:
-            cvss_scores.append(cve.cvss_score)
+            if ctx is not None and (use_cc or shadow_cc):
+                eff = compute_effective_severity(cve, ctx)
+                if shadow_cc and not use_cc:
+                    # Telemetry only — do NOT apply
+                    if eff.effective < cve.cvss_score:
+                        shadow_downgrades += 1
+                        shadow_total_delta += (cve.cvss_score - eff.effective)
+                    cvss_scores.append(cve.cvss_score)
+                else:
+                    cvss_scores.append(eff.effective)
+            else:
+                cvss_scores.append(cve.cvss_score)
         if link.exploit_verified:
             exploit_verified_count += 1
 
+    if shadow_cc and not use_cc and shadow_downgrades > 0:
+        logger.info(
+            "compensating_controls_shadow",
+            asset_id=str(asset_id),
+            cves_evaluated=len(cvss_scores),
+            would_downgrade=shadow_downgrades,
+            total_delta=round(shadow_total_delta, 2),
+        )
+
+    # ── Scalar queries for latest report data ─────────────────────────────
+    # Use load_only() to avoid loading relationship-heavy ORM objects that
+    # could trigger lazy back_populates access via the identity map.
+
     # Latest testssl grade
     testssl_grade: str | None = None
-    ts_result = await session.execute(
-        select(TestsslReport)
-        .where(
-            TestsslReport.asset_id == asset_id,
-            TestsslReport.status == "completed",
-        )
+    ts_row = (await session.execute(
+        select(TestsslReport.grade)
+        .where(TestsslReport.asset_id == asset_id, TestsslReport.status == "completed")
         .order_by(TestsslReport.created_at.desc())
         .limit(1)
-    )
-    ts_report = ts_result.scalar_one_or_none()
-    if ts_report:
-        testssl_grade = ts_report.grade
+    )).first()
+    if ts_row:
+        testssl_grade = ts_row[0]
 
     # Latest ssh-audit critical count
     ssh_audit_critical = 0
-    sa_result = await session.execute(
-        select(SshAuditReport)
-        .where(
-            SshAuditReport.asset_id == asset_id,
-            SshAuditReport.status == "completed",
-        )
+    sa_row = (await session.execute(
+        select(SshAuditReport.critical_count)
+        .where(SshAuditReport.asset_id == asset_id, SshAuditReport.status == "completed")
         .order_by(SshAuditReport.created_at.desc())
         .limit(1)
-    )
-    sa_report = sa_result.scalar_one_or_none()
-    if sa_report:
-        ssh_audit_critical = sa_report.critical_count
+    )).first()
+    if sa_row:
+        ssh_audit_critical = sa_row[0]
 
     # Latest default_creds vulnerable count
     dc_vulnerable = 0
-    dc_result = await session.execute(
-        select(DefaultCredsReport)
-        .where(
-            DefaultCredsReport.asset_id == asset_id,
-            DefaultCredsReport.status == "completed",
-        )
+    dc_row = (await session.execute(
+        select(DefaultCredsReport.vulnerable_count)
+        .where(DefaultCredsReport.asset_id == asset_id, DefaultCredsReport.status == "completed")
         .order_by(DefaultCredsReport.created_at.desc())
         .limit(1)
-    )
-    dc_report = dc_result.scalar_one_or_none()
-    if dc_report:
-        dc_vulnerable = dc_report.vulnerable_count
+    )).first()
+    if dc_row:
+        dc_vulnerable = dc_row[0]
+
+    # Latest privesc risk count
+    privesc_risks = 0
+    pe_row = (await session.execute(
+        select(PrivescReport.risk_findings_count)
+        .where(PrivescReport.asset_id == asset_id, PrivescReport.status == "completed")
+        .order_by(PrivescReport.created_at.desc())
+        .limit(1)
+    )).first()
+    if pe_row:
+        privesc_risks = pe_row[0]
+
+    # Latest firewall status
+    firewall_active: bool | None = None
+    fw_row = (await session.execute(
+        select(FirewallReport.firewall_active)
+        .where(FirewallReport.asset_id == asset_id, FirewallReport.status == "completed")
+        .order_by(FirewallReport.created_at.desc())
+        .limit(1)
+    )).first()
+    if fw_row:
+        firewall_active = fw_row[0]
+
+    # Latest rootkit infected count
+    rootkit_infected = 0
+    rk_row = (await session.execute(
+        select(RootkitReport.infected_count)
+        .where(RootkitReport.asset_id == asset_id, RootkitReport.status == "completed")
+        .order_by(RootkitReport.created_at.desc())
+        .limit(1)
+    )).first()
+    if rk_row:
+        rootkit_infected = rk_row[0]
+
+    # Latest brute-force source count
+    brute_force = 0
+    al_row = (await session.execute(
+        select(AuthLogReport.brute_force_sources)
+        .where(AuthLogReport.asset_id == asset_id, AuthLogReport.status == "completed")
+        .order_by(AuthLogReport.created_at.desc())
+        .limit(1)
+    )).first()
+    if al_row:
+        brute_force = al_row[0]
+
+    # IOC matches (threat intelligence correlation)
+    ioc_match_count = 0
+    ioc_max_severity: str | None = None
+    try:
+        from netlanventory.models.threat_ioc import ThreatIoc
+        from netlanventory.models.asset_dns import AssetDns
+
+        # Match by IP
+        ip_iocs = (await session.execute(
+            select(ThreatIoc.severity)
+            .where(ThreatIoc.indicator == str(asset.ip), ThreatIoc.ioc_type == "ip")
+        )).scalars().all()
+
+        # Match by DNS domains
+        dns_names = (await session.execute(
+            select(AssetDns.fqdn).where(AssetDns.asset_id == asset_id)
+        )).scalars().all()
+        domain_iocs = []
+        if dns_names:
+            domain_iocs = (await session.execute(
+                select(ThreatIoc.severity)
+                .where(ThreatIoc.indicator.in_([d.lower() for d in dns_names]), ThreatIoc.ioc_type == "domain")
+            )).scalars().all()
+
+        all_ioc_severities = list(ip_iocs) + list(domain_iocs)
+        ioc_match_count = len(all_ioc_severities)
+        if all_ioc_severities:
+            severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+            ioc_max_severity = min(all_ioc_severities, key=lambda s: severity_order.get(s.lower(), 4))
+    except Exception as exc:
+        logger.debug("ioc_correlation_query_failed", asset_id=str(asset_id), error=str(exc))
 
     score = compute_risk_score(
         asset_criticality=asset.criticality or "medium",
@@ -213,6 +363,12 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
         default_creds_vulnerable_count=dc_vulnerable,
         ssh_audit_critical_count=ssh_audit_critical,
         exploit_verified_count=exploit_verified_count,
+        privesc_risk_count=privesc_risks,
+        firewall_active=firewall_active,
+        rootkit_infected_count=rootkit_infected,
+        brute_force_sources=brute_force,
+        ioc_match_count=ioc_match_count,
+        ioc_max_severity=ioc_max_severity,
     )
 
     asset.risk_score = score
@@ -225,5 +381,10 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
         testssl_grade=testssl_grade,
         ssh_critical=ssh_audit_critical,
         exploit_verified=exploit_verified_count,
+        privesc_risks=privesc_risks,
+        firewall_active=firewall_active,
+        rootkit_infected=rootkit_infected,
+        brute_force=brute_force,
+        ioc_matches=ioc_match_count,
     )
     return score

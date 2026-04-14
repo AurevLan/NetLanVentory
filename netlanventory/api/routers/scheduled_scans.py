@@ -41,19 +41,19 @@ class ScheduledScanUpdate(BaseModel):
 
 
 class ScheduledScanOut(BaseModel):
-    id: str
+    id: uuid.UUID
     name: str
     target: str
     modules: str
     interval_hours: int
     enabled: bool
-    last_run_at: str | None
-    last_status: str | None
-    last_error: str | None
-    last_scan_id: str | None
-    run_count: int
-    created_at: str | None
-    updated_at: str | None
+    last_run_at: Any | None = None
+    last_status: str | None = None
+    last_error: str | None = None
+    last_scan_id: Any | None = None
+    run_count: int = 0
+    created_at: Any | None = None
+    updated_at: Any | None = None
 
     model_config = {"from_attributes": True}
 

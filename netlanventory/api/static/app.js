@@ -2,6 +2,57 @@
 
 const API = '/api/v1';
 
+// ── i18n infrastructure ─────────────────────────────────────────────────────
+let _i18n = {};
+let _lang = localStorage.getItem('nlv_lang') || (navigator.language.startsWith('fr') ? 'fr' : 'en');
+
+function t(key, fallback) {
+  return _i18n[key] || fallback || key;
+}
+
+async function loadLocale(lang) {
+  try {
+    const resp = await fetch(`/static/locales/${lang}.json`);
+    if (!resp.ok) throw new Error(`Locale ${lang} not found`);
+    _i18n = await resp.json();
+    _lang = lang;
+    localStorage.setItem('nlv_lang', lang);
+    _applyStaticI18n();
+  } catch (e) {
+    console.warn('i18n_load_failed:', e);
+    if (lang !== 'en') await loadLocale('en'); // fallback
+  }
+}
+
+function _applyStaticI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    const val = t(key);
+    if (val && val !== key) el.textContent = val;
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    const val = t(key);
+    if (val && val !== key) el.placeholder = val;
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const key = el.getAttribute('data-i18n-title');
+    const val = t(key);
+    if (val && val !== key) el.title = val;
+  });
+  // Update lang toggle button
+  const langBtn = document.getElementById('lang-toggle');
+  if (langBtn) langBtn.textContent = _lang === 'fr' ? 'EN' : 'FR';
+}
+
+function toggleLang() {
+  const newLang = _lang === 'fr' ? 'en' : 'fr';
+  loadLocale(newLang).then(() => {
+    // Reload current view to apply JS-generated translations
+    if (_currentView) switchToView(_currentView);
+  });
+}
+
 // ── Auth state ────────────────────────────────────────────────────────────────
 // NOTE: Token stored in sessionStorage (not localStorage) to limit XSS exposure.
 // sessionStorage is cleared when the tab closes, reducing persistent token theft risk.
@@ -89,7 +140,7 @@ async function api(path, opts = {}) {
 }
 
 function badge(text, type = 'info') {
-  return `<span class="badge badge-${type}">${text}</span>`;
+  return `<span class="badge badge-${escape(type)}">${escape(text)}</span>`;
 }
 
 function statusBadge(status) {
@@ -131,6 +182,85 @@ function escape(str) {
  */
 function escapeAttr(str) {
   return escape(str).replace(/\\/g, '\\\\');
+}
+
+// ── Sortable table headers ──────────────────────────────────────────────────
+// Call _initSortableHeaders('table-id') after rendering any table.
+// <th> elements with data-sort-key are made clickable.
+// Sorts the <tbody> rows client-side (text, numeric, or date).
+
+const _sortState = {}; // { tableId: { key, dir } }
+
+function _initSortableHeaders(tableId) {
+  const table = document.getElementById(tableId);
+  if (!table) return;
+  const headers = table.querySelectorAll('thead th[data-sort-key]');
+  headers.forEach(th => {
+    th.style.cursor = 'pointer';
+    th.style.userSelect = 'none';
+    th.style.position = 'relative';
+    // Remove old indicator if re-init
+    th.querySelectorAll('.sort-indicator').forEach(el => el.remove());
+    const indicator = document.createElement('span');
+    indicator.className = 'sort-indicator';
+    indicator.style.cssText = 'margin-left:4px;font-size:10px;opacity:0.4;';
+    indicator.textContent = '⇅';
+    th.appendChild(indicator);
+    th.addEventListener('click', () => _sortTable(tableId, th));
+  });
+}
+
+function _sortTable(tableId, th) {
+  const key = th.dataset.sortKey;
+  const type = th.dataset.sortType || 'text'; // text | num | date
+  const state = _sortState[tableId] || {};
+  const dir = state.key === key && state.dir === 'asc' ? 'desc' : 'asc';
+  _sortState[tableId] = { key, dir };
+
+  const table = document.getElementById(tableId);
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  if (!tbody) return;
+
+  // Update indicators
+  table.querySelectorAll('thead th .sort-indicator').forEach(el => {
+    el.textContent = '⇅';
+    el.style.opacity = '0.4';
+  });
+  const indicator = th.querySelector('.sort-indicator');
+  if (indicator) {
+    indicator.textContent = dir === 'asc' ? '↑' : '↓';
+    indicator.style.opacity = '1';
+  }
+
+  // Collect rows (skip subnet-header rows for grouped tables)
+  const rows = Array.from(tbody.querySelectorAll('tr:not(.subnet-header)'));
+  const colIndex = Array.from(th.parentNode.children).indexOf(th);
+
+  rows.sort((a, b) => {
+    const cellA = a.children[colIndex];
+    const cellB = b.children[colIndex];
+    if (!cellA || !cellB) return 0;
+
+    let valA = (cellA.dataset.sortValue ?? cellA.textContent).trim();
+    let valB = (cellB.dataset.sortValue ?? cellB.textContent).trim();
+
+    let cmp = 0;
+    if (type === 'num') {
+      const nA = parseFloat(valA) || 0;
+      const nB = parseFloat(valB) || 0;
+      cmp = nA - nB;
+    } else if (type === 'date') {
+      const dA = new Date(valA).getTime() || 0;
+      const dB = new Date(valB).getTime() || 0;
+      cmp = dA - dB;
+    } else {
+      cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+    }
+    return dir === 'asc' ? cmp : -cmp;
+  });
+
+  rows.forEach(r => tbody.appendChild(r));
 }
 
 // ── Toast notifications ───────────────────────────────────────────────────────
@@ -178,14 +308,12 @@ function switchToView(viewName, { pushHistory = true } = {}) {
   const loaders = {
     'admin': () => loadUsers(),
     'cves': () => loadCves(),
-    'dashboard': () => loadDashboard(),
-    'expositions': () => loadExpositions(),
+    'dashboard': () => { loadExecutive(); loadDashboard(); },
     'topology': () => loadTopology(),
     'reports': () => loadReportsPanel(),
-    'remediation': () => { loadRemediation(); loadRemediationStats(); },
+    'remediation': () => { loadRemediation(); loadRemediationStats(); loadExpositions(); },
     'timeline': () => loadTimeline(),
     'compliance': () => loadCompliance(),
-    'executive': () => loadExecutive(),
     'threat-intel': () => loadThreatIntel(),
   };
   if (loaders[viewName]) loaders[viewName]();
@@ -193,6 +321,10 @@ function switchToView(viewName, { pushHistory = true } = {}) {
 
 function _getViewFromHash() {
   const hash = location.hash.replace(/^#\/?/, '');
+  // Redirect removed views to their merged counterparts
+  if (hash === 'executive') return 'dashboard';
+  if (hash === 'expositions') return 'remediation';
+  if (hash === 'modules') return 'scans';
   return hash || 'assets';
 }
 
@@ -366,7 +498,7 @@ async function refreshStats() {
       const dash = await api('/dashboard');
       const expBadge = document.getElementById('nav-exp-count');
       if (expBadge) expBadge.textContent = dash.unacknowledged_cves > 0 ? dash.unacknowledged_cves : '';
-    } catch (_) { /* non-critical */ }
+    } catch (e) { console.warn('dashboard_cve_badge:', e); }
   } catch (e) {
     console.error('Stats error:', e);
   }
@@ -397,7 +529,8 @@ async function _runBulkScan(ids, scanType) {
     try {
       await api(`/assets/${id}/${endpoint}`, { method: 'POST' });
       ok++;
-    } catch (_) {
+    } catch (e) {
+      console.warn('bulk_scan_item_failed:', e);
       fail++;
     }
   }
@@ -618,7 +751,7 @@ function _renderCvePriorityList(cves) {
       const hasFix = !!c.fixed_version;
       const hasRemediation = !!c.remediation;
       const adminEdit = isAdmin
-        ? `<button class="cve-action-edit" onclick="openCveRemediationModal('${escape(c.cve_id_str)}','${escape(c.remediation || '')}')" title="Éditer le plan d'action">✎</button>`
+        ? `<button class="cve-action-edit" onclick="openCveRemediationModal('${escapeAttr(c.cve_id_str)}','${escapeAttr(c.remediation || '')}')" title="Éditer le plan d'action">✎</button>`
         : '';
 
       const exploitBadge = c.exploit_verified === true
@@ -643,7 +776,7 @@ function _renderCvePriorityList(cves) {
             <div class="cve-row-meta">
               ${_renderSourceBadges(c.source)}
               ${c.cvss_score != null ? `<span class="cve-cvss-chip" style="--cvss-color:${color}">${c.cvss_score.toFixed(1)}</span>` : ''}
-              <span class="cve-ack-badge" style="color:${ackColor}">${ackLabels[ackStatus] || ackStatus}</span>
+              <span class="cve-ack-badge" style="color:${ackColor}">${ackLabels[ackStatus] || escape(ackStatus)}</span>
             </div>
           </div>
           ${c.description ? `<div class="cve-row-desc">${escape(c.description.length > 140 ? c.description.slice(0,140)+'…' : c.description)}</div>` : ''}
@@ -679,6 +812,139 @@ function _renderCvePriorityList(cves) {
   }).join('');
 }
 
+// ── Priority Matrix P1-P4 view ──────────────────────────────────────────────
+
+let _priorityViewActive = false;
+
+function _togglePriorityView() {
+  _priorityViewActive = !_priorityViewActive;
+  const btn = document.getElementById('priority-toggle-btn');
+  if (btn) btn.textContent = _priorityViewActive ? '◉ Sévérité' : '◎ Priorité';
+  if (_priorityViewActive && _modalAssetId) {
+    _loadAndRenderPriorityMatrix(_modalAssetId);
+  } else if (_modalAssetId) {
+    // Re-render the severity view
+    _reloadCvePriorityList(_modalAssetId);
+  }
+}
+
+async function _reloadCvePriorityList(assetId) {
+  try {
+    const a = await api(`/assets/${assetId}`);
+    _renderCvePriorityList(a.cves || []);
+  } catch (e) {
+    console.error('CVE reload error:', e);
+  }
+}
+
+const _TIER_CONFIG = {
+  P1: { color: '#f87171', label: 'P1 — Immédiat', sla: '<24h', icon: '🔴' },
+  P2: { color: '#fb923c', label: 'P2 — Urgent', sla: '<7j', icon: '🟠' },
+  P3: { color: '#fbbf24', label: 'P3 — Planifié', sla: '<30j', icon: '🟡' },
+  P4: { color: '#60a5fa', label: 'P4 — Backlog', sla: 'backlog', icon: '🔵' },
+};
+
+async function _loadAndRenderPriorityMatrix(assetId) {
+  const container = document.getElementById('cve-priority-list');
+  if (!container) return;
+
+  container.innerHTML = '<div style="padding:20px;color:var(--text-muted);font-size:13px">Chargement de la matrice de priorité…</div>';
+
+  try {
+    const data = await api(`/assets/${assetId}/priority-matrix`);
+    if (!data) return;
+
+    // Update severity counts (sum all tiers)
+    const counts = { all: data.total, critical: 0, high: 0, medium: 0, low: 0 };
+    ['P1', 'P2', 'P3', 'P4'].forEach(tier => {
+      (data[tier] || []).forEach(c => {
+        const s = (c.severity || 'unknown').toLowerCase();
+        if (s in counts) counts[s]++;
+      });
+    });
+    ['all', 'critical', 'high', 'medium', 'low'].forEach(k => {
+      const el = document.getElementById('sev-count-' + k);
+      if (el) el.textContent = counts[k] || '';
+    });
+
+    if (data.total === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding:48px 20px">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40">
+            <path d="M24 4L8 10v12c0 9.6 6.72 18.6 16 21 9.28-2.4 16-11.4 16-21V10L24 4z"/>
+            <path d="M17 24l4 4 10-10"/>
+          </svg>
+          <p>Aucune vulnérabilité détectée</p>
+          <span>Lancez un scan SSH, Nuclei, ZAP ou Trivy pour analyser cet asset.</span>
+        </div>`;
+      return;
+    }
+
+    const isAdmin = _me && _me.role === 'admin';
+
+    container.innerHTML = ['P1', 'P2', 'P3', 'P4'].filter(tier => (data[tier] || []).length > 0).map(tier => {
+      const entries = data[tier];
+      const cfg = _TIER_CONFIG[tier];
+      const panelId = 'pm-grp-' + tier;
+      const expanded = tier === 'P1' || tier === 'P2';
+
+      const rows = entries.map(c => {
+        const sevColor = SEV_COLOR[(c.severity || 'unknown').toLowerCase()] || 'var(--text-muted)';
+        const epssDisplay = c.epss_percentile != null ? `<span class="cve-cvss-chip" style="--cvss-color:#818cf8" title="EPSS percentile">${(c.epss_percentile * 100).toFixed(0)}%</span>` : '';
+        const kevBadge = c.kev ? '<span class="cve-fix-badge" style="background:rgba(248,113,113,0.15);color:#f87171;border-color:rgba(248,113,113,0.3)">KEV</span>' : '';
+        const exploitBadge = c.exploit_verified === true
+          ? '<span class="exploit-verified-badge exploit-confirmed" title="Exploit confirmé">⚡ Exploitable</span>'
+          : '';
+
+        return `
+          <div class="cve-row" data-sev="${escape((c.severity || 'unknown').toLowerCase())}">
+            <div class="cve-row-main">
+              <div class="cve-row-id">
+                <a class="cve-link" href="${cveUrl(c.cve_id)}" target="_blank" rel="noopener">${escape(c.cve_id)}</a>
+                ${kevBadge}
+                ${c.fixed_version ? '<span class="cve-fix-badge">Fix dispo</span>' : ''}
+                ${exploitBadge}
+              </div>
+              <div class="cve-row-pkg">
+                ${escape(c.package_name || '—')}
+                <span class="cve-row-version">${escape(c.package_version || '')}</span>
+                ${c.fixed_version ? `<span class="cve-row-fix">→ ${escape(c.fixed_version)}</span>` : ''}
+              </div>
+              <div class="cve-row-meta">
+                ${_renderSourceBadges(c.source)}
+                ${c.cvss_score != null ? `<span class="cve-cvss-chip" style="--cvss-color:${sevColor}">${c.cvss_score.toFixed(1)}</span>` : ''}
+                ${epssDisplay}
+                <span style="font-size:11px;color:${cfg.color};font-weight:600;font-family:var(--font-mono)">${c.score.toFixed(2)}</span>
+              </div>
+            </div>
+            <div class="cve-row-desc" style="color:var(--text-muted);font-size:11px;padding:4px 12px 8px">
+              ${escape(c.remediation_action)}
+            </div>
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="cve-severity-group" data-sev="${tier}">
+          <button class="cve-group-header" onclick="_toggleSevGroup('${panelId}',this)" aria-expanded="${expanded}">
+            <span class="cve-group-dot" style="background:${cfg.color}"></span>
+            <span class="cve-group-title" style="color:${cfg.color}">${cfg.label}</span>
+            <span style="font-size:11px;color:var(--text-muted);margin-left:4px">(${cfg.sla})</span>
+            <span class="cve-group-count">${entries.length} faille${entries.length > 1 ? 's' : ''}</span>
+            <svg class="trivy-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="${expanded ? '' : 'transform:rotate(-90deg)'}">
+              <polyline points="4,6 8,10 12,6"/>
+            </svg>
+          </button>
+          <div id="${panelId}" style="${expanded ? '' : 'display:none'}">
+            ${rows}
+          </div>
+        </div>`;
+    }).join('');
+
+  } catch (e) {
+    container.innerHTML = `<div style="padding:20px;color:var(--danger);font-size:13px">Erreur matrice de priorité : ${escape(e.message)}</div>`;
+  }
+}
+
 // ── Quick ack shortcut ────────────────────────────────────────────────────────
 
 async function quickAck(assetCveId, status) {
@@ -691,7 +957,7 @@ async function quickAck(assetCveId, status) {
     const asset = await api(`/assets/${_modalAssetId}`);
     if (asset) _renderFlawsTab(asset);
   } catch (e) {
-    showToast('Erreur : ' + e.message, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -712,11 +978,11 @@ async function triggerExploitValidation() {
       try {
         const asset = await api(`/assets/${_modalAssetId}`);
         if (asset) _renderFlawsTab(asset);
-      } catch (_) {}
+      } catch (e) { console.warn('exploit_validation_poll:', e); }
       if (btn) { btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12"><path d="M8 1L1 4v5c0 4 2.8 7.75 7 9 4.2-1.25 7-5 7-9V4L8 1z"/><path d="M5 8l2 2 4-4"/></svg> Vérifier exploitabilité'; }
     }, 10000);
   } catch (e) {
-    showToast('Erreur : ' + e.message, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
     if (btn) { btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12"><path d="M8 1L1 4v5c0 4 2.8 7.75 7 9 4.2-1.25 7-5 7-9V4L8 1z"/><path d="M5 8l2 2 4-4"/></svg> Vérifier exploitabilité'; }
   }
 }
@@ -812,7 +1078,7 @@ function _renderFlawsTab(asset) {
         : r.status === 'running' ? 'warning' : 'muted';
       const riskPills = r.risk_summary ? Object.entries(r.risk_summary)
         .filter(([, v]) => v > 0)
-        .map(([k, v]) => `<span class="badge badge-${k === 'high' ? 'error' : k === 'medium' ? 'warning' : 'info'}">${v} ${k}</span>`)
+        .map(([k, v]) => `<span class="badge badge-${k === 'high' ? 'error' : k === 'medium' ? 'warning' : 'info'}">${v} ${escape(k)}</span>`)
         .join(' ') : '';
       const techCount = r.technologies ? r.technologies.length : 0;
       const techBadge = techCount > 0
@@ -1049,7 +1315,7 @@ async function addDnsEntry() {
     // Refresh vocabulary in background
     loadVocabulary();
   } catch (e) {
-    showToast(`Erreur DNS: ${e.message}`, 'error');
+    showToast(t('common.error') + ' DNS : ' + e.message, 'error');
   }
 }
 
@@ -1060,7 +1326,7 @@ async function removeDnsEntry(dnsId) {
     _assetDns = _assetDns.filter(d => d.id !== dnsId);
     _renderDnsTags();
   } catch (e) {
-    showToast(`Erreur suppression DNS: ${e.message}`, 'error');
+    showToast(t('common.error') + ' DNS : ' + e.message, 'error');
   }
 }
 
@@ -1225,15 +1491,16 @@ async function runSshScan() {
 function cveUrl(id) {
   if (!id) return '#';
   const u = id.toUpperCase();
+  const safe = encodeURIComponent(id);
   if (/^CVE-\d{4}-\d+$/.test(u))
-    return `https://nvd.nist.gov/vuln/detail/${id}`;
+    return `https://nvd.nist.gov/vuln/detail/${safe}`;
   if (u.startsWith('UBUNTU-CVE-'))
-    return `https://ubuntu.com/security/${id.slice('UBUNTU-'.length)}`;
+    return `https://ubuntu.com/security/${encodeURIComponent(id.slice('UBUNTU-'.length))}`;
   if (u.startsWith('USN-'))
-    return `https://ubuntu.com/security/notices/${id}`;
+    return `https://ubuntu.com/security/notices/${safe}`;
   if (u.startsWith('GHSA-'))
-    return `https://github.com/advisories/${id}`;
-  return `https://osv.dev/vulnerability/${id}`;
+    return `https://github.com/advisories/${safe}`;
+  return `https://osv.dev/vulnerability/${safe}`;
 }
 
 // ── Source badges (multi-value support: "zap,nuclei") ─────────────────────────
@@ -1324,11 +1591,11 @@ function _renderNucleiSection(asset, nucleiReports) {
         r.cve_count > 0 ? `<span class="scan-stat-chip danger">${r.cve_count} CVE</span>` : `<span class="scan-stat-chip success">0 CVE</span>`,
         ...(r.risk_summary ? Object.entries(r.risk_summary).filter(([,v]) => v > 0).map(([k, v]) => {
           const c = k === 'critical' || k === 'high' ? 'danger' : k === 'medium' ? 'warning' : '';
-          return `<span class="scan-stat-chip ${c}">${v} ${k}</span>`;
+          return `<span class="scan-stat-chip ${c}">${v} ${escape(k)}</span>`;
         }) : []),
       ].join('') : (r.error_msg ? `<span style="color:var(--danger);font-size:11px">${escape(r.error_msg)}</span>` : '');
       const loadBtn = r.status === 'completed'
-        ? `<button class="btn btn-sm" onclick="loadNucleiReportDetail('${escape(r.id)}')">Voir</button>` : '';
+        ? `<button class="btn btn-sm" onclick="loadNucleiReportDetail('${escapeAttr(r.id)}')">Voir</button>` : '';
       return `<div class="scan-history-item">
         <div class="scan-history-meta">
           ${badge(r.status, stType)}
@@ -1668,7 +1935,7 @@ async function loadScans() {
 
       return `
         <tr>
-          <td class="mono"><a href="#" onclick="showScanHistory('${s.id}','${escape(s.target)}');return false" style="color:var(--accent);text-decoration:none" title="Voir l'historique des scans">${escape(s.target)}</a></td>
+          <td class="mono"><a href="#" onclick="showScanHistory('${s.id}','${escapeAttr(s.target)}');return false" style="color:var(--accent);text-decoration:none" title="Voir l'historique des scans">${escape(s.target)}</a></td>
           <td>${(s.modules_run || []).map(m => badge(m, 'info')).join(' ')}</td>
           <td>${statusBadge(s.status)}</td>
           <td style="font-size:12px;color:var(--text-muted)">${fmtDate(s.started_at)}</td>
@@ -1851,7 +2118,7 @@ async function loadUsers() {
             <button class="btn btn-sm" onclick="openUserModal('${u.id}')">Edit</button>
             ${!isSelf
               ? `<button class="btn btn-sm" style="color:var(--danger)"
-                   onclick="deleteUser('${u.id}','${escape(u.email)}')">Delete</button>`
+                   onclick="deleteUser('${u.id}','${escapeAttr(u.email)}')">Delete</button>`
               : '<span style="color:var(--text-muted);font-size:12px;padding:6px 4px">you</span>'}
           </td>
         </tr>`;
@@ -1992,14 +2259,14 @@ async function saveZapSettings() {
       statusEl.textContent = 'Paramètres ZAP sauvegardés.';
       statusEl.classList.remove('hidden');
     }
-    showToast('Paramètres ZAP sauvegardés.', 'success');
+    showToast(t('common.success'), 'success');
   } catch (e) {
     if (statusEl) {
       statusEl.className = 'status-bar error';
       statusEl.textContent = `Erreur: ${e.message}`;
       statusEl.classList.remove('hidden');
     }
-    showToast(`Erreur: ${e.message}`, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder'; }
   }
@@ -2150,7 +2417,7 @@ function _renderTrivyCvesByImage(cves) {
     const counts = { critical: 0, high: 0, medium: 0, low: 0 };
     sorted.forEach(c => { const s = (c.severity || '').toLowerCase(); if (s in counts) counts[s]++; });
     const countPills = Object.entries(counts).filter(([,v]) => v > 0)
-      .map(([k, v]) => `<span class="scan-stat-chip ${k === 'critical' || k === 'high' ? 'danger' : k === 'medium' ? 'warning' : ''}">${v} ${k}</span>`).join('');
+      .map(([k, v]) => `<span class="scan-stat-chip ${k === 'critical' || k === 'high' ? 'danger' : k === 'medium' ? 'warning' : ''}">${v} ${escape(k)}</span>`).join('');
 
     const rows = sorted.map(c => {
       const sev = (c.severity || '').toLowerCase();
@@ -2427,19 +2694,19 @@ function _renderActionRequired(data) {
   const noRemediation = data.critical_cves_without_remediation || 0;
 
   if (notScanned === 0 && noRemediation === 0) {
-    el.innerHTML = card('ok', '✓', '0', 'Aucune action requise', '');
+    el.innerHTML = card('ok', '✓', '0', t('dashboard.action.no_action'), '');
     return;
   }
 
   let html = '';
   if (notScanned > 0) {
     html += card('warning', '⏰', notScanned,
-      `asset${notScanned > 1 ? 's' : ''} non scannés depuis >30 jours`,
+      t('dashboard.action.not_scanned'),
       `document.getElementById('active-only').checked=false;document.getElementById('asset-filter-severity').value='';switchToView('assets');loadAssets()`);
   }
   if (noRemediation > 0) {
     html += card('danger', '🚨', noRemediation,
-      `CVE Critical${noRemediation > 1 ? 's' : ''} sans plan de remédiation`,
+      t('dashboard.action.no_remediation'),
       `document.getElementById('cve-severity-filter').value='Critical';switchToView('cves');loadCves(true)`);
   }
   el.innerHTML = html;
@@ -2449,10 +2716,6 @@ async function _loadDashboardTrends() {
   try {
     const data = await api('/dashboard/trends');
     if (!data) return;
-
-    // Active assets count
-    const activeEl = document.getElementById('dash-active-assets-trend');
-    if (activeEl) activeEl.textContent = data.active_assets;
 
     // CVE trend chart
     const ctx = document.getElementById('dash-trend-cve-chart')?.getContext('2d');
@@ -2522,7 +2785,7 @@ async function loadExpositions() {
   _expOffset = 0;
   const tbody = document.getElementById('expositions-tbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="10" style="color:var(--text-muted);text-align:center;padding:24px">Chargement…</td></tr>';
+  tbody.innerHTML = `<tr><td colspan="10" style="color:var(--text-muted);text-align:center;padding:24px">${t('common.loading')}</td></tr>`;
 
   try {
     // Fetch all assets with their CVEs (limit 500)
@@ -2534,7 +2797,7 @@ async function loadExpositions() {
       }
     }
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--danger);text-align:center;padding:24px">Erreur : ${escape(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--danger);text-align:center;padding:24px">${t('common.error')} : ${escape(String(e))}</td></tr>`;
     return;
   }
 
@@ -2544,9 +2807,9 @@ async function loadExpositions() {
 function _ackBadge(status) {
   const map = {
     none:          ['Non-ack.', 'muted'],
-    accepted:      ['Accepté', 'success'],
-    false_positive:['Faux positif', 'info'],
-    in_progress:   ['En cours', 'warning'],
+    accepted:      [t('remediation.status.accepted'), 'success'],
+    false_positive:[t('remediation.status.false_positive'), 'info'],
+    in_progress:   [t('remediation.status.in_progress'), 'warning'],
   };
   const [label, type] = map[status] || ['—', 'muted'];
   return badge(label, type);
@@ -2555,11 +2818,11 @@ function _ackBadge(status) {
 function _ackActions(assetId, linkId, currentStatus) {
   const buttons = [];
   if (currentStatus !== 'accepted')
-    buttons.push(`<button class="btn btn-sm" onclick="ackCve('${assetId}','${linkId}','accepted')">Accepter</button>`);
+    buttons.push(`<button class="btn btn-sm" onclick="ackCve('${assetId}','${linkId}','accepted')">${t('remediation.status.accepted')}</button>`);
   if (currentStatus !== 'false_positive')
-    buttons.push(`<button class="btn btn-sm" onclick="ackCve('${assetId}','${linkId}','false_positive')">Faux positif</button>`);
+    buttons.push(`<button class="btn btn-sm" onclick="ackCve('${assetId}','${linkId}','false_positive')">${t('remediation.status.false_positive')}</button>`);
   if (currentStatus !== 'in_progress')
-    buttons.push(`<button class="btn btn-sm" onclick="ackCve('${assetId}','${linkId}','in_progress')">En cours</button>`);
+    buttons.push(`<button class="btn btn-sm" onclick="ackCve('${assetId}','${linkId}','in_progress')">${t('remediation.status.in_progress')}</button>`);
   if (currentStatus !== 'none')
     buttons.push(`<button class="btn btn-sm btn-danger" onclick="ackCve('${assetId}','${linkId}','none')">Réinitialiser</button>`);
   return buttons.join(' ');
@@ -2583,7 +2846,7 @@ async function ackCve(assetId, linkId, status) {
     const expBadge = document.getElementById('nav-exp-count');
     if (expBadge) expBadge.textContent = unacked > 0 ? unacked : '';
   } catch (e) {
-    showToast(`Erreur : ${e.message}`, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -2607,6 +2870,19 @@ function _expPage(page) {
   _renderExpositions();
 }
 
+function switchVulnTab(tab) {
+  const views = ['expositions', 'plan', 'board'];
+  views.forEach(v => {
+    const el = document.getElementById(`vuln-view-${v}`);
+    if (el) el.style.display = v === tab ? '' : 'none';
+    const btn = document.getElementById(`vuln-tab-${v}`);
+    if (btn) btn.style.fontWeight = v === tab ? '600' : '400';
+  });
+  if (tab === 'expositions') loadExpositions();
+  if (tab === 'plan') loadRemediation();
+  if (tab === 'board') loadRemediationBoard();
+}
+
 // ── Tags management (asset modal) ─────────────────────────────────────────────
 
 let _assetTags = [];   // current asset's tag names
@@ -2621,7 +2897,7 @@ function _renderAssetTags() {
   container.innerHTML = _assetTags.map(t =>
     `<span class="dns-tag">
       ${escape(t)}
-      <button class="dns-tag-remove" title="Supprimer" onclick="removeAssetTag('${escape(t)}')">×</button>
+      <button class="dns-tag-remove" title="Supprimer" onclick="removeAssetTag('${escapeAttr(t)}')">×</button>
     </span>`
   ).join('');
 }
@@ -2642,7 +2918,7 @@ async function addAssetTag() {
     if (input) input.value = '';
     await loadAssets();
   } catch (e) {
-    showToast(`Erreur tag : ${e.message}`, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -2654,7 +2930,7 @@ async function removeAssetTag(name) {
     _renderAssetTags();
     await loadAssets();
   } catch (e) {
-    showToast(`Erreur suppression tag : ${e.message}`, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -2884,7 +3160,7 @@ async function saveCveRemediation() {
     const expPanel = document.getElementById('panel-expositions');
     if (expPanel?.classList.contains('active')) loadExpositions();
   } catch (e) {
-    showToast(`Erreur : ${e.message}`, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -3057,7 +3333,7 @@ function _initInlineEdit(td, assetId, field) {
         showToast('Modifié.', 'success');
       } catch (e) {
         td.textContent = current;
-        showToast('Erreur: ' + e.message, 'error');
+        showToast(t('common.error') + ' : ' + e.message, 'error');
       }
     };
 
@@ -3335,7 +3611,7 @@ async function onKanbanDrop(event, newStatus) {
     _renderKanban();
     showToast('Statut mis à jour.', 'success');
   } catch (e) {
-    showToast('Erreur: ' + e.message, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -3401,14 +3677,14 @@ function applySavedFilter(key) {
     loadAssets();
     document.getElementById('saved-filters-select').value = '';
   } catch (e) {
-    showToast('Erreur lecture filtre.', 'error');
+    showToast(t('common.error'), 'error');
   }
 }
 
 // ── #11 — Export CSV depuis Expositions ─────────────────────────────────────
 
 function exportExpositionsCsv() {
-  if (!_expData.length) { showToast('Aucune donnée à exporter.', 'warning'); return; }
+  if (!_expData.length) { showToast(t('common.no_data'), 'warning'); return; }
 
   const search   = (document.getElementById('exp-search')?.value || '').toLowerCase();
   const severity = document.getElementById('exp-severity')?.value || '';
@@ -3517,7 +3793,7 @@ async function saveBulkAck() {
     clearExpSelection();
     await loadExpositions();
   } catch (e) {
-    showToast('Erreur: ' + e.message, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -3552,7 +3828,7 @@ async function saveBulkEdit() {
     showToast(`${result.updated} asset(s) mis à jour.`, 'success');
     await loadAssets();
   } catch (e) {
-    showToast('Erreur: ' + e.message, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -3573,7 +3849,7 @@ async function testSshProfile(profileId) {
       showToast(`✗ Échec : ${result.error || 'Erreur inconnue'}`, 'error');
     }
   } catch (e) {
-    showToast(`Erreur : ${e.message}`, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -3716,7 +3992,7 @@ async function loadSshProfiles() {
           <button class="btn btn-sm" onclick="openSshProfileModal('${p.id}')">Edit</button>
           <button class="btn btn-sm" onclick="testSshProfile('${p.id}')">Tester</button>
           <button class="btn btn-sm" style="color:var(--danger)"
-                  onclick="deleteSshProfile('${p.id}','${escape(p.name)}')">Delete</button>
+                  onclick="deleteSshProfile('${p.id}','${escapeAttr(p.name)}')">Delete</button>
         </td>
       </tr>`).join('');
   } catch (e) {
@@ -3743,8 +4019,8 @@ async function showCveAffectedAssets(cveId, count) {
         const detail = await api(`/cves/${encodeURIComponent(cveId)}`);
         if (detail && detail.asset_ids) {
           bodyEl.innerHTML = detail.asset_ids.map(aid =>
-            `<div class="side-panel-asset-item" onclick="openAssetModal('${aid}');closeSidePanel()">
-              <div class="side-panel-asset-name" style="font-family:monospace;font-size:12px">${aid}</div>
+            `<div class="side-panel-asset-item" onclick="openAssetModal('${escapeAttr(aid)}');closeSidePanel()">
+              <div class="side-panel-asset-name" style="font-family:monospace;font-size:12px">${escape(aid)}</div>
              </div>`
           ).join('');
         } else {
@@ -3796,7 +4072,7 @@ let _portsDiffEnabled = false;
 function _savePortsSnapshot(assetId, ports) {
   try {
     localStorage.setItem(`nlv_ports_${assetId}`, JSON.stringify(ports));
-  } catch (_) {}
+  } catch (e) { console.warn('ports_snapshot_save:', e); }
 }
 
 /** Load the previously saved ports snapshot from localStorage. */
@@ -3804,7 +4080,7 @@ function _loadPortsSnapshot(assetId) {
   try {
     const raw = localStorage.getItem(`nlv_ports_${assetId}`);
     return raw ? JSON.parse(raw) : null;
-  } catch (_) { return null; }
+  } catch (e) { console.warn('ports_snapshot_load:', e); return null; }
 }
 
 /** Render the Ports tab, optionally as a diff against the previous snapshot. */
@@ -3919,7 +4195,7 @@ function criticalityBadge(criticality) {
     medium:   ['Medium',   'crit-medium'],
     low:      ['Low',      'crit-low'],
   };
-  const [label, cls] = map[criticality.toLowerCase()] || [criticality, 'crit-low'];
+  const [label, cls] = map[criticality.toLowerCase()] || [escape(criticality), 'crit-low'];
   return `<span class="criticality-badge ${cls}">${label}</span>`;
 }
 
@@ -3960,7 +4236,7 @@ async function triggerEpssEnrichment() {
     await api('/admin/epss/enrich', { method: 'POST' });
     showToast('Enrichissement EPSS lancé.', 'success');
   } catch (e) {
-    showToast('Erreur EPSS : ' + e.message, 'error');
+    showToast(t('common.error') + ' EPSS : ' + e.message, 'error');
     if (status) status.textContent = `Erreur : ${e.message}`;
   }
   setTimeout(() => {
@@ -3999,7 +4275,7 @@ async function runSslScan() {
           showToast(`SSL scan : ${updated.length} rapport(s).`, 'success');
           _renderSslReports(updated);
         }
-      } catch (_) { /* keep polling */ }
+      } catch (e) { console.warn('ssl_scan_poll:', e); }
     }
     if (!done && _modalAssetId === assetId) {
       if (statusEl) statusEl.textContent = 'Scan SSL terminé.';
@@ -4018,7 +4294,8 @@ async function loadSslReports(assetId) {
   try {
     const reports = await api(`/assets/${assetId}/ssl-scan`);
     _renderSslReports(reports || []);
-  } catch (_) {
+  } catch (e) {
+    console.warn('ssl_reports_load:', e);
     _renderSslReports([]);
   }
 }
@@ -4030,7 +4307,7 @@ function _sslStatusBadge(status) {
     expired:  ['Expiré', 'ssl-expired'],
     error:    ['Erreur', 'ssl-error'],
   };
-  const [label, cls] = map[status] || [status || '?', 'ssl-error'];
+  const [label, cls] = map[status] || [escape(status || '?'), 'ssl-error'];
   return `<span class="ssl-status-badge ${cls}">${label}</span>`;
 }
 
@@ -4073,6 +4350,176 @@ function _renderSslReports(reports) {
   }).join('');
 }
 
+// ── Feature 4b — testssl.sh deep TLS audit ──────────────────────────────────
+
+async function runTestsslScan() {
+  if (!_modalAssetId) return;
+  const assetId = _modalAssetId;
+  const btn = document.getElementById('testssl-btn');
+  const statusEl = document.getElementById('testssl-status');
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Lancement de testssl.sh…';
+
+  try {
+    await api(`/assets/${assetId}/testssl`, { method: 'POST' });
+    if (statusEl) statusEl.textContent = 'Scan en cours…';
+
+    let done = false;
+    let attempts = 0;
+    while (!done && _modalAssetId === assetId && attempts < 60) {
+      await new Promise(r => setTimeout(r, 5000));
+      attempts++;
+      if (_modalAssetId !== assetId) break;
+      try {
+        const reports = await api(`/assets/${assetId}/testssl`);
+        if (Array.isArray(reports) && reports.length && reports[0].status === 'completed') {
+          done = true;
+          if (statusEl) statusEl.textContent = 'Terminé.';
+          showToast('testssl : audit terminé.', 'success');
+          _renderTestsslReports(reports);
+        } else if (Array.isArray(reports) && reports.length && reports[0].status === 'failed') {
+          done = true;
+          if (statusEl) statusEl.textContent = `Erreur : ${reports[0].error_msg || 'échec'}`;
+          showToast('testssl : échec.', 'error');
+          _renderTestsslReports(reports);
+        }
+      } catch (e) { console.warn('testssl_scan_poll:', e); }
+    }
+    if (!done && _modalAssetId === assetId) {
+      if (statusEl) statusEl.textContent = 'Scan terminé (timeout polling).';
+      const reports = await api(`/assets/${assetId}/testssl`).catch(() => []);
+      _renderTestsslReports(reports || []);
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `Erreur : ${e.message}`;
+    showToast(`testssl : ${e.message}`, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function loadTestsslReports(assetId) {
+  try {
+    const reports = await api(`/assets/${assetId}/testssl`);
+    _renderTestsslReports(reports || []);
+  } catch (e) {
+    console.warn('testssl_reports_load:', e);
+    _renderTestsslReports([]);
+  }
+}
+
+function _testsslGradeBadge(grade) {
+  if (!grade) return '<span class="ssl-status-badge ssl-error">—</span>';
+  const g = grade.toUpperCase();
+  let cls = 'ssl-valid';
+  if (g.startsWith('F') || g.startsWith('T')) cls = 'ssl-expired';
+  else if (g.startsWith('D') || g.startsWith('E')) cls = 'ssl-expired';
+  else if (g.startsWith('C')) cls = 'ssl-expiring';
+  else if (g.startsWith('B')) cls = 'ssl-expiring';
+  return `<span class="ssl-status-badge ${cls}">${escape(grade)}</span>`;
+}
+
+function _renderTestsslReports(reports) {
+  const container = document.getElementById('testssl-reports-body');
+  if (!container) return;
+  if (!reports || !reports.length) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Aucun audit testssl disponible. Lancez un scan.</p>';
+    return;
+  }
+  container.innerHTML = reports.map((r, idx) => {
+    const detailId = `testssl-detail-${idx}`;
+    const statusBadge = r.status === 'completed'
+      ? _testsslGradeBadge(r.grade)
+      : r.status === 'failed'
+        ? '<span class="ssl-status-badge ssl-expired">Erreur</span>'
+        : '<span class="ssl-status-badge ssl-expiring">En cours…</span>';
+
+    const sevCounts = [
+      r.critical_count ? `<span style="color:var(--danger);font-weight:600">${r.critical_count} critical</span>` : '',
+      r.high_count ? `<span style="color:var(--danger)">${r.high_count} high</span>` : '',
+      r.medium_count ? `<span style="color:var(--warning)">${r.medium_count} medium</span>` : '',
+      r.low_count ? `<span style="color:var(--text-muted)">${r.low_count} low</span>` : '',
+      r.info_count ? `<span style="color:var(--text-muted)">${r.info_count} info</span>` : '',
+    ].filter(Boolean).join(' · ');
+
+    const dateStr = r.created_at ? new Date(r.created_at).toLocaleString() : '—';
+
+    const errorBlock = r.error_msg
+      ? `<div style="color:var(--danger);font-size:12px;margin-top:6px">${escape(r.error_msg)}</div>`
+      : '';
+
+    const findingsBlock = r.findings && r.findings.length
+      ? _renderTestsslFindings(r.findings)
+      : '<p style="color:var(--text-muted);font-size:12px;margin-top:8px">Détails non chargés. Cliquez pour développer.</p>';
+
+    return `
+      <div class="ssl-report-card">
+        <div class="ssl-report-header" onclick="_toggleTestsslDetail('${escapeAttr(r.id)}','${detailId}')">
+          <strong class="mono" style="font-size:13px">${escape(r.host || '?')}:${r.port || 443}</strong>
+          ${statusBadge}
+          <span style="margin-left:auto;font-size:12px;color:var(--text-muted)">${dateStr}</span>
+        </div>
+        <div class="ssl-report-detail" id="${detailId}" style="display:none">
+          <div style="margin-bottom:8px">${sevCounts || '<span style="color:var(--text-muted);font-size:12px">Pas de findings</span>'}</div>
+          ${errorBlock}
+          <div id="${detailId}-findings">${findingsBlock}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function _renderTestsslFindings(findings) {
+  if (!findings || !findings.length) return '';
+  // Group by severity
+  const groups = { CRITICAL: [], HIGH: [], MEDIUM: [], LOW: [], INFO: [], OK: [] };
+  for (const f of findings) {
+    const sev = (f.severity || 'INFO').toUpperCase();
+    if (sev === 'CRITICAL') groups.CRITICAL.push(f);
+    else if (sev === 'HIGH') groups.HIGH.push(f);
+    else if (sev === 'MEDIUM') groups.MEDIUM.push(f);
+    else if (sev === 'LOW' || sev === 'WARN') groups.LOW.push(f);
+    else if (sev === 'OK') groups.OK.push(f);
+    else groups.INFO.push(f);
+  }
+  let html = '<div style="font-size:12px;margin-top:8px">';
+  const sevColors = { CRITICAL: 'var(--danger)', HIGH: 'var(--danger)', MEDIUM: 'var(--warning)', LOW: 'var(--text-muted)', INFO: 'var(--text-muted)', OK: 'var(--success)' };
+  for (const sev of ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'OK']) {
+    if (!groups[sev].length) continue;
+    html += `<div style="margin-top:6px;font-weight:600;color:${sevColors[sev]}">${sev} (${groups[sev].length})</div>`;
+    html += '<div style="margin-left:8px">';
+    for (const f of groups[sev].slice(0, 30)) {
+      html += `<div style="margin:2px 0"><span class="mono" style="font-size:11px;color:var(--accent)">${escape(f.id || '')}</span> ${escape(f.finding || '')}</div>`;
+    }
+    if (groups[sev].length > 30) {
+      html += `<div style="color:var(--text-muted);font-style:italic">… et ${groups[sev].length - 30} de plus</div>`;
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+async function _toggleTestsslDetail(reportId, detailId) {
+  const el = document.getElementById(detailId);
+  if (!el) return;
+  if (el.style.display === 'none') {
+    el.style.display = '';
+    // Load full findings if not already loaded
+    const findingsEl = document.getElementById(detailId + '-findings');
+    if (findingsEl && findingsEl.dataset.loaded !== 'true' && reportId && _modalAssetId) {
+      try {
+        const detail = await api(`/assets/${_modalAssetId}/testssl/${reportId}`);
+        if (detail && detail.findings) {
+          findingsEl.innerHTML = _renderTestsslFindings(detail.findings);
+          findingsEl.dataset.loaded = 'true';
+        }
+      } catch (e) { console.warn('testssl_detail_load:', e); }
+    }
+  } else {
+    el.style.display = 'none';
+  }
+}
+
 // ── Feature 5 — Baseline / Drift detection ────────────────────────────────────
 
 async function createBaseline() {
@@ -4086,7 +4533,7 @@ async function createBaseline() {
     await loadBaselines(_modalAssetId);
   } catch (e) {
     if (statusEl) statusEl.textContent = `Erreur : ${e.message}`;
-    showToast('Erreur baseline : ' + e.message, 'error');
+    showToast(t('common.error') + ' baseline : ' + e.message, 'error');
   }
 }
 
@@ -4094,7 +4541,8 @@ async function loadBaselines(assetId) {
   try {
     const baselines = await api(`/assets/${assetId}/baseline`);
     _renderBaselineList(baselines || []);
-  } catch (_) {
+  } catch (e) {
+    console.warn('baselines_load:', e);
     _renderBaselineList([]);
   }
 }
@@ -4133,10 +4581,10 @@ function _renderBaselineDiff(diff) {
   if (!container || !diff) return;
 
   const portRow = (port, cls, symbol) =>
-    `<div class="${cls}" style="font-size:12px;padding:2px 0">${symbol} ${escape(String(port.port_number || port))}${port.protocol ? '/' + port.protocol : ''} ${escape(port.service_name || '')}</div>`;
+    `<div class="${cls}" style="font-size:12px;padding:2px 0">${symbol} ${escape(String(port.port_number || port))}${port.protocol ? '/' + escape(port.protocol) : ''} ${escape(port.service_name || '')}</div>`;
 
   const cveRow = (cve, cls, symbol) =>
-    `<div class="${cls}" style="font-size:12px;padding:2px 0">${symbol} <a class="cve-link" href="${cveUrl(cve.cve_id || cve)}" target="_blank">${escape(cve.cve_id || cve)}</a>${cve.severity ? ` — ${cve.severity}` : ''}</div>`;
+    `<div class="${cls}" style="font-size:12px;padding:2px 0">${symbol} <a class="cve-link" href="${cveUrl(cve.cve_id || cve)}" target="_blank">${escape(cve.cve_id || cve)}</a>${cve.severity ? ` — ${escape(cve.severity)}` : ''}</div>`;
 
   const portAdded   = (diff.ports?.added   || []).map(p => portRow(p, 'diff-added',   '+')).join('');
   const portRemoved = (diff.ports?.removed || []).map(p => portRow(p, 'diff-removed', '−')).join('');
@@ -4184,7 +4632,8 @@ async function _loadDashboardSlaBreaches() {
         </tbody>
       </table>
       ${data.total > 10 ? `<p style="color:var(--text-muted);font-size:11px;margin-top:6px">+${data.total - 10} autres — voir le panel Rapports</p>` : ''}`;
-  } catch (_) {
+  } catch (e) {
+    console.warn('dashboard_sla_load:', e);
     container.innerHTML = '<p style="color:var(--text-muted);font-size:13px">SLA indisponible.</p>';
   }
 }
@@ -4214,7 +4663,8 @@ async function _loadDashboardTopRisk() {
         ${criticalityBadge(a.criticality)}
       </div>`;
     }).join('');
-  } catch (_) {
+  } catch (e) {
+    console.warn('dashboard_top_risk_load:', e);
     container.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Erreur chargement.</p>';
   }
 }
@@ -4248,7 +4698,7 @@ async function loadNotifications() {
         <td style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn btn-sm" onclick="openNotifModal('${n.id}')">Éditer</button>
           <button class="btn btn-sm" onclick="testNotifWebhookById('${n.id}')">Tester</button>
-          <button class="btn btn-sm" style="color:var(--danger)" onclick="deleteNotif('${n.id}','${escape(n.name)}')">Supprimer</button>
+          <button class="btn btn-sm" style="color:var(--danger)" onclick="deleteNotif('${n.id}','${escapeAttr(n.name)}')">Supprimer</button>
         </td>
       </tr>`;
     }).join('');
@@ -4281,7 +4731,7 @@ async function openNotifModal(id = null) {
           cb.checked = (n.events || []).includes(cb.value);
         });
       }
-    } catch (_) {}
+    } catch (e) { console.warn('notif_modal_load:', e); }
   }
   modal.classList.remove('hidden');
 }
@@ -4314,7 +4764,7 @@ async function saveNotif() {
     await loadNotifications();
     showToast('Webhook enregistré.', 'success');
   } catch (e) {
-    showToast('Erreur : ' + e.message, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -4325,7 +4775,7 @@ async function deleteNotif(id, name) {
     await loadNotifications();
     showToast('Webhook supprimé.', 'info');
   } catch (e) {
-    showToast('Erreur : ' + e.message, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -4334,7 +4784,7 @@ async function toggleNotifActive(id, active) {
     await api(`/admin/notifications/${id}`, { method: 'PUT', body: JSON.stringify({ is_active: active }) });
     showToast(active ? 'Webhook activé.' : 'Webhook désactivé.', 'success');
   } catch (e) {
-    showToast('Erreur : ' + e.message, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
     await loadNotifications();
   }
 }
@@ -4349,7 +4799,7 @@ async function testNotifWebhookById(id) {
     await api(`/admin/notifications/${id}/test`, { method: 'POST' });
     showToast('Webhook de test envoyé.', 'success');
   } catch (e) {
-    showToast('Erreur test webhook : ' + e.message, 'error');
+    showToast(t('common.error') + ' webhook : ' + e.message, 'error');
   }
 }
 
@@ -4467,7 +4917,7 @@ function toggleTopoGrouping() {
   _topoGrouping = _topoGrouping === 'subnet' ? 'criticality' : 'subnet';
   const btn = document.getElementById('topo-group-btn');
   if (btn) btn.textContent = _topoGrouping === 'subnet' ? 'Par criticité' : 'Par subnet';
-  _renderTopology(_topoAssets);
+  loadTopology();
 }
 
 function _topoNodeColor(asset) {
@@ -4491,7 +4941,7 @@ function _renderTopology(assets) {
   }
   container.innerHTML = '';
   if (!assets.length) {
-    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px">Aucun asset à afficher.</div>';
+    container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px">${t('topology.no_assets')}</div>`;
     return;
   }
 
@@ -4639,7 +5089,7 @@ async function loadSlaConfig() {
     f('sla-high', cfg.high_days);
     f('sla-medium', cfg.medium_days);
     f('sla-low', cfg.low_days);
-  } catch (_) { /* endpoint might not exist yet */ }
+  } catch (e) { console.warn('sla_config_load:', e); }
 }
 
 async function saveSlaConfig() {
@@ -4657,7 +5107,7 @@ async function saveSlaConfig() {
     showToast('Configuration SLA sauvegardée.', 'success');
   } catch (e) {
     if (statusEl) { statusEl.className = 'status-bar error'; statusEl.textContent = `Erreur : ${e.message}`; statusEl.classList.remove('hidden'); }
-    showToast('Erreur : ' + e.message, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -4666,7 +5116,7 @@ async function recomputeAllSlas() {
     await api('/sla/compute', { method: 'POST' });
     showToast('Recalcul SLA lancé.', 'success');
   } catch (e) {
-    showToast('Erreur SLA : ' + e.message, 'error');
+    showToast(t('common.error') + ' SLA : ' + e.message, 'error');
   }
 }
 
@@ -4730,6 +5180,7 @@ async function loadAssets() {
     }
 
     tbody.innerHTML = rows;
+    _initSortableHeaders('asset-table');
 
     if (bulkBtn) bulkBtn.style.display = _selectedAssetIds.size > 0 ? '' : 'none';
     if (bulkEditBtn) bulkEditBtn.style.display = _selectedAssetIds.size > 0 ? '' : 'none';
@@ -4746,7 +5197,7 @@ async function loadAssets() {
 function _renderAssetRow(a, critCnt) {
   const openPorts = (a.ports || []).filter(p => p.state === 'open');
   const portList = openPorts.slice(0, 5)
-    .map(p => `<span class="mono">${p.port_number}/${p.protocol}</span>`).join(' ');
+    .map(p => `<span class="mono">${p.port_number}/${escape(p.protocol)}</span>`).join(' ');
   const morePorts = openPorts.length > 5
     ? `<span class="badge badge-muted">+${openPorts.length - 5}</span>` : '';
   const cves = a.cves || [];
@@ -4793,6 +5244,93 @@ function _renderAssetRow(a, critCnt) {
     </tr>`;
 }
 
+// ── Security Posture radar chart ─────────────────────────────────────────────
+
+async function loadSecurityPosture(assetId) {
+  const container = document.getElementById('posture-radar-container');
+  if (!container) return;
+
+  const detailsEl = document.getElementById('posture-details');
+  if (detailsEl) detailsEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Chargement…</p>';
+
+  try {
+    const data = await api(`/assets/${assetId}/security-posture`);
+    if (!data) return;
+
+    // Render radar chart
+    const canvas = document.getElementById('posture-radar-chart');
+    if (canvas && typeof Chart !== 'undefined') {
+      if (canvas._ci) canvas._ci.destroy();
+
+      const labels = data.domains.map(d => d.label);
+      const scores = data.domains.map(d => d.score);
+
+      canvas._ci = new Chart(canvas.getContext('2d'), {
+        type: 'radar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Score sécurité',
+            data: scores,
+            backgroundColor: 'rgba(129,140,248,0.15)',
+            borderColor: 'rgba(129,140,248,0.8)',
+            borderWidth: 2,
+            pointBackgroundColor: scores.map(s => s >= 70 ? '#34d399' : s >= 40 ? '#fbbf24' : '#f87171'),
+            pointRadius: 5,
+            pointHoverRadius: 7,
+          }],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            r: {
+              min: 0, max: 100,
+              ticks: { stepSize: 20, color: '#6b7280', backdropColor: 'transparent', font: { size: 9 } },
+              grid: { color: 'rgba(255,255,255,0.06)' },
+              angleLines: { color: 'rgba(255,255,255,0.06)' },
+              pointLabels: { color: '#94a3b8', font: { size: 12, weight: '500' } },
+            },
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(15,18,30,0.92)', titleColor: '#e2e8f0', bodyColor: '#94a3b8',
+              borderColor: 'rgba(129,140,248,0.3)', borderWidth: 1, cornerRadius: 8,
+            },
+          },
+        },
+      });
+    }
+
+    // Render domain details
+    if (detailsEl) {
+      const overallColor = data.overall_score >= 70 ? 'var(--success)' : data.overall_score >= 40 ? 'var(--warning)' : 'var(--danger)';
+
+      detailsEl.innerHTML = `
+        <div style="text-align:center;margin-bottom:16px">
+          <div style="font-size:36px;font-weight:700;color:${overallColor}">${data.overall_score}</div>
+          <div style="font-size:12px;color:var(--text-muted)">Score global / 100</div>
+        </div>
+        ${data.domains.map(d => {
+          const color = d.score >= 70 ? 'var(--success)' : d.score >= 40 ? 'var(--warning)' : 'var(--danger)';
+          return `<div style="margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:var(--radius-sm);border-left:3px solid ${color}">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="font-size:13px;font-weight:600">${escape(d.label)}</span>
+              <span style="font-size:13px;font-weight:700;color:${color}">${d.score}/100</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted)">${escape(d.detail)}</div>
+            <div style="height:4px;background:var(--surface3);border-radius:2px;margin-top:6px;overflow:hidden">
+              <div style="height:100%;width:${d.score}%;background:${color};border-radius:2px;transition:width .3s"></div>
+            </div>
+          </div>`;
+        }).join('')}
+      `;
+    }
+  } catch (e) {
+    if (detailsEl) detailsEl.innerHTML = `<p style="color:var(--danger);font-size:13px">Erreur : ${escape(String(e.message))}</p>`;
+  }
+}
+
 // ── openAssetModal — adds criticality pre-fill + SSL/Baseline tab loading ─────
 
 async function openAssetModal(id) {
@@ -4811,9 +5349,16 @@ async function openAssetModal(id) {
   const autoBadge = document.getElementById('modal-auto-badge');
   if (autoBadge) autoBadge.style.display = 'none';
 
-  // Reset SSL and Baseline tabs
+  // Reset priority matrix toggle
+  _priorityViewActive = false;
+  const pmBtn = document.getElementById('priority-toggle-btn');
+  if (pmBtn) pmBtn.textContent = '◎ Priorité';
+
+  // Reset SSL, testssl and Baseline tabs
   const sslBody = document.getElementById('ssl-reports-body');
   if (sslBody) sslBody.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Chargement…</p>';
+  const testsslBody = document.getElementById('testssl-reports-body');
+  if (testsslBody) testsslBody.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Chargement…</p>';
   const baselineList = document.getElementById('baseline-list');
   if (baselineList) baselineList.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Chargement…</p>';
   const baselineDiff = document.getElementById('baseline-diff-result');
@@ -4853,7 +5398,8 @@ async function openAssetModal(id) {
           profileSelect.innerHTML =
             '<option value="">— No profile (use per-asset credentials) —</option>' +
             profiles.map(p => `<option value="${p.id}">${escape(p.name)} (${escape(p.ssh_user)})</option>`).join('');
-        } catch (_) {
+        } catch (e) {
+          console.warn('ssh_profiles_load:', e);
           profileSelect.innerHTML = '<option value="">— No profile —</option>';
         }
         profileSelect.value = a.ssh_profile_id || '';
@@ -4903,30 +5449,34 @@ async function openAssetModal(id) {
     _autoTriggerZap(a);
 
     let sshReports = [];
-    try { sshReports = await api(`/assets/${id}/ssh-scan`) || []; } catch (_) {}
+    try { sshReports = await api(`/assets/${id}/ssh-scan`) || []; } catch (e) { console.warn('ssh_reports_load:', e); }
     _renderSshSection(a, sshReports);
 
     try {
       const sshHistory = await api(`/assets/${id}/ssh-scans`) || [];
       _renderSshScanHistory(sshHistory);
-    } catch (_) {}
+    } catch (e) { console.warn('ssh_scan_history_load:', e); }
 
     let nucleiReports = [];
-    try { nucleiReports = await api(`/assets/${id}/nuclei`) || []; } catch (_) {}
+    try { nucleiReports = await api(`/assets/${id}/nuclei`) || []; } catch (e) { console.warn('nuclei_reports_load:', e); }
     _renderNucleiSection(a, nucleiReports);
 
     let trivyReports = [];
-    try { trivyReports = await api(`/assets/${id}/trivy-docker`) || []; } catch (_) {}
+    try { trivyReports = await api(`/assets/${id}/trivy-docker`) || []; } catch (e) { console.warn('trivy_reports_load:', e); }
     _renderTrivyDockerSection(a, trivyReports);
 
     // SSL tab
     await loadSslReports(id);
+    await loadTestsslReports(id);
 
     // Baseline tab
     await loadBaselines(id);
 
     // Full Audit jobs
     loadFullAuditJobs(id);
+
+    // Security Posture tab
+    await loadSecurityPosture(id);
 
   } catch (e) {
     document.getElementById('modal-info').innerHTML =
@@ -5024,9 +5574,9 @@ function _renderExpositions() {
       ? `<span style="color:var(--success);font-size:11px">✓ ${escape(cve.fixed_version)}</span>`
       : '<span style="color:var(--text-muted);font-size:11px">—</span>';
     const planCell = cve.remediation
-      ? `<span class="plan-snippet" title="${escape(cve.remediation)}" onclick="openCveRemediationModal('${escape(cve.cve_id_str)}','${escape(cve.remediation || '')}')" style="cursor:pointer">${escape(cve.remediation.length > 50 ? cve.remediation.slice(0, 50) + '…' : cve.remediation)}</span>`
+      ? `<span class="plan-snippet" title="${escape(cve.remediation)}" onclick="openCveRemediationModal('${escapeAttr(cve.cve_id_str)}','${escapeAttr(cve.remediation || '')}')" style="cursor:pointer">${escape(cve.remediation.length > 50 ? cve.remediation.slice(0, 50) + '…' : cve.remediation)}</span>`
       : (_me && _me.role === 'admin'
-          ? `<button class="btn btn-sm" onclick="openCveRemediationModal('${escape(cve.cve_id_str)}','')">+ Plan</button>`
+          ? `<button class="btn btn-sm" onclick="openCveRemediationModal('${escapeAttr(cve.cve_id_str)}','')">+ Plan</button>`
           : '<span style="color:var(--text-muted);font-size:11px">—</span>');
     const isSelected = _selectedExpIds.has(cve.id);
     return `
@@ -5052,6 +5602,7 @@ function _renderExpositions() {
       </tr>`;
   }).join('');
 
+  _initSortableHeaders('expositions-table');
   _renderExpPagination(total);
   if (_expKanbanMode) _renderKanban();
 }
@@ -5085,39 +5636,18 @@ function initSubTabs() {
 // ── loadDashboard — adds SLA breaches + top risk widgets ─────────────────────
 
 async function loadDashboard() {
-  const grid = document.getElementById('dashboard-stats');
-  if (!grid) return;
-
-  grid.innerHTML = '<span style="color:var(--text-muted);font-size:13px">Chargement…</span>';
+  // KPI stat cards are now rendered by loadExecutive() — this function
+  // only handles charts, action cards, trends, SLA breaches and top risk.
 
   let data;
   try {
     data = await api('/dashboard');
   } catch (e) {
-    grid.innerHTML = `<span style="color:var(--danger)">Erreur : ${escape(String(e))}</span>`;
     return;
   }
 
   const expBadge = document.getElementById('nav-exp-count');
   if (expBadge) expBadge.textContent = data.unacknowledged_cves > 0 ? data.unacknowledged_cves : '';
-
-  const statCard = (label, value, color, icon) =>
-    `<div class="dash-stat-card" style="--card-accent:${color || 'var(--accent)'}">
-       <div class="dash-stat-icon" style="color:${color || 'var(--accent)'}">${icon || ''}</div>
-       <div class="dash-stat-value" style="color:${color || 'var(--accent)'}">${value}</div>
-       <div class="dash-stat-label">${label}</div>
-     </div>`;
-
-  grid.innerHTML = [
-    statCard('Total assets', data.total_assets, 'var(--accent)',
-      '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><rect x="2" y="3" width="16" height="12" rx="2"/><path d="M6 19h8M10 15v4"/></svg>'),
-    statCard('Assets actifs', data.active_assets, 'var(--success)',
-      '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><circle cx="10" cy="10" r="7"/><path d="M7 10l2 2 4-4"/></svg>'),
-    statCard('CVEs totaux', data.total_cves, data.total_cves > 0 ? 'var(--warning)' : 'var(--success)',
-      '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><path d="M10 18s7-3 7-9V4l-7-2-7 2v5c0 6 7 9 7 9z"/><path d="M10 8v3M10 14h.01"/></svg>'),
-    statCard('CVEs non-acknowled.', data.unacknowledged_cves, data.unacknowledged_cves > 0 ? 'var(--danger)' : 'var(--success)',
-      '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><path d="M10 2l8 14H2L10 2z"/><path d="M10 8v4M10 15h.01"/></svg>'),
-  ].join('');
 
   const SEV_COLORS = { Critical: '#f87171', High: '#fb923c', Medium: '#fbbf24', Low: '#60a5fa', Unknown: '#6b7280' };
   const CHART_FONT = { family: 'Inter, sans-serif', size: 12 };
@@ -5134,7 +5664,7 @@ async function loadDashboard() {
       type: 'doughnut',
       data: { labels, datasets: [{ data: counts, backgroundColor: colors, borderColor: 'rgba(15,18,30,0.8)', borderWidth: 3, hoverOffset: 6 }] },
       options: {
-        responsive: true, cutout: '68%',
+        responsive: true, maintainAspectRatio: false, cutout: '68%',
         animation: { animateScale: true, duration: 600, easing: 'easeOutQuart' },
         plugins: {
           legend: { position: 'right', labels: { color: TICK_COLOR, font: CHART_FONT, padding: 14, boxWidth: 12, borderRadius: 4 } },
@@ -5160,7 +5690,7 @@ async function loadDashboard() {
         ],
       },
       options: {
-        indexAxis: 'y', responsive: true,
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
         animation: { duration: 500, easing: 'easeOutQuart' },
         plugins: {
           legend: { labels: { color: TICK_COLOR, font: CHART_FONT, boxWidth: 12, borderRadius: 4 } },
@@ -5175,21 +5705,20 @@ async function loadDashboard() {
   }
 
   _renderActionRequired(data);
-  _loadDashboardTrends();
   _loadDashboardSlaBreaches();
-  _loadDashboardTopRisk();
 }
 
 // ── _initAppData — final override with all new feature wiring ─────────────────
 
 async function _initAppData() {
+  await loadLocale(_lang);
   initNav();
   initSubTabs();
   _initModalTabs();
 
   try {
     _globalSettings = await api('/admin/zap-settings');
-  } catch (_) {}
+  } catch (e) { console.warn('zap_settings_load:', e); }
 
   await loadModuleCheckboxes();
   await loadVocabulary();
@@ -5233,203 +5762,292 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// ── v2.1 — Topology canvas (no D3 dependency) + Reports fixes ────────────────
+// ── v3.0 — Topology with /topology API + D3 force simulation + zoom/pan ─────
 
-// Rewrite loadTopology to use Canvas API instead of D3
 async function loadTopology() {
   const container = document.getElementById('topology-container');
   if (!container) return;
-  container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px">Chargement des assets…</div>';
+  container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px">${t('common.loading')}</div>`;
 
-  let assets = [];
+  let topoData;
   try {
-    const resp = await api('/assets?limit=500');
-    assets = (resp && resp.items) ? resp.items : [];
-    _topoAssets = assets;
+    topoData = await api('/topology');
   } catch (e) {
-    container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--danger);font-size:13px">Erreur : ${escape(String(e.message))}</div>`;
+    container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--danger);font-size:13px">${t('common.error')} : ${escape(String(e.message))}</div>`;
     return;
   }
 
-  if (!assets.length) {
-    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px">Aucun asset à afficher.</div>';
+  if (!topoData || !topoData.nodes || !topoData.nodes.length) {
+    container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px">${t('topology.no_assets')}</div>`;
     return;
   }
 
-  // Build canvas-based topology (no external dependency)
-  container.innerHTML = '';
-  const W = container.clientWidth || container.offsetWidth || 800;
-  const H = 540;
+  // Store for context menu actions
+  const nodeMap = {};
+  topoData.nodes.forEach(n => { nodeMap[n.id] = n; });
 
-  const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
-  canvas.style.cssText = 'width:100%;height:100%;display:block;cursor:pointer;';
-  container.appendChild(canvas);
+  // Build D3 graph data
+  const subnetSet = new Set();
+  topoData.nodes.forEach(n => { if (n.subnet) subnetSet.add(n.subnet); });
 
-  const ctx2d = canvas.getContext('2d');
+  const nodes = [];
+  const links = [];
 
-  // Group by /24 subnet
-  const subnets = {};
-  assets.forEach(a => {
-    const sub = (a.ip || '0.0.0.0').split('.').slice(0, 3).join('.') + '.x';
-    if (!subnets[sub]) subnets[sub] = [];
-    subnets[sub].push(a);
-  });
-
-  const subnetKeys = Object.keys(subnets).sort();
-  const cols = Math.min(subnetKeys.length, 4);
-  const colW = W / (cols + 1);
-
-  // Assign positions
-  const nodePositions = new Map();
-  subnetKeys.forEach((sub, si) => {
-    const cx = colW * ((si % cols) + 1);
-    const cy = 60 + Math.floor(si / cols) * 180;
-    nodePositions.set('sub_' + sub, { x: cx, y: cy, label: sub, type: 'subnet' });
-    subnets[sub].forEach((a, ai) => {
-      const angle = (2 * Math.PI * ai) / Math.max(subnets[sub].length, 1);
-      const r = Math.min(70, 20 + subnets[sub].length * 8);
-      nodePositions.set(a.id, {
-        x: cx + r * Math.cos(angle),
-        y: cy + r * Math.sin(angle) + 40,
-        label: a.name || a.ip || '?',
-        asset: a,
-        type: 'asset',
-      });
+  // Subnet hub nodes
+  subnetSet.forEach(sub => {
+    const subAssets = topoData.subnets.find(s => s.subnet === sub);
+    nodes.push({
+      id: 'sub_' + sub,
+      label: sub,
+      type: 'subnet',
+      assetCount: subAssets ? subAssets.asset_count : 0,
+      avgRisk: subAssets ? subAssets.avg_risk_score : 0,
     });
   });
 
-  const nodeColor = (a) => {
-    const crit = (a.criticality || '').toLowerCase();
+  // Asset nodes
+  topoData.nodes.forEach(n => {
+    nodes.push({
+      id: n.id,
+      label: n.name || n.ip || '?',
+      type: 'asset',
+      ip: n.ip,
+      hostname: n.hostname,
+      name: n.name,
+      criticality: n.criticality,
+      risk_score: n.risk_score,
+      cve_count: n.cve_count,
+      critical_cve_count: n.critical_cve_count,
+      device_type: n.device_type,
+      os_family: n.os_family,
+      subnet: n.subnet,
+    });
+    // Link asset to its subnet hub
+    if (n.subnet) {
+      links.push({ source: 'sub_' + n.subnet, target: n.id, link_type: 'subnet' });
+    }
+  });
+
+  // Service links from topology API
+  topoData.links.forEach(l => {
+    if (l.link_type === 'service') {
+      links.push({ source: l.source, target: l.target, link_type: 'service', detail: l.detail });
+    }
+  });
+
+  // Check for D3
+  if (!window.d3) {
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px">D3.js non chargé — topology indisponible.</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  const W = container.clientWidth || container.offsetWidth || 900;
+  const H = 600;
+
+  const svg = d3.select(container).append('svg')
+    .attr('width', W).attr('height', H)
+    .style('background', 'transparent');
+
+  // Zoom + pan
+  const g = svg.append('g');
+  const zoom = d3.zoom()
+    .scaleExtent([0.2, 5])
+    .on('zoom', (ev) => g.attr('transform', ev.transform));
+  svg.call(zoom);
+
+  // Arrow marker for service links
+  svg.append('defs').append('marker')
+    .attr('id', 'topo-arrow').attr('viewBox', '0 -3 6 6')
+    .attr('refX', 18).attr('markerWidth', 6).attr('markerHeight', 6)
+    .attr('orient', 'auto')
+    .append('path').attr('d', 'M0,-3L6,0L0,3').attr('fill', 'rgba(129,140,248,0.4)');
+
+  // Force simulation
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.link_type === 'service' ? 120 : 60).strength(d => d.link_type === 'service' ? 0.2 : 0.6))
+    .force('charge', d3.forceManyBody().strength(-200))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide(d => d.type === 'subnet' ? 40 : 20));
+
+  // Draw links
+  const linkG = g.append('g');
+  const link = linkG.selectAll('line')
+    .data(links).join('line')
+    .attr('stroke', d => d.link_type === 'service' ? 'rgba(251,191,36,0.25)' : 'rgba(129,140,248,0.15)')
+    .attr('stroke-width', d => d.link_type === 'service' ? 1.5 : 1)
+    .attr('stroke-dasharray', d => d.link_type === 'service' ? '4,3' : 'none')
+    .attr('marker-end', d => d.link_type === 'service' ? 'url(#topo-arrow)' : '');
+
+  // Service link labels
+  const linkLabel = linkG.selectAll('text')
+    .data(links.filter(l => l.link_type === 'service')).join('text')
+    .text(d => d.detail ? ':' + d.detail : '')
+    .attr('font-size', 8).attr('fill', 'rgba(251,191,36,0.5)')
+    .attr('text-anchor', 'middle').attr('dy', -3);
+
+  const _nodeColor = (d) => {
+    if (d.type === 'subnet') return 'none';
+    const crit = (d.criticality || '').toLowerCase();
     if (crit === 'critical') return '#f87171';
     if (crit === 'high') return '#fb923c';
-    const cves = a.cves || [];
-    if (cves.some(c => (c.severity || '').toLowerCase() === 'critical')) return '#f87171';
-    if (cves.some(c => (c.severity || '').toLowerCase() === 'high')) return '#fb923c';
-    if (cves.some(c => (c.severity || '').toLowerCase() === 'medium')) return '#fbbf24';
+    if (d.critical_cve_count > 0) return '#f87171';
+    if (d.cve_count > 5) return '#fb923c';
+    if (d.cve_count > 0) return '#fbbf24';
     return '#34d399';
   };
 
-  const draw = () => {
-    ctx2d.clearRect(0, 0, W, H);
-    ctx2d.fillStyle = 'var(--surface)' in document.documentElement.style ? '#0c1120' : '#0c1120';
-    ctx2d.fillRect(0, 0, W, H);
+  const _nodeRadius = (d) => {
+    if (d.type === 'subnet') return 0;
+    return d.risk_score != null ? Math.max(7, Math.min(18, 6 + d.risk_score / 7)) : 8;
+  };
 
-    // Draw edges
-    ctx2d.strokeStyle = 'rgba(129,140,248,0.2)';
-    ctx2d.lineWidth = 1;
-    assets.forEach(a => {
-      const sub = (a.ip || '0.0.0.0').split('.').slice(0, 3).join('.') + '.x';
-      const sPos = nodePositions.get('sub_' + sub);
-      const aPos = nodePositions.get(a.id);
-      if (sPos && aPos) {
-        ctx2d.beginPath();
-        ctx2d.moveTo(sPos.x, sPos.y);
-        ctx2d.lineTo(aPos.x, aPos.y);
-        ctx2d.stroke();
+  // Draw nodes
+  const nodeG = g.append('g').selectAll('g')
+    .data(nodes).join('g')
+    .call(d3.drag()
+      .on('start', (ev, d) => { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag', (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+      .on('end', (ev, d) => { if (!ev.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
+    );
+
+  // Subnet nodes: rounded rect with label
+  nodeG.filter(d => d.type === 'subnet').each(function(d) {
+    const g = d3.select(this);
+    g.append('rect')
+      .attr('x', -30).attr('y', -12).attr('width', 60).attr('height', 24)
+      .attr('rx', 6).attr('ry', 6)
+      .attr('fill', 'rgba(30,41,59,0.9)')
+      .attr('stroke', 'rgba(129,140,248,0.5)')
+      .attr('stroke-width', 1.5);
+    g.append('text')
+      .text(d.label)
+      .attr('text-anchor', 'middle').attr('dy', 4)
+      .attr('font-size', 9).attr('font-family', 'JetBrains Mono, monospace')
+      .attr('fill', 'rgba(148,163,184,0.9)');
+  });
+
+  // Asset nodes: circles
+  nodeG.filter(d => d.type === 'asset').each(function(d) {
+    const g = d3.select(this);
+    g.append('circle')
+      .attr('r', _nodeRadius(d))
+      .attr('fill', _nodeColor(d))
+      .attr('fill-opacity', 0.85)
+      .attr('stroke', '#0c1120')
+      .attr('stroke-width', 1.5);
+    g.append('text')
+      .text((d.label || '').slice(0, 14))
+      .attr('text-anchor', 'middle').attr('dy', _nodeRadius(d) + 13)
+      .attr('font-size', 9).attr('fill', 'rgba(148,163,184,0.8)')
+      .attr('font-family', 'Inter, sans-serif');
+  });
+
+  // Tooltip
+  const tooltip = d3.select('body').append('div')
+    .attr('class', 'topo-tooltip')
+    .style('position', 'fixed').style('display', 'none')
+    .style('background', 'rgba(12,17,32,.95)').style('border', '1px solid rgba(129,140,248,.3)')
+    .style('border-radius', '6px').style('padding', '10px 14px')
+    .style('font-size', '12px').style('pointer-events', 'none').style('z-index', '9999')
+    .style('color', '#e2e8f0').style('max-width', '260px').style('line-height', '1.6')
+    .style('box-shadow', '0 4px 16px rgba(0,0,0,.4)');
+
+  nodeG.filter(d => d.type === 'asset')
+    .on('mouseover', (ev, d) => {
+      tooltip.style('display', 'block')
+        .html(`<strong style="color:var(--accent,#818cf8)">${escape(d.name || d.ip || '?')}</strong><br>
+          IP: ${escape(d.ip || '—')}<br>
+          Hostname: ${escape(d.hostname || '—')}<br>
+          CVEs: ${d.cve_count} (${d.critical_cve_count} critical)<br>
+          Risk score: ${d.risk_score != null ? Math.round(d.risk_score) : '—'}<br>
+          Criticité: ${escape(d.criticality || 'medium')}<br>
+          ${d.device_type ? 'Type: ' + escape(d.device_type) + '<br>' : ''}
+          ${d.os_family ? 'OS: ' + escape(d.os_family) : ''}`);
+    })
+    .on('mousemove', (ev) => {
+      tooltip.style('left', (ev.clientX + 14) + 'px').style('top', (ev.clientY - 10) + 'px');
+    })
+    .on('mouseout', () => tooltip.style('display', 'none'))
+    .on('click', (ev, d) => openAssetModal(d.id))
+    .on('contextmenu', (ev, d) => {
+      ev.preventDefault();
+      window._topoCtxAsset = nodeMap[d.id] || d;
+      const menu = document.getElementById('topo-context-menu');
+      if (menu) {
+        menu.style.display = 'block';
+        menu.style.left = ev.clientX + 'px';
+        menu.style.top = ev.clientY + 'px';
       }
     });
 
-    // Draw subnet nodes
-    subnetKeys.forEach(sub => {
-      const pos = nodePositions.get('sub_' + sub);
-      if (!pos) return;
-      ctx2d.fillStyle = 'rgba(30,41,59,0.9)';
-      ctx2d.strokeStyle = 'rgba(129,140,248,0.5)';
-      ctx2d.lineWidth = 1.5;
-      const tw = ctx2d.measureText(sub).width + 16;
-      const rr = 6;
-      const bx = pos.x - tw / 2, by = pos.y - 11;
-      ctx2d.beginPath();
-      ctx2d.moveTo(bx + rr, by);
-      ctx2d.lineTo(bx + tw - rr, by);
-      ctx2d.arcTo(bx + tw, by, bx + tw, by + 22, rr);
-      ctx2d.lineTo(bx + tw, by + 22 - rr);
-      ctx2d.arcTo(bx + tw, by + 22, bx + tw - rr, by + 22, rr);
-      ctx2d.lineTo(bx + rr, by + 22);
-      ctx2d.arcTo(bx, by + 22, bx, by + 22 - rr, rr);
-      ctx2d.lineTo(bx, by + rr);
-      ctx2d.arcTo(bx, by, bx + rr, by, rr);
-      ctx2d.closePath();
-      ctx2d.fill();
-      ctx2d.stroke();
-      ctx2d.fillStyle = 'rgba(148,163,184,0.9)';
-      ctx2d.font = '10px monospace';
-      ctx2d.textAlign = 'center';
-      ctx2d.fillText(sub, pos.x, pos.y + 4);
-    });
+  // Subnet hover: show asset count + risk
+  nodeG.filter(d => d.type === 'subnet')
+    .on('mouseover', (ev, d) => {
+      tooltip.style('display', 'block')
+        .html(`<strong style="color:var(--accent)">${escape(d.label)}</strong><br>
+          Assets: ${d.assetCount}<br>
+          Avg risk: ${d.avgRisk.toFixed(1)}`);
+    })
+    .on('mousemove', (ev) => {
+      tooltip.style('left', (ev.clientX + 14) + 'px').style('top', (ev.clientY - 10) + 'px');
+    })
+    .on('mouseout', () => tooltip.style('display', 'none'));
 
-    // Draw asset nodes
-    assets.forEach(a => {
-      const pos = nodePositions.get(a.id);
-      if (!pos) return;
-      const r = a.risk_score != null ? Math.max(7, Math.min(16, 6 + a.risk_score / 8)) : 8;
-      ctx2d.beginPath();
-      ctx2d.arc(pos.x, pos.y, r, 0, 2 * Math.PI);
-      ctx2d.fillStyle = nodeColor(a);
-      ctx2d.globalAlpha = 0.85;
-      ctx2d.fill();
-      ctx2d.globalAlpha = 1;
-      ctx2d.strokeStyle = '#0c1120';
-      ctx2d.lineWidth = 1.5;
-      ctx2d.stroke();
-      ctx2d.fillStyle = 'rgba(148,163,184,0.8)';
-      ctx2d.font = '9px Inter, sans-serif';
-      ctx2d.textAlign = 'center';
-      const lbl = (pos.label || '').slice(0, 14);
-      ctx2d.fillText(lbl, pos.x, pos.y + r + 11);
-    });
-  };
-
-  draw();
-
-  // Tooltip on hover
-  const tip = document.createElement('div');
-  tip.style.cssText = 'position:fixed;background:rgba(12,17,32,.95);border:1px solid rgba(129,140,248,.3);border-radius:6px;padding:10px 14px;font-size:12px;pointer-events:none;z-index:9999;display:none;color:#e2e8f0;max-width:240px;line-height:1.6;box-shadow:0 4px 16px rgba(0,0,0,.4)';
-  document.body.appendChild(tip);
-
-  canvas.addEventListener('mousemove', ev => {
-    const rect = canvas.getBoundingClientRect();
-    const mx = (ev.clientX - rect.left) * (W / rect.width);
-    const my = (ev.clientY - rect.top) * (H / rect.height);
-    let found = null;
-    assets.forEach(a => {
-      const pos = nodePositions.get(a.id);
-      if (!pos) return;
-      const r = 16;
-      if ((mx - pos.x) ** 2 + (my - pos.y) ** 2 < r * r) found = a;
-    });
-    if (found) {
-      const cveCount = (found.cves || []).filter(c => c.ack_status === 'none').length;
-      tip.style.display = 'block';
-      tip.style.left = (ev.clientX + 14) + 'px';
-      tip.style.top = (ev.clientY - 10) + 'px';
-      tip.innerHTML = `<strong style="color:var(--accent,#818cf8)">${escape(found.name || found.ip || '?')}</strong>
-        IP: ${escape(found.ip || '—')}<br>Hostname: ${escape(found.hostname || '—')}<br>
-        CVEs actives: ${cveCount}<br>Risk score: ${found.risk_score != null ? Math.round(found.risk_score) : '—'}<br>
-        Criticité: ${found.criticality || 'medium'}`;
-      canvas.style.cursor = 'pointer';
-    } else {
-      tip.style.display = 'none';
-      canvas.style.cursor = 'default';
-    }
-  });
-  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
-  canvas.addEventListener('click', ev => {
-    const rect = canvas.getBoundingClientRect();
-    const mx = (ev.clientX - rect.left) * (W / rect.width);
-    const my = (ev.clientY - rect.top) * (H / rect.height);
-    assets.forEach(a => {
-      const pos = nodePositions.get(a.id);
-      if (!pos) return;
-      if ((mx - pos.x) ** 2 + (my - pos.y) ** 2 < 16 * 16) openAssetModal(a.id);
-    });
+  // Tick update
+  sim.on('tick', () => {
+    link
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    linkLabel
+      .attr('x', d => (d.source.x + d.target.x) / 2)
+      .attr('y', d => (d.source.y + d.target.y) / 2);
+    nodeG.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
-  // Cleanup tip when leaving panel
-  const cleanupTip = () => { if (tip.parentNode) tip.remove(); };
+  // Dismiss context menu on click
+  document.addEventListener('click', () => {
+    const menu = document.getElementById('topo-context-menu');
+    if (menu) menu.style.display = 'none';
+  });
+
+  // Cleanup tooltip when leaving panel
+  const cleanupTip = () => tooltip.style('display', 'none');
   document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', cleanupTip, { once: false }));
+
+  // Subnet summary bar below the graph
+  if (topoData.subnets && topoData.subnets.length > 0) {
+    const summaryDiv = document.createElement('div');
+    summaryDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;padding:10px 4px;margin-top:4px';
+    topoData.subnets.slice(0, 12).forEach(s => {
+      const riskColor = s.avg_risk_score >= 60 ? '#f87171' : s.avg_risk_score >= 30 ? '#fbbf24' : '#34d399';
+      summaryDiv.innerHTML += `<div style="font-size:11px;padding:4px 10px;border-radius:6px;background:var(--surface2);border-left:3px solid ${riskColor}">
+        <span style="font-family:var(--font-mono);color:#94a3b8">${escape(s.subnet)}</span>
+        <span style="margin-left:6px;color:var(--text-muted)">${s.asset_count} assets</span>
+        <span style="margin-left:6px;color:${riskColor};font-weight:600">risk ${s.avg_risk_score.toFixed(0)}</span>
+        ${s.critical_count > 0 ? `<span style="margin-left:4px;color:#f87171">⚠ ${s.critical_count} crit</span>` : ''}
+      </div>`;
+    });
+    container.appendChild(summaryDiv);
+  }
+}
+
+function topoCtxAction(action) {
+  const asset = window._topoCtxAsset;
+  const menu = document.getElementById('topo-context-menu');
+  if (menu) menu.style.display = 'none';
+  if (!asset) return;
+  const assetId = asset.id;
+  if (action === 'detail') openAssetModal(assetId);
+  else if (action === 'copyip') { navigator.clipboard.writeText(asset.ip || ''); showToast(t('topology.ip_copied'), 'success'); }
+  else if (action === 'scan') {
+    api(`/scans`, { method: 'POST', body: JSON.stringify({ target: asset.ip, modules: ['arp_sweep', 'port_scanner', 'service_detector'] }) })
+      .then(() => showToast(t('topology.scan_launched'), 'success')).catch(e => showToast(e.message, 'error'));
+  }
+  else if (action === 'fullaudit') {
+    api(`/assets/${assetId}/full-audit`, { method: 'POST' })
+      .then(() => showToast(t('topology.audit_launched'), 'success')).catch(e => showToast(e.message, 'error'));
+  }
 }
 
 // Rewrite loadReportsPanel to be simpler and more robust
@@ -5438,9 +6056,9 @@ async function loadReportsPanel() {
   const slaEl = document.getElementById('reports-sla-list');
   const riskEl = document.getElementById('reports-top-risk-list');
 
-  if (statsEl) statsEl.innerHTML = '<span style="color:var(--text-muted);font-size:13px">Chargement…</span>';
-  if (slaEl) slaEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Chargement…</p>';
-  if (riskEl) riskEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Chargement…</p>';
+  if (statsEl) statsEl.innerHTML = `<span style="color:var(--text-muted);font-size:13px">${t('common.loading')}</span>`;
+  if (slaEl) slaEl.innerHTML = `<p style="color:var(--text-muted);font-size:13px">${t('common.loading')}</p>`;
+  if (riskEl) riskEl.innerHTML = `<p style="color:var(--text-muted);font-size:13px">${t('common.loading')}</p>`;
 
   try {
     const data = await api('/reports/executive/data');
@@ -5498,10 +6116,10 @@ async function loadReportsPanel() {
     try {
       const trend = await api('/dashboard/trends');
       if (trend && trend.points) _renderReportsTrend(trend);
-    } catch (_) { /* trend skipped */ }
+    } catch (e) { console.warn('dashboard_trend_load:', e); }
 
   } catch (e) {
-    const msg = `<span style="color:var(--danger);font-size:13px">Erreur : ${escape(String(e.message))}</span>`;
+    const msg = `<span style="color:var(--danger);font-size:13px">${t('common.error')} : ${escape(String(e.message))}</span>`;
     if (statsEl) statsEl.innerHTML = msg;
     if (slaEl) slaEl.innerHTML = '';
     if (riskEl) riskEl.innerHTML = '';
@@ -5588,7 +6206,7 @@ async function loadCves(reset = false) {
   try {
     data = await api(`/cves?${params}`);
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--danger);text-align:center;padding:24px">Erreur : ${escape(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--danger);text-align:center;padding:24px">${t('common.error')} : ${escape(String(e))}</td></tr>`;
     return;
   }
 
@@ -5612,25 +6230,25 @@ async function loadCves(reset = false) {
     const pub = c.published_at ? new Date(c.published_at).toLocaleDateString('fr-FR') : '—';
     const planCell = c.remediation
       ? `<span class="plan-snippet clickable" title="${escape(c.remediation)}"
-             onclick="openCveRemediationModal('${escape(c.cve_id)}','${escape(c.remediation || '')}')"
+             onclick="openCveRemediationModal('${escapeAttr(c.cve_id)}','${escapeAttr(c.remediation || '')}')"
              >${escape(c.remediation.length > 50 ? c.remediation.slice(0, 50) + '…' : c.remediation)}</span>`
       : (isAdmin
-          ? `<button class="btn btn-sm" onclick="openCveRemediationModal('${escape(c.cve_id)}','')">+ Plan</button>`
+          ? `<button class="btn btn-sm" onclick="openCveRemediationModal('${escapeAttr(c.cve_id)}','')">+ Plan</button>`
           : '<span style="color:var(--text-muted);font-size:11px">—</span>');
     const affectedCell = c.asset_count > 0
       ? `<span class="clickable" style="font-weight:600;color:var(--danger);cursor:pointer"
-             onclick="showCveAffectedAssets('${escape(c.cve_id)}',${c.asset_count})">${c.asset_count}</span>`
+             onclick="showCveAffectedAssets('${escapeAttr(c.cve_id)}',${c.asset_count})">${c.asset_count}</span>`
       : '0';
 
     // Threat intel cell: maturity badge + optional EDB link
     let threatCell = maturityBadge(c.exploit_maturity, c.kev_ransomware_use);
     if (c.exploit_db_id) {
-      threatCell += ` <a href="https://www.exploit-db.com/exploits/${c.exploit_db_id}" target="_blank" rel="noopener"
-        style="font-size:10px;color:var(--text-muted)" title="Voir exploit EDB #${c.exploit_db_id}">#${c.exploit_db_id}</a>`;
+      threatCell += ` <a href="https://www.exploit-db.com/exploits/${encodeURIComponent(c.exploit_db_id)}" target="_blank" rel="noopener"
+        style="font-size:10px;color:var(--text-muted)" title="Voir exploit EDB #${escape(c.exploit_db_id)}">#${escape(c.exploit_db_id)}</a>`;
     }
     if (c.poc_count > 0) {
-      threatCell += ` <a href="https://github.com/nomi-sec/PoC-in-GitHub/tree/master/${(c.cve_id.match(/CVE-(\d{4})/)||['',''])[1]}/${c.cve_id}"
-        target="_blank" rel="noopener" style="font-size:10px;color:var(--text-muted)" title="${c.poc_count} PoC(s) public(s)">${c.poc_count}×PoC</a>`;
+      threatCell += ` <a href="https://github.com/nomi-sec/PoC-in-GitHub/tree/master/${encodeURIComponent((c.cve_id.match(/CVE-(\d{4})/)||['',''])[1])}/${encodeURIComponent(c.cve_id)}"
+        target="_blank" rel="noopener" style="font-size:10px;color:var(--text-muted)" title="${escape(c.poc_count)} PoC(s) public(s)">${c.poc_count}×PoC</a>`;
     }
 
     return `
@@ -5648,6 +6266,7 @@ async function loadCves(reset = false) {
       </tr>`;
   }).join('');
 
+  _initSortableHeaders('cve-table-global');
   _renderCvePagination(data.total);
 }
 
@@ -5668,7 +6287,8 @@ async function loadFullAuditJobs(assetId) {
   try {
     const jobs = await api(`/assets/${assetId}/full-audit`).catch(() => []);
     _renderFullAuditJobs(jobs || []);
-  } catch (_) {
+  } catch (e) {
+    console.warn('full_audit_jobs_load:', e);
     _renderFullAuditJobs([]);
   }
 }
@@ -5722,7 +6342,8 @@ async function _pollFullAuditJob(assetId, jobId) {
           showToast(msg, job.status === 'completed' ? 'success' : 'error');
           break;
         }
-      } catch (_) {
+      } catch (e) {
+        console.warn('full_audit_poll:', e);
         if (++errors >= 5) break; // Stop after 5 consecutive API errors
       }
     }
@@ -5832,7 +6453,7 @@ function _remSevBreakdown(breakdown) {
     })
     .map(([sev, cnt]) => `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px;font-size:12px">
       <span style="width:8px;height:8px;border-radius:50%;background:${_SEV_COLOR[sev] || '#94a3b8'};display:inline-block"></span>
-      ${cnt} ${sev}
+      ${cnt} ${escape(sev)}
     </span>`)
     .join('');
 }
@@ -5842,7 +6463,7 @@ async function loadRemediation() {
   const listEl    = document.getElementById('remediation-list');
   if (!listEl) return;
 
-  listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:16px">Chargement…</p>';
+  listEl.innerHTML = `<p style="color:var(--text-muted);font-size:13px;padding:16px">${t('common.loading')}</p>`;
   if (summaryEl) summaryEl.innerHTML = '';
 
   const source    = document.getElementById('remediation-source-filter')?.value || '';
@@ -5891,7 +6512,7 @@ async function loadRemediation() {
 
       const detailId = `rem-detail-${idx}`;
       const sources  = g.sources.length ? g.sources.join(', ') : '—';
-      const critLabel = _CRIT_LABEL[g.criticality_max?.toLowerCase()] || g.criticality_max;
+      const critLabel = _CRIT_LABEL[g.criticality_max?.toLowerCase()] || escape(g.criticality_max);
       const epssLabel = g.epss_max > 0 ? `${(g.epss_max * 100).toFixed(1)}%` : '—';
 
       return `<div class="settings-card" style="margin-bottom:10px;border-left:4px solid ${scoreColor}">
@@ -5923,7 +6544,7 @@ async function loadRemediation() {
     }).join('');
 
   } catch (e) {
-    listEl.innerHTML = `<span style="color:var(--danger);font-size:13px">Erreur : ${escape(String(e.message))}</span>`;
+    listEl.innerHTML = `<span style="color:var(--danger);font-size:13px">${t('common.error')} : ${escape(String(e.message))}</span>`;
   }
 }
 
@@ -5954,14 +6575,14 @@ function initSSE() {
         } else if (data.event === 'cve_alert') {
           showToast(`CVE ${data.cve_id || ''} sur ${data.asset_ip || ''}`, 'error', 8000);
         }
-      } catch (_) { /* ignore parse errors */ }
+      } catch (e) { console.warn('sse_message_parse:', e); }
     };
     _sseSource.addEventListener('error', () => {
       // Reconnect after 5s on error
       if (_sseSource) { _sseSource.close(); _sseSource = null; }
       setTimeout(initSSE, 5000);
     });
-  } catch (_) { /* EventSource not supported */ }
+  } catch (e) { console.warn('sse_init:', e); }
 }
 
 // Init SSE after login
@@ -5999,7 +6620,7 @@ function initGlobalSearch() {
           `).join('');
         }
         dropdown.classList.remove('hidden');
-      } catch (_) { dropdown.classList.add('hidden'); }
+      } catch (e) { console.warn('global_search:', e); dropdown.classList.add('hidden'); }
     }, 300);
   });
 
@@ -6032,13 +6653,37 @@ document.addEventListener('DOMContentLoaded', initGlobalSearch);
 async function loadTimeline() {
   const el = document.getElementById('timeline-list');
   if (!el) return;
-  el.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Chargement…</p>';
+  el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">${t('common.loading')}</p>`;
   try {
-    const events = await api('/timeline?limit=200');
-    if (!events || !events.length) { el.innerHTML = '<p style="color:var(--text-muted)">Aucun événement</p>'; return; }
+    const filter = document.getElementById('timeline-type-filter')?.value || '';
+    let events = [];
 
-    const typeColors = { asset_discovered: '#818cf8', cve_found: '#f87171', port_opened: '#fbbf24', scan_completed: '#34d399' };
-    const typeIcons = { asset_discovered: '&#x1f4bb;', cve_found: '&#x26a0;', port_opened: '&#x1f513;', scan_completed: '&#x2705;' };
+    if (filter !== 'user') {
+      const sysEvents = await api('/timeline?limit=200');
+      events = (sysEvents || []).map(e => ({ ...e, _category: 'system' }));
+    }
+
+    if (filter !== 'system') {
+      try {
+        const auditLogs = await api('/admin/audit-logs?limit=100');
+        const mappedLogs = (auditLogs || []).map(log => ({
+          event_type: 'user_action',
+          detail: `${escape(log.user || '?')} → ${escape(log.action)} (${escape(log.resource_type || '')})`,
+          timestamp: log.created_at,
+          severity: 'info',
+          asset_ip: log.resource_id || null,
+          _category: 'user',
+        }));
+        events = events.concat(mappedLogs);
+      } catch (e) { console.warn('audit_logs_load:', e); }
+    }
+
+    // Sort by timestamp descending
+    events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    if (!events || !events.length) { el.innerHTML = `<p style="color:var(--text-muted)">${t('timeline.no_events')}</p>`; return; }
+
+    const typeColors = { asset_discovered: '#818cf8', cve_found: '#f87171', port_opened: '#fbbf24', scan_completed: '#34d399', user_action: '#a78bfa' };
+    const typeIcons = { asset_discovered: '&#x1f4bb;', cve_found: '&#x26a0;', port_opened: '&#x1f513;', scan_completed: '&#x2705;', user_action: '&#x1f464;' };
 
     el.innerHTML = events.map(ev => {
       const color = typeColors[ev.event_type] || '#94a3b8';
@@ -6055,7 +6700,7 @@ async function loadTimeline() {
       </div>`;
     }).join('');
   } catch (e) {
-    el.innerHTML = `<p style="color:var(--danger)">Erreur : ${escape(String(e.message))}</p>`;
+    el.innerHTML = `<p style="color:var(--danger)">${t('common.error')} : ${escape(String(e.message))}</p>`;
   }
 }
 
@@ -6079,34 +6724,118 @@ async function loadCompliance() {
     fwEl.innerHTML = (frameworks || []).map(fw => `
       <div class="settings-card" style="text-align:center">
         <h3 style="font-size:14px;margin-bottom:4px">${escape(fw.name)}</h3>
-        <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${escape(fw.description).substring(0, 80)}</p>
-        <div style="font-size:11px;color:var(--text-muted)">${fw.controls_count} contrôles</div>
-        <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="runComplianceEval('${escape(fw.id)}')">Évaluer</button>
+        <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${escape((fw.description || '').substring(0, 80))}</p>
+        <div style="font-size:11px;color:var(--text-muted)">${fw.controls_count} ${t('compliance.controls')}</div>
+        <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="runComplianceEval('${escapeAttr(fw.id)}')">${t('compliance.evaluate')}</button>
       </div>
     `).join('');
 
-    if (!reports.length) { listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Aucun rapport</p>'; return; }
-    listEl.innerHTML = `<table class="data-table"><thead><tr><th>Framework</th><th>Score</th><th>Statut</th><th>Date</th><th>Findings</th></tr></thead><tbody>
-      ${reports.map(r => `<tr>
+    if (!reports.length) { listEl.innerHTML = `<p style="color:var(--text-muted);font-size:13px">${t('compliance.no_reports')}</p>`; return; }
+    listEl.innerHTML = `<table class="data-table" id="compliance-reports-table"><thead><tr>
+      <th data-sort-key="framework">Framework</th><th data-sort-key="score" data-sort-type="num">Score</th>
+      <th data-sort-key="status">Statut</th><th data-sort-key="date" data-sort-type="date">Date</th>
+      <th data-sort-key="findings" data-sort-type="num">Findings</th></tr></thead><tbody>
+      ${reports.map(r => `<tr style="cursor:pointer" onclick="openComplianceReport('${escapeAttr(r.id)}','${escapeAttr(r.framework_name)}')">
         <td>${escape(r.framework_name)}</td>
-        <td><strong style="color:${r.score >= 70 ? 'var(--success)' : r.score >= 40 ? 'var(--warning)' : 'var(--danger)'}">${r.score != null ? r.score + '%' : '—'}</strong></td>
+        <td data-sort-value="${r.score ?? -1}"><strong style="color:${r.score >= 70 ? 'var(--success)' : r.score >= 40 ? 'var(--warning)' : 'var(--danger)'}">${r.score != null ? r.score + '%' : '—'}</strong></td>
         <td><span class="badge">${escape(r.status)}</span></td>
-        <td style="font-size:12px">${r.generated_at ? new Date(r.generated_at).toLocaleDateString('fr-FR') : '—'}</td>
+        <td data-sort-value="${r.generated_at || ''}" style="font-size:12px">${r.generated_at ? new Date(r.generated_at).toLocaleDateString('fr-FR') : '—'}</td>
         <td>${r.findings_count}</td>
       </tr>`).join('')}
     </tbody></table>`;
+    _initSortableHeaders('compliance-reports-table');
   } catch (e) {
-    fwEl.innerHTML = `<p style="color:var(--danger)">Erreur : ${escape(String(e.message))}</p>`;
+    fwEl.innerHTML = `<p style="color:var(--danger)">${t('common.error')} : ${escape(String(e.message))}</p>`;
   }
 }
 
 async function runComplianceEval(framework) {
   try {
-    showToast(`Évaluation ${framework} lancée…`, 'info');
+    showToast(t('compliance.eval_launched'), 'info');
     await api(`/compliance/evaluate/${framework}`, { method: 'POST' });
     setTimeout(loadCompliance, 3000);
   } catch (e) {
-    showToast(`Erreur : ${e.message}`, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
+  }
+}
+
+async function openComplianceReport(reportId, frameworkName) {
+  const detailEl = document.getElementById('compliance-report-detail');
+  const titleEl = document.getElementById('compliance-detail-title');
+  const bodyEl = document.getElementById('compliance-detail-body');
+  if (!detailEl || !bodyEl) return;
+
+  detailEl.style.display = 'block';
+  if (titleEl) titleEl.textContent = `Findings — ${frameworkName}`;
+  bodyEl.innerHTML = `<p style="color:var(--text-muted);font-size:13px">${t('common.loading')}</p>`;
+
+  try {
+    const report = await api(`/compliance/reports/${reportId}`);
+    if (!report || !report.findings || !report.findings.length) {
+      bodyEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Aucun finding disponible.</p>';
+      return;
+    }
+
+    // Summary counters
+    const counts = { pass: 0, partial: 0, fail: 0 };
+    report.findings.forEach(f => {
+      const s = (f.status || '').toLowerCase();
+      if (s === 'pass') counts.pass++;
+      else if (s === 'partial') counts.partial++;
+      else counts.fail++;
+    });
+
+    const sevColor = { high: 'var(--danger)', medium: 'var(--warning)', low: 'var(--success)' };
+    const statusIcon = { pass: '✓', partial: '◐', fail: '✗' };
+    const statusColor = { pass: 'var(--success)', partial: 'var(--warning)', fail: 'var(--danger)' };
+
+    bodyEl.innerHTML = `
+      <div style="display:flex;gap:12px;margin-bottom:16px">
+        <div style="flex:1;text-align:center;padding:10px;border-radius:8px;background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2)">
+          <div style="font-size:24px;font-weight:700;color:var(--success)">${counts.pass}</div>
+          <div style="font-size:11px;color:var(--text-muted)">Conformes</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:10px;border-radius:8px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2)">
+          <div style="font-size:24px;font-weight:700;color:var(--warning)">${counts.partial}</div>
+          <div style="font-size:11px;color:var(--text-muted)">Partiels</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:10px;border-radius:8px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2)">
+          <div style="font-size:24px;font-weight:700;color:var(--danger)">${counts.fail}</div>
+          <div style="font-size:11px;color:var(--text-muted)">Non conformes</div>
+        </div>
+      </div>
+      <table class="data-table" id="compliance-findings-table">
+        <thead><tr>
+          <th data-sort-key="status">Statut</th>
+          <th data-sort-key="id">Contrôle</th>
+          <th data-sort-key="title">Titre</th>
+          <th data-sort-key="domain">Domaine</th>
+          <th data-sort-key="score" data-sort-type="num">Score</th>
+          <th data-sort-key="severity">Sévérité</th>
+        </tr></thead>
+        <tbody>
+          ${report.findings.map(f => {
+            const s = (f.status || 'fail').toLowerCase();
+            const sev = (f.severity || 'medium').toLowerCase();
+            return `<tr style="background:${s === 'fail' ? 'rgba(248,113,113,0.04)' : s === 'partial' ? 'rgba(251,191,36,0.04)' : 'transparent'}">
+              <td><span style="color:${statusColor[s] || 'var(--text-muted)'};font-weight:600">${statusIcon[s] || '?'} ${escape(f.status || 'N/A')}</span></td>
+              <td style="font-family:var(--font-mono);font-size:12px">${escape(f.control_id || f.measure_id || '—')}</td>
+              <td style="font-size:12px">${escape(f.title || '—')}</td>
+              <td style="font-size:11px;color:var(--text-muted)">${escape(f.domain || f.theme || f.article || '—')}</td>
+              <td data-sort-value="${f.score ?? -1}">
+                <span style="font-weight:600;color:${f.score >= 70 ? 'var(--success)' : f.score >= 40 ? 'var(--warning)' : 'var(--danger)'}">${f.score != null ? f.score + '%' : '—'}</span>
+              </td>
+              <td><span style="color:${sevColor[sev] || 'var(--text-muted)'};font-size:11px;font-weight:600">${escape(sev)}</span></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+    _initSortableHeaders('compliance-findings-table');
+
+    // Scroll to detail
+    detailEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (e) {
+    bodyEl.innerHTML = `<p style="color:var(--danger);font-size:13px">${t('common.error')} : ${escape(String(e.message))}</p>`;
   }
 }
 
@@ -6121,21 +6850,21 @@ async function loadExecutive() {
 
   try {
     const d = await api('/executive/summary');
-    if (!d) { kpisEl.innerHTML = '<p style="color:var(--text-muted)">Données indisponibles</p>'; return; }
+    if (!d) { kpisEl.innerHTML = `<p style="color:var(--text-muted)">${t('common.no_data')}</p>`; return; }
 
     // ── Row 1: 6 KPIs ──
     const mttr = d.mttr_hours != null ? `${Math.round(d.mttr_hours)}h` : '—';
     const forecast = d.forecast_days_to_zero != null ? `${d.forecast_days_to_zero}j` : '∞';
-    const trendLabel = d.risk_trend === 'improving' ? '↘ Amélioration' : d.risk_trend === 'worsening' ? '↗ Dégradation' : '→ Stable';
+    const trendLabel = d.risk_trend === 'improving' ? t('dashboard.trend.improving') : d.risk_trend === 'worsening' ? t('dashboard.trend.worsening') : t('dashboard.trend.stable');
     const trendColor = d.risk_trend === 'improving' ? 'var(--success)' : d.risk_trend === 'worsening' ? 'var(--danger)' : 'var(--text-muted)';
 
     kpisEl.innerHTML = [
-      { label: 'Score risque', value: Math.round(d.global_risk_score), color: d.global_risk_score > 60 ? 'var(--danger)' : d.global_risk_score > 30 ? 'var(--warning)' : 'var(--success)' },
-      { label: 'CVEs critiques', value: d.critical_cves, color: d.critical_cves > 0 ? 'var(--danger)' : 'var(--success)' },
-      { label: 'CVEs ouvertes', value: d.total_cves - (d.remediation_funnel?.resolved || 0), color: 'var(--warning)' },
-      { label: 'MTTR', value: mttr, color: 'var(--info)' },
-      { label: 'Tendance', value: trendLabel, color: trendColor },
-      { label: 'Forecast 0 crit', value: forecast, color: 'var(--accent)' },
+      { label: t('dashboard.kpi.risk_score'), value: Math.round(d.global_risk_score), color: d.global_risk_score > 60 ? 'var(--danger)' : d.global_risk_score > 30 ? 'var(--warning)' : 'var(--success)' },
+      { label: t('dashboard.kpi.critical_cves'), value: d.critical_cves, color: d.critical_cves > 0 ? 'var(--danger)' : 'var(--success)' },
+      { label: t('dashboard.kpi.open_cves'), value: d.total_cves - (d.remediation_funnel?.resolved || 0), color: 'var(--warning)' },
+      { label: t('dashboard.kpi.mttr'), value: mttr, color: 'var(--info)' },
+      { label: t('dashboard.kpi.trend'), value: trendLabel, color: trendColor },
+      { label: t('dashboard.kpi.forecast'), value: forecast, color: 'var(--accent)' },
     ].map(k => `<div class="stat-card"><span class="num" style="color:${k.color};font-size:20px">${k.value}</span><span class="stat-lbl">${k.label}</span></div>`).join('');
 
     // ── Risk gauge ──
@@ -6144,17 +6873,17 @@ async function loadExecutive() {
       const pct = Math.round(d.global_risk_score);
       const gc = pct > 60 ? 'var(--danger)' : pct > 30 ? 'var(--warning)' : 'var(--success)';
       gaugeEl.innerHTML = `
-        <div style="position:relative;width:140px;height:140px;margin:0 auto">
+        <div style="position:relative;width:120px;height:120px;margin:0 auto">
           <svg viewBox="0 0 36 36" style="transform:rotate(-90deg)">
             <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--surface3)" stroke-width="3"/>
             <circle cx="18" cy="18" r="15.9" fill="none" stroke="${gc}" stroke-width="3" stroke-dasharray="${pct} ${100 - pct}" stroke-linecap="round"/>
           </svg>
           <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column">
-            <span style="font-size:26px;font-weight:700;color:${gc}">${pct}</span>
-            <span style="font-size:10px;color:var(--text-muted)">/ 100</span>
+            <span style="font-size:22px;font-weight:700;color:${gc}">${pct}</span>
+            <span style="font-size:9px;color:var(--text-muted)">/ 100</span>
           </div>
         </div>
-        <p style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:8px">${d.active_assets || 0} assets actifs · ${d.total_cves || 0} CVEs</p>`;
+        <p style="text-align:center;font-size:10px;color:var(--text-muted);margin-top:6px">${d.active_assets || 0} assets · ${d.total_cves || 0} CVEs</p>`;
     }
 
     // ── Remediation funnel ──
@@ -6163,11 +6892,11 @@ async function loadExecutive() {
       const f = d.remediation_funnel || { open: 0, planned: 0, in_progress: 0, resolved: 0, blocked: 0 };
       const total = Object.values(f).reduce((s, v) => s + v, 0) || 1;
       const bars = [
-        { label: 'Ouvert', count: f.open, color: 'var(--text-muted)' },
-        { label: 'Planifié', count: f.planned, color: 'var(--info)' },
-        { label: 'En cours', count: f.in_progress, color: 'var(--warning)' },
-        { label: 'Résolu', count: f.resolved, color: 'var(--success)' },
-        { label: 'Bloqué', count: f.blocked, color: 'var(--danger)' },
+        { label: t('dashboard.funnel.open'), count: f.open, color: 'var(--text-muted)' },
+        { label: t('dashboard.funnel.planned'), count: f.planned, color: 'var(--info)' },
+        { label: t('dashboard.funnel.in_progress'), count: f.in_progress, color: 'var(--warning)' },
+        { label: t('dashboard.funnel.resolved'), count: f.resolved, color: 'var(--success)' },
+        { label: t('dashboard.funnel.blocked'), count: f.blocked, color: 'var(--danger)' },
       ];
       funnelEl.innerHTML = bars.map(b => `
         <div style="margin-bottom:8px">
@@ -6190,15 +6919,15 @@ async function loadExecutive() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center">
           <div>
             <div style="font-size:28px;font-weight:700;color:var(--info)">${mttr}</div>
-            <div style="font-size:11px;color:var(--text-muted)">MTTR moyen</div>
+            <div style="font-size:11px;color:var(--text-muted)">${t('dashboard.perf.mttr_avg')}</div>
           </div>
           <div>
             <div style="font-size:28px;font-weight:700;color:${slaBreach > 0 ? 'var(--danger)' : 'var(--success)'}">${slaBreach}</div>
-            <div style="font-size:11px;color:var(--text-muted)">SLA en breach</div>
+            <div style="font-size:11px;color:var(--text-muted)">${t('dashboard.perf.sla_breach')}</div>
           </div>
         </div>
         <div style="margin-top:14px;font-size:12px;color:var(--text-muted)">
-          ${slaBreach > 0 ? `Retard moyen : <strong style="color:var(--danger)">${slaAvgOverdue}j</strong>` : '<span style="color:var(--success)">Tous les SLA sont respectés</span>'}
+          ${slaBreach > 0 ? `${t('dashboard.perf.avg_delay')} : <strong style="color:var(--danger)">${slaAvgOverdue}j</strong>` : `<span style="color:var(--success)">${t('dashboard.perf.all_sla_ok')}</span>`}
         </div>
         <div style="margin-top:8px;font-size:12px;color:var(--text-muted)">
           Remédiation : <strong>${d.remediation_rate_pct || 0}%</strong> · Couverture scan : <strong>${d.coverage?.scan_coverage_pct?.toFixed(0) || 0}%</strong>
@@ -6210,9 +6939,9 @@ async function loadExecutive() {
     if (coverageEl && d.coverage) {
       const c = d.coverage;
       const items = [
-        { label: 'Scan réseau récent (<7j)', pct: c.scan_coverage_pct || 0, count: `${c.assets_with_recent_scan}/${c.total_assets}` },
-        { label: 'Hardening audit', pct: c.hardening_coverage_pct || 0, count: `${c.assets_with_hardening}/${c.total_assets}` },
-        { label: 'SSL/TLS valide', pct: c.total_assets ? Math.round((c.assets_with_ssl_ok / c.total_assets) * 100) : 0, count: `${c.assets_with_ssl_ok}/${c.total_assets}` },
+        { label: t('dashboard.coverage.recent_scan'), pct: c.scan_coverage_pct || 0, count: `${c.assets_with_recent_scan}/${c.total_assets}` },
+        { label: t('dashboard.coverage.hardening'), pct: c.hardening_coverage_pct || 0, count: `${c.assets_with_hardening}/${c.total_assets}` },
+        { label: t('dashboard.coverage.ssl_ok'), pct: c.total_assets ? Math.round((c.assets_with_ssl_ok / c.total_assets) * 100) : 0, count: `${c.assets_with_ssl_ok}/${c.total_assets}` },
       ];
       coverageEl.innerHTML = items.map(m => {
         const barColor = m.pct >= 80 ? 'var(--success)' : m.pct >= 50 ? 'var(--warning)' : 'var(--danger)';
@@ -6233,14 +6962,14 @@ async function loadExecutive() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
           <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:var(--radius)">
             <div style="font-size:24px;font-weight:700;color:${slaBreach > 0 ? 'var(--danger)' : 'var(--success)'}">${slaBreach}</div>
-            <div style="font-size:11px;color:var(--text-muted)">SLA dépassés</div>
+            <div style="font-size:11px;color:var(--text-muted)">${t('dashboard.sla.exceeded')}</div>
           </div>
           <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:var(--radius)">
             <div style="font-size:24px;font-weight:700;color:var(--accent)">${Math.round(funnelRes / funnelTotal * 100)}%</div>
-            <div style="font-size:11px;color:var(--text-muted)">Taux résolution</div>
+            <div style="font-size:11px;color:var(--text-muted)">${t('dashboard.sla.resolution_rate')}</div>
           </div>
         </div>
-        <p style="font-size:12px;color:var(--text-muted)">SLA : Critique 3j · Haut 7j · Moyen 30j · Bas 90j</p>`;
+        <p style="font-size:12px;color:var(--text-muted)">${t('dashboard.sla.deadlines')}</p>`;
     }
 
     // ── Heatmap severity × criticality ──
@@ -6275,11 +7004,11 @@ async function loadExecutive() {
       topEl.innerHTML = (d.top_risky_assets || []).slice(0, 8).map((a, i) => `
         <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border-muted);font-size:12px">
           <span style="color:var(--text-muted);font-weight:600;min-width:18px">#${i + 1}</span>
-          <span style="flex:1;font-weight:500">${escape(a.ip || a.name || a.asset_id?.substring(0, 8))}</span>
-          <span class="badge badge-error" style="font-size:9px">${a.critical_cve_count} crit</span>
-          <span style="color:var(--text-muted)">${a.cve_count} CVEs</span>
+          <span style="flex:1;font-weight:500">${escape(a.ip || a.name || (a.asset_id ? a.asset_id.substring(0, 8) : ''))}</span>
+          <span class="badge badge-error" style="font-size:9px">${escape(a.critical_cve_count)} crit</span>
+          <span style="color:var(--text-muted)">${escape(a.cve_count)} CVEs</span>
         </div>
-      `).join('') || '<p style="color:var(--text-muted);font-size:12px">Aucun asset à risque</p>';
+      `).join('') || `<p style="color:var(--text-muted);font-size:12px">${t('dashboard.no_risk_assets')}</p>`;
     }
 
     // ── Charts (trend, velocity, burndown) ──
@@ -6294,9 +7023,9 @@ async function loadExecutive() {
         data: {
           labels: d.trend_30d.map(p => p.date?.substring(5)),
           datasets: [
-            { label: 'Nouvelles', data: d.trend_30d.map(p => p.new_cves), borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.08)', fill: true, tension: 0.3, pointRadius: 1 },
-            { label: 'Résolues', data: d.trend_30d.map(p => p.resolved_cves), borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.08)', fill: true, tension: 0.3, pointRadius: 1 },
-            { label: 'Ouvertes (cumul)', data: d.trend_30d.map(p => p.cumulative_unacked), borderColor: '#60a5fa', borderDash: [4, 2], fill: false, tension: 0.3, pointRadius: 0 },
+            { label: t('dashboard.chart.new'), data: d.trend_30d.map(p => p.new_cves), borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.08)', fill: true, tension: 0.3, pointRadius: 1 },
+            { label: t('dashboard.chart.resolved'), data: d.trend_30d.map(p => p.resolved_cves), borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.08)', fill: true, tension: 0.3, pointRadius: 1 },
+            { label: t('dashboard.chart.open_cumul'), data: d.trend_30d.map(p => p.cumulative_unacked), borderColor: '#60a5fa', borderDash: [4, 2], fill: false, tension: 0.3, pointRadius: 0 },
           ],
         },
         options: chartOpts,
@@ -6311,7 +7040,7 @@ async function loadExecutive() {
         type: 'bar',
         data: {
           labels: d.velocity.map(v => v.week),
-          datasets: [{ label: 'CVEs résolues', data: d.velocity.map(v => v.resolved), backgroundColor: 'rgba(52,211,153,0.6)', borderRadius: 3 }],
+          datasets: [{ label: t('dashboard.chart.cves_resolved'), data: d.velocity.map(v => v.resolved), backgroundColor: 'rgba(52,211,153,0.6)', borderRadius: 3 }],
         },
         options: { ...chartOpts, plugins: { ...chartOpts.plugins, legend: { display: false } } },
       });
@@ -6325,14 +7054,14 @@ async function loadExecutive() {
         type: 'line',
         data: {
           labels: d.burndown.map(b => b.date?.substring(5)),
-          datasets: [{ label: 'CVEs ouvertes', data: d.burndown.map(b => b.open_count), borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,0.06)', fill: true, tension: 0.3, pointRadius: 1 }],
+          datasets: [{ label: t('dashboard.chart.open_cves'), data: d.burndown.map(b => b.open_count), borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,0.06)', fill: true, tension: 0.3, pointRadius: 1 }],
         },
         options: { ...chartOpts, plugins: { ...chartOpts.plugins, legend: { display: false } } },
       });
     }
 
   } catch (e) {
-    kpisEl.innerHTML = `<p style="color:var(--danger)">Erreur : ${escape(String(e.message))}</p>`;
+    kpisEl.innerHTML = `<p style="color:var(--danger)">${t('common.error')} : ${escape(String(e.message))}</p>`;
   }
 }
 
@@ -6369,7 +7098,7 @@ async function loadRemediationBoard() {
         }).join('');
     }
   } catch (e) {
-    boardEl.innerHTML = `<p style="color:var(--danger)">Erreur: ${escape(e.message)}</p>`;
+    boardEl.innerHTML = `<p style="color:var(--danger)">${t('common.error')}: ${escape(e.message)}</p>`;
   }
 }
 
@@ -6381,13 +7110,13 @@ async function loadRemediationStats() {
     if (!s) return;
     const f = s.funnel || {};
     statsEl.innerHTML = [
-      { label: 'Ouvertes', value: f.open || 0, color: 'var(--text-muted)' },
-      { label: 'Planifiées', value: f.planned || 0, color: 'var(--info)' },
-      { label: 'En cours', value: f.in_progress || 0, color: 'var(--warning)' },
-      { label: 'Résolues', value: f.resolved || 0, color: 'var(--success)' },
-      { label: 'Bloquées', value: f.blocked || 0, color: 'var(--danger)' },
+      { label: t('dashboard.funnel.open'), value: f.open || 0, color: 'var(--text-muted)' },
+      { label: t('dashboard.funnel.planned'), value: f.planned || 0, color: 'var(--info)' },
+      { label: t('dashboard.funnel.in_progress'), value: f.in_progress || 0, color: 'var(--warning)' },
+      { label: t('dashboard.funnel.resolved'), value: f.resolved || 0, color: 'var(--success)' },
+      { label: t('dashboard.funnel.blocked'), value: f.blocked || 0, color: 'var(--danger)' },
     ].map(k => `<div class="stat-card"><span class="num" style="color:${k.color};font-size:22px">${k.value}</span><span class="stat-lbl">${k.label}</span></div>`).join('');
-  } catch (_) {}
+  } catch (e) { console.warn('remediation_stats_load:', e); }
 }
 
 
@@ -6414,7 +7143,7 @@ async function loadThreatIntel() {
       ].map(s => `<div class="stat-card"><span class="num">${s.value}</span><span class="stat-lbl">${s.label}</span></div>`).join('');
     }
 
-    if (!iocs.length) { listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Aucun IOC. Rafraîchissez les feeds.</p>'; return; }
+    if (!iocs.length) { listEl.innerHTML = `<p style="color:var(--text-muted);font-size:13px">${t('threat_intel.no_iocs')}</p>`; return; }
     listEl.innerHTML = `<table class="data-table"><thead><tr><th>Indicateur</th><th>Type</th><th>Source</th><th>Sévérité</th><th>Dernière vue</th></tr></thead><tbody>
       ${iocs.slice(0, 50).map(i => `<tr>
         <td style="font-family:monospace;font-size:12px">${escape(i.indicator)}</td>
@@ -6425,7 +7154,7 @@ async function loadThreatIntel() {
       </tr>`).join('')}
     </tbody></table>`;
   } catch (e) {
-    listEl.innerHTML = `<p style="color:var(--danger)">Erreur : ${escape(String(e.message))}</p>`;
+    listEl.innerHTML = `<p style="color:var(--danger)">${t('common.error')} : ${escape(String(e.message))}</p>`;
   }
 }
 
@@ -6433,10 +7162,10 @@ async function refreshThreatFeeds() {
   try {
     showToast('Rafraîchissement des feeds en cours…', 'info');
     await api('/threat-intel/refresh', { method: 'POST' });
-    showToast('Feeds en cours de mise à jour', 'info');
+    showToast(t('threat_intel.feeds_refreshed'), 'info');
     setTimeout(loadThreatIntel, 5000);
   } catch (e) {
-    showToast(`Erreur : ${e.message}`, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 
@@ -6456,7 +7185,7 @@ async function exportExecutivePDF() {
     const a = document.createElement('a'); a.href = url; a.download = 'executive_report.pdf'; a.click();
     URL.revokeObjectURL(url);
     showToast('PDF téléchargé', 'info');
-  } catch (e) { showToast(`Erreur PDF : ${e.message}`, 'error'); }
+  } catch (e) { showToast(t('common.error') + ' PDF : ' + e.message, 'error'); }
 }
 
 async function exportXLSX() {
@@ -6470,7 +7199,7 @@ async function exportXLSX() {
     const a = document.createElement('a'); a.href = url; a.download = 'netlanventory_export.xlsx'; a.click();
     URL.revokeObjectURL(url);
     showToast('Excel téléchargé', 'info');
-  } catch (e) { showToast(`Erreur Excel : ${e.message}`, 'error'); }
+  } catch (e) { showToast(t('common.error') + ' Excel : ' + e.message, 'error'); }
 }
 
 // ── Scan planification (recurring rescans) ──────────────────────────────────
@@ -6516,7 +7245,7 @@ async function setRecurring(scanId, enabled, intervalHours = 24) {
     }
     await loadScans();
   } catch (e) {
-    showToast(`Erreur: ${e.message}`, 'error');
+    showToast(t('common.error') + ' : ' + e.message, 'error');
   }
 }
 

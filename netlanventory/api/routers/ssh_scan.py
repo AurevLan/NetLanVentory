@@ -17,6 +17,8 @@ from typing import Annotated
 
 import asyncssh
 import httpx
+
+from netlanventory.core.ssh import ssh_connect
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from netlanventory.core.cve_enrichment import enrich_cves
 from sqlalchemy import delete as sa_delete
@@ -299,15 +301,17 @@ async def _run_ssh_scan(report_id: uuid.UUID, asset_id: uuid.UUID) -> None:
                 port = asset.ssh_port or (asset.ssh_profile.ssh_port if asset.ssh_profile else None) or 22
                 user = asset.ssh_user or (asset.ssh_profile.ssh_user if asset.ssh_profile else None) or "root"
 
-                async with asyncssh.connect(
+                async with ssh_connect(
                     host,
                     port=port,
                     username=user,
-                    known_hosts=None,
                     **ssh_kwargs,
                 ) as conn:
                     os_type, ecosystem = await _detect_os(conn)
                     packages = await _get_packages(conn, os_type)
+
+                    # IOC hash correlation on critical binaries
+                    hash_matches = await _correlate_binary_hashes(conn, session, asset_id)
 
                 cve_data = await _lookup_cves_osv(packages, ecosystem)
 
@@ -385,7 +389,8 @@ async def _detect_os(conn: asyncssh.SSHClientConnection) -> tuple[str, str]:
     try:
         result = await conn.run("cat /etc/os-release 2>/dev/null", check=False)
         text = result.stdout or ""
-    except Exception:
+    except Exception as exc:
+        logger.debug("os_detection_failed", error=str(exc))
         return "unknown", "Linux"
 
     os_id = ""
@@ -726,15 +731,16 @@ def _is_version_fixed(installed: str, fixed: str) -> bool:
             capture_output=True,
         )
         return result.returncode == 0
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("dpkg_version_compare_failed", error=str(exc))
     # Naive fallback: strip epoch and compare
     def _strip_epoch(v: str) -> str:
         return v.split(":", 1)[-1] if ":" in v else v
     try:
         from packaging.version import Version
         return Version(_strip_epoch(installed)) >= Version(_strip_epoch(fixed))
-    except Exception:
+    except Exception as exc:
+        logger.debug("version_compare_failed", installed=installed, fixed=fixed, error=str(exc))
         return False
 
 
@@ -834,3 +840,132 @@ def _osv_severity(vuln: dict) -> str:
         if score is not None:
             return _severity_from_score(score)
     return "Unknown"
+
+
+# ── IOC hash correlation ────────────────────────────────────────────────────
+
+# Critical binaries to hash-check for IOC correlation
+_CRITICAL_BINARIES = [
+    "/usr/bin/ssh", "/usr/sbin/sshd", "/usr/bin/sudo", "/usr/bin/su",
+    "/usr/bin/passwd", "/usr/bin/login", "/usr/bin/cron", "/usr/sbin/cron",
+    "/usr/bin/curl", "/usr/bin/wget", "/usr/bin/python3", "/usr/bin/perl",
+    "/usr/bin/bash", "/bin/bash", "/usr/sbin/nginx", "/usr/sbin/apache2",
+    "/usr/bin/docker", "/usr/bin/openssl",
+]
+
+
+async def _correlate_binary_hashes(
+    conn: asyncssh.SSHClientConnection,
+    session: AsyncSession,
+    asset_id: uuid.UUID,
+) -> list[dict]:
+    """Hash critical binaries on remote host and correlate with IOC hashes.
+
+    Returns list of matches: [{"binary": path, "hash_type": ..., "hash": ..., "ioc": ...}]
+    """
+    from netlanventory.models.threat_ioc import ThreatIoc
+
+    matches = []
+
+    # Build a single command to hash all binaries at once (efficient)
+    # sha256sum returns: <hash>  <path> for each file that exists
+    paths_str = " ".join(_CRITICAL_BINARIES)
+    cmd = f"sha256sum {paths_str} 2>/dev/null; md5sum {paths_str} 2>/dev/null"
+
+    try:
+        result = await conn.run(cmd, check=False, timeout=30)
+        output = result.stdout or ""
+    except Exception:
+        logger.debug("Binary hash collection failed", asset_id=str(asset_id))
+        return matches
+
+    # Parse hashes
+    collected_hashes: dict[str, dict[str, str]] = {}  # {path: {hash_type: hash_value}}
+    for line in output.strip().splitlines():
+        line = line.strip()
+        if not line or "No such file" in line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        hash_val, path = parts[0], parts[1].lstrip("* ")
+
+        # Determine hash type by length
+        if len(hash_val) == 64:
+            hash_type = "hash_sha256"
+        elif len(hash_val) == 32:
+            hash_type = "hash_md5"
+        elif len(hash_val) == 40:
+            hash_type = "hash_sha1"
+        else:
+            continue
+
+        collected_hashes.setdefault(path, {})[hash_type] = hash_val
+
+    if not collected_hashes:
+        return matches
+
+    # Collect all hash values to query in one batch
+    all_hash_values = []
+    hash_to_path: dict[str, tuple[str, str]] = {}  # hash_value -> (path, hash_type)
+    for path, hashes in collected_hashes.items():
+        for hash_type, hash_val in hashes.items():
+            all_hash_values.append(hash_val)
+            hash_to_path[hash_val] = (path, hash_type)
+
+    if not all_hash_values:
+        return matches
+
+    # Query IOCs in batch
+    try:
+        ioc_result = await session.execute(
+            select(ThreatIoc).where(
+                ThreatIoc.indicator.in_(all_hash_values),
+                ThreatIoc.ioc_type.in_(["hash_md5", "hash_sha1", "hash_sha256"]),
+            )
+        )
+        matched_iocs = ioc_result.scalars().all()
+
+        for ioc in matched_iocs:
+            path, hash_type = hash_to_path.get(ioc.indicator, ("unknown", ioc.ioc_type))
+            match_info = {
+                "binary": path,
+                "hash_type": hash_type,
+                "hash": ioc.indicator,
+                "ioc_source": ioc.source,
+                "ioc_severity": ioc.severity,
+                "ioc_description": ioc.description,
+            }
+            matches.append(match_info)
+            logger.warning(
+                "IOC hash match on binary",
+                asset_id=str(asset_id),
+                binary=path,
+                hash_type=hash_type,
+                ioc_source=ioc.source,
+            )
+
+        # Fire notifications for hash matches (these are always critical)
+        if matches:
+            from netlanventory.models.asset import Asset as AssetModel
+            asset = (await session.execute(
+                select(AssetModel).where(AssetModel.id == asset_id)
+            )).scalar_one_or_none()
+            if asset:
+                from netlanventory.core.notifications import notify_ioc_match
+                for m in matches[:5]:  # cap notifications
+                    try:
+                        await notify_ioc_match(
+                            asset=asset,
+                            ioc_indicator=m["hash"],
+                            ioc_type=m["hash_type"],
+                            ioc_severity="critical",
+                            ioc_source=m["ioc_source"],
+                            match_type="hash",
+                        )
+                    except Exception as exc:
+                        logger.warning("ioc_hash_notification_failed", hash=m["hash"], error=str(exc))
+    except Exception as exc:
+        logger.debug("IOC hash correlation query failed", error=str(exc))
+
+    return matches

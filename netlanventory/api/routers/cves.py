@@ -10,12 +10,13 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netlanventory.api.dependencies import get_current_active_user, get_db
+from netlanventory.core.limiter import limiter
 from netlanventory.core.config import get_settings
 from netlanventory.core.cve_enrichment import enrich_cves
 from netlanventory.core.database import get_session_factory
@@ -34,7 +35,9 @@ _SEVERITY_ORDER = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3, "Unknown": 4
 
 
 @router.get("", response_model=CveList)
+@limiter.limit("60/minute")
 async def list_cves(
+    request: Request,
     db: DbDep,
     _: Annotated[object, Depends(get_current_active_user)],
     skip: int = Query(0, ge=0),

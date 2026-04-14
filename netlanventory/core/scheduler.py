@@ -14,7 +14,14 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
+import httpx
+
+from netlanventory.api.routers.epss import _download_epss_map
+from netlanventory.api.routers.scans import _run_scan
+from netlanventory.core.config import get_settings
+from netlanventory.core.database import get_session_factory
 from netlanventory.core.logging import get_logger
+from netlanventory.models.scan import Scan
 
 logger = get_logger(__name__)
 
@@ -29,65 +36,56 @@ _CHECK_INTERVAL_SECONDS = 60  # how often the scheduler wakes up to check
 _THREAT_FEED_INTERVAL_SECONDS = 6 * 3600  # 6 hours
 _last_threat_feed_refresh: datetime | None = None
 
+_last_epss_refresh: datetime | None = None
+_last_kev_sync: datetime | None = None
+_last_sla_compute: datetime | None = None
+_last_default_scan: datetime | None = None
+_last_ssh_profile_test: datetime | None = None
+_last_ioc_correlation: datetime | None = None
+_last_attack_paths_refresh: datetime | None = None
+_last_scan_priorities_recompute: datetime | None = None
+
 
 async def scheduler_loop() -> None:
-    """Infinite loop: wake every 60 s and trigger due ZAP, SSH, Trivy scans and other checks."""
-    logger.info("Auto-scan scheduler started (ZAP + SSH + Trivy + scheduled rescans + threat feeds + new assets)")
+    """Infinite loop: wake every 60 s and trigger all automated tasks."""
+    logger.info(
+        "Auto-scan scheduler started "
+        "(ZAP + SSH + Trivy + scheduled scans + threat feeds + EPSS + KEV + SLA "
+        "+ default scan + SSH profile test + IOC correlation + new assets)"
+    )
+    tasks = [
+        ("ZAP auto-scan", _check_and_trigger_auto_scans),
+        ("SSH auto-scan", _check_and_trigger_ssh_auto_scans),
+        ("Trivy auto-scan", _check_and_trigger_trivy_auto_scans),
+        ("New-assets check", _check_new_assets),
+        ("Threat feeds refresh", _maybe_refresh_threat_feeds),
+        ("IOC auto-correlation", _maybe_auto_correlate_iocs),
+        ("Scheduled reports", _check_scheduled_reports),
+        ("Scheduled scans (recurring)", _check_scheduled_scans),
+        ("Scheduled scans (table)", _check_scheduled_scans_table),
+        ("Default network scan", _maybe_run_default_scan),
+        ("SSH profile test", _maybe_test_ssh_profiles),
+        ("EPSS enrichment", _maybe_enrich_epss),
+        ("KEV sync", _maybe_sync_kev),
+        ("SLA compute", _maybe_compute_sla),
+        ("KPI snapshot", _take_daily_kpi_snapshot),
+        # Innovation roadmap hooks
+        ("Attack paths refresh", _maybe_refresh_attack_paths),
+        ("Scan priorities recompute", _maybe_recompute_scan_priorities),
+    ]
     while True:
         await asyncio.sleep(_CHECK_INTERVAL_SECONDS)
-        try:
-            await _check_and_trigger_auto_scans()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("ZAP scheduler error — will retry next cycle")
-        try:
-            await _check_and_trigger_ssh_auto_scans()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("SSH scheduler error — will retry next cycle")
-        try:
-            await _check_and_trigger_trivy_auto_scans()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Trivy scheduler error — will retry next cycle")
-        try:
-            await _check_new_assets()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("New-assets check error — will retry next cycle")
-        try:
-            await _maybe_refresh_threat_feeds()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Threat feeds refresh error — will retry next cycle")
-        try:
-            await _check_scheduled_reports()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Scheduled reports check error — will retry next cycle")
-        try:
-            await _check_scheduled_scans()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Scheduled scans check error — will retry next cycle")
-        try:
-            await _take_daily_kpi_snapshot()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("KPI snapshot error — will retry next cycle")
+        for task_name, task_fn in tasks:
+            try:
+                await task_fn()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(f"{task_name} error — will retry next cycle")
 
 
 async def _check_and_trigger_auto_scans() -> None:
     """Check all assets and trigger ZAP scans where due."""
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.asset import Asset
     from netlanventory.models.asset_dns import AssetDns
     from netlanventory.models.global_settings import GlobalSettings
@@ -213,7 +211,6 @@ async def _check_and_trigger_auto_scans() -> None:
 
 async def _check_and_trigger_ssh_auto_scans() -> None:
     """Check all assets and trigger SSH CVE scans where due."""
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.asset import Asset
     from netlanventory.models.ssh_scan_report import SshScanReport
     from netlanventory.api.routers.ssh_scan import _run_ssh_scan
@@ -275,7 +272,6 @@ async def _check_and_trigger_ssh_auto_scans() -> None:
 async def _check_and_trigger_trivy_auto_scans() -> None:
     """Check all assets and trigger Trivy Docker scans where due."""
     import shutil
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.asset import Asset
     from netlanventory.models.trivy_docker_report import TrivyDockerReport
     from netlanventory.api.routers.trivy_docker_scan import _run_trivy_docker_scan, TRIVY_BINARY
@@ -339,7 +335,6 @@ async def _check_and_trigger_trivy_auto_scans() -> None:
 async def _check_new_assets() -> None:
     """Notify about high/critical assets discovered in the last 5 minutes."""
     from datetime import timedelta
-    from netlanventory.core.database import get_session_factory
     from netlanventory.core.notifications import notify_new_critical_asset
     from netlanventory.models.asset import Asset
 
@@ -369,7 +364,6 @@ async def _maybe_refresh_threat_feeds() -> None:
         if elapsed < _THREAT_FEED_INTERVAL_SECONDS:
             return
 
-    from netlanventory.core.config import get_settings
     from netlanventory.core.threat_feeds import refresh_abusech_feed, refresh_otx_feed
 
     _last_threat_feed_refresh = now
@@ -392,7 +386,6 @@ async def _maybe_refresh_threat_feeds() -> None:
 async def _check_scheduled_reports() -> None:
     """Send overdue scheduled reports."""
     from datetime import timedelta
-    from netlanventory.core.database import get_session_factory
     from netlanventory.core.email_sender import send_report_email
     from netlanventory.models.scheduled_report import ScheduledReport
 
@@ -441,10 +434,7 @@ async def _check_scheduled_scans() -> None:
     Re-runs the SAME scan in place (resets status, clears old results)
     instead of creating a new scan row. The scan list stays clean.
     """
-    from netlanventory.core.database import get_session_factory
-    from netlanventory.models.scan import Scan
     from netlanventory.models.scan_result import ScanResult
-    from netlanventory.api.routers.scans import _run_scan
 
     factory = get_session_factory()
     now = datetime.now(timezone.utc)
@@ -511,7 +501,6 @@ async def _check_scheduled_scans() -> None:
 
 async def _take_daily_kpi_snapshot() -> None:
     """Create a daily KPI snapshot if one does not already exist for today."""
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.asset import Asset
     from netlanventory.models.asset_cve import AssetCve
     from netlanventory.models.cve import Cve
@@ -647,3 +636,572 @@ async def _take_daily_kpi_snapshot() -> None:
         session.add(snapshot)
         await session.commit()
         logger.info("Daily KPI snapshot recorded", date=str(today))
+
+
+# ── EPSS daily enrichment ───────────────────────────────────────────────────
+
+_EPSS_INTERVAL_SECONDS = 24 * 3600  # once per day
+
+
+async def _maybe_enrich_epss() -> None:
+    """Enrich CVEs with EPSS scores once per day."""
+    global _last_epss_refresh
+
+    now = datetime.now(timezone.utc)
+    if _last_epss_refresh is not None:
+        if (now - _last_epss_refresh).total_seconds() < _EPSS_INTERVAL_SECONDS:
+            return
+
+    from netlanventory.models.cve import Cve
+
+    _last_epss_refresh = now
+
+    epss_map = await _download_epss_map()
+    if not epss_map:
+        logger.warning("EPSS auto-enrichment: download failed")
+        return
+
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(select(Cve))
+        cves = result.scalars().all()
+
+        updated = 0
+        for cve in cves:
+            entry = epss_map.get(cve.cve_id)
+            if entry is None:
+                continue
+            cve.epss_score = entry[0]
+            cve.epss_percentile = entry[1]
+            cve.epss_updated_at = now
+            updated += 1
+
+        await session.commit()
+        logger.info("EPSS auto-enrichment complete", updated=updated)
+
+
+# ── KEV daily sync ──────────────────────────────────────────────────────────
+
+_KEV_INTERVAL_SECONDS = 24 * 3600  # once per day
+_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+
+
+async def _maybe_sync_kev() -> None:
+    """Sync CISA KEV catalog once per day."""
+    global _last_kev_sync
+
+    now = datetime.now(timezone.utc)
+    if _last_kev_sync is not None:
+        if (now - _last_kev_sync).total_seconds() < _KEV_INTERVAL_SECONDS:
+            return
+
+    from netlanventory.models.cve import Cve
+
+    _last_kev_sync = now
+
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            resp = await client.get(_KEV_URL)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        logger.exception("KEV auto-sync: download failed")
+        return
+
+    vulnerabilities = data.get("vulnerabilities", [])
+    kev_map: dict[str, dict] = {}
+    for v in vulnerabilities:
+        cve_id = v.get("cveID", "")
+        if cve_id:
+            kev_map[cve_id] = {
+                "date_added": v.get("dateAdded"),
+                "ransomware": v.get("knownRansomwareCampaignUse", "") == "Known",
+            }
+
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(select(Cve))
+        cves = result.scalars().all()
+
+        matched = 0
+        for cve in cves:
+            entry = kev_map.get(cve.cve_id)
+            if entry:
+                matched += 1
+                from datetime import date as _date
+                date_str = entry["date_added"]
+                kev_date = None
+                if date_str:
+                    try:
+                        kev_date = _date.fromisoformat(date_str)
+                    except ValueError:
+                        pass
+                cve.kev_date_added = kev_date
+                cve.kev_ransomware_use = entry["ransomware"]
+                cve.exploit_maturity = "weaponized"
+                cve.threat_intel_updated_at = now
+            else:
+                if cve.kev_date_added is not None:
+                    cve.kev_date_added = None
+                    cve.kev_ransomware_use = False
+
+        await session.commit()
+        logger.info("KEV auto-sync complete", matched=matched, total_kev=len(kev_map))
+
+
+# ── SLA deadline computation (daily) ────────────────────────────────────────
+
+_SLA_INTERVAL_SECONDS = 6 * 3600  # every 6 hours
+
+
+async def _maybe_compute_sla() -> None:
+    """Recompute SLA deadlines and flag breaches periodically."""
+    global _last_sla_compute
+
+    now = datetime.now(timezone.utc)
+    if _last_sla_compute is not None:
+        if (now - _last_sla_compute).total_seconds() < _SLA_INTERVAL_SECONDS:
+            return
+
+    from netlanventory.models.asset import Asset
+    from netlanventory.models.asset_cve import AssetCve
+    from netlanventory.models.cve import Cve
+    from netlanventory.models.sla_config import SlaConfig
+    from netlanventory.core.notifications import notify_sla_breach
+    from sqlalchemy.orm import selectinload
+
+    _last_sla_compute = now
+
+    _DEFAULT_SLA_DAYS = {"Critical": 3, "High": 7, "Medium": 30, "Low": 90}
+
+    factory = get_session_factory()
+    async with factory() as session:
+        # Load SLA config
+        config_result = await session.execute(select(SlaConfig))
+        sla_config = dict(_DEFAULT_SLA_DAYS)
+        for row in config_result.scalars().all():
+            sla_config[row.severity] = row.days
+
+        # Load all CVE links with their CVE data
+        result = await session.execute(
+            select(AssetCve).options(selectinload(AssetCve.cve))
+        )
+        links = result.scalars().all()
+
+        today = date.today()
+        updated = 0
+        new_breaches = 0
+
+        for link in links:
+            cve = link.cve
+            if not cve:
+                continue
+            severity = (cve.severity or "Medium").capitalize()
+            days = sla_config.get(severity, 30)
+
+            disc = link.discovered_at
+            if disc.tzinfo is None:
+                disc = disc.replace(tzinfo=timezone.utc)
+            deadline = (disc + timedelta(days=days)).date()
+            link.sla_deadline = deadline
+
+            was_breached = link.sla_breached
+            if deadline < today and link.ack_status != "accepted":
+                link.sla_breached = True
+                if not was_breached:
+                    new_breaches += 1
+            else:
+                link.sla_breached = False
+            updated += 1
+
+        await session.commit()
+
+        # Notify new SLA breaches
+        if new_breaches > 0:
+            breach_result = await session.execute(
+                select(AssetCve, Asset)
+                .join(Asset, AssetCve.asset_id == Asset.id)
+                .where(AssetCve.sla_breached.is_(True))
+                .limit(20)
+            )
+            for link, asset in breach_result.all():
+                try:
+                    await notify_sla_breach(asset, link)
+                except Exception:
+                    logger.exception("SLA breach notification failed")
+
+        logger.info("SLA auto-compute complete", updated=updated, new_breaches=new_breaches)
+
+
+# ── ScheduledScan table check ──────────────────────────────────────────────
+
+
+async def _check_scheduled_scans_table() -> None:
+    """Check the ScheduledScan table for due scans and launch them."""
+    from netlanventory.models.scheduled_scan import ScheduledScan
+
+    factory = get_session_factory()
+    now = datetime.now(timezone.utc)
+
+    async with factory() as session:
+        result = await session.execute(
+            select(ScheduledScan).where(ScheduledScan.enabled.is_(True))
+        )
+        scheduled_scans = result.scalars().all()
+
+        for scheduled in scheduled_scans:
+            last = scheduled.last_run_at
+            if last is not None:
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                elapsed_hours = (now - last).total_seconds() / 3600
+                if elapsed_hours < scheduled.interval_hours:
+                    continue
+
+            modules = [m.strip() for m in scheduled.modules.split(",") if m.strip()]
+            if not modules:
+                continue
+
+            # Create a Scan record
+            scan = Scan(
+                target=scheduled.target,
+                status="pending",
+                modules_run=modules,
+            )
+            session.add(scan)
+            await session.flush()
+            await session.refresh(scan)
+
+            # Update tracking
+            scheduled.last_run_at = now
+            scheduled.last_scan_id = str(scan.id)
+            scheduled.last_status = "pending"
+            scheduled.run_count = (scheduled.run_count or 0) + 1
+            await session.flush()
+
+            logger.info(
+                "ScheduledScan triggered",
+                scheduled_scan_id=str(scheduled.id),
+                scan_id=str(scan.id),
+                target=scheduled.target,
+                modules=modules,
+            )
+
+            asyncio.create_task(
+                _run_scan(scan.id, scheduled.target, modules, {}),
+                name=f"scheduled-table-{scheduled.id}-{scan.id}",
+            )
+
+        await session.commit()
+
+
+# ── Default daily network scan ──────────────────────────────────────────────
+
+
+async def _maybe_run_default_scan() -> None:
+    """Run a default network scan on all active assets at the configured interval."""
+    global _last_default_scan
+
+    settings = get_settings()
+
+    if not settings.default_scan_enabled:
+        return
+
+    now = datetime.now(timezone.utc)
+    interval_seconds = settings.default_scan_interval_hours * 3600
+    if _last_default_scan is not None:
+        if (now - _last_default_scan).total_seconds() < interval_seconds:
+            return
+
+    from netlanventory.models.asset import Asset
+
+    _last_default_scan = now
+
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(
+            select(Asset.ip)
+            .where(Asset.is_active.is_(True), Asset.ip.isnot(None))
+        )
+        ips = [row[0] for row in result.all() if row[0]]
+
+    if not ips:
+        return
+
+    modules = [m.strip() for m in settings.default_scan_modules.split(",") if m.strip()]
+    if not modules:
+        return
+
+    # Group IPs into /24-like batches to avoid one scan per host
+    # Deduplicate and create one scan per unique /24 subnet
+    subnets: dict[str, list[str]] = {}
+    for ip in ips:
+        parts = ip.rsplit(".", 1)
+        if len(parts) == 2:
+            prefix = parts[0] + ".0/24"
+            subnets.setdefault(prefix, []).append(ip)
+        else:
+            subnets.setdefault(ip, []).append(ip)
+
+    factory = get_session_factory()
+    async with factory() as session:
+        for target, _hosts in subnets.items():
+            scan = Scan(
+                target=target,
+                status="pending",
+                modules_run=modules,
+            )
+            session.add(scan)
+            await session.flush()
+            await session.refresh(scan)
+
+            logger.info(
+                "Default scan triggered",
+                scan_id=str(scan.id),
+                target=target,
+                modules=modules,
+                host_count=len(_hosts),
+            )
+
+            asyncio.create_task(
+                _run_scan(scan.id, target, modules, {}),
+                name=f"default-scan-{scan.id}",
+            )
+
+        await session.commit()
+
+    logger.info("Default daily scan launched", subnets=len(subnets), total_hosts=len(ips))
+
+
+# ── SSH profile auto-test ───────────────────────────────────────────────────
+
+
+async def _maybe_test_ssh_profiles() -> None:
+    """Test all SSH profiles against their assigned assets periodically."""
+    global _last_ssh_profile_test
+
+    settings = get_settings()
+
+    if not settings.ssh_profile_test_enabled:
+        return
+
+    now = datetime.now(timezone.utc)
+    interval_seconds = settings.ssh_profile_test_interval_hours * 3600
+    if _last_ssh_profile_test is not None:
+        if (now - _last_ssh_profile_test).total_seconds() < interval_seconds:
+            return
+
+    import asyncssh
+    from netlanventory.core.notifications import notify_ssh_profile_failed
+    from netlanventory.models.asset import Asset
+    from netlanventory.models.ssh_profile import SshProfile
+    from sqlalchemy.orm import selectinload
+
+    _last_ssh_profile_test = now
+
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(
+            select(SshProfile).options(selectinload(SshProfile.assets))
+        )
+        profiles = result.scalars().all()
+
+        tested = 0
+        failed = 0
+
+        for profile in profiles:
+            # Test on the first active asset with an IP that uses this profile
+            test_assets = [
+                a for a in (profile.assets or [])
+                if a.is_active and a.ip
+            ]
+            if not test_assets:
+                continue
+
+            asset = test_assets[0]
+            port = profile.ssh_port or 22
+
+            try:
+                async with asyncssh.connect(
+                    asset.ip,
+                    port=port,
+                    username=profile.ssh_user,
+                    known_hosts=None,
+                    connect_timeout=10,
+                ) as conn:
+                    # Simple connectivity test — run a harmless command
+                    result = await conn.run("echo ok", timeout=5)
+                    if result.exit_status != 0:
+                        raise RuntimeError(f"exit code {result.exit_status}")
+                tested += 1
+                logger.debug("SSH profile test OK", profile=profile.name, host=asset.ip)
+            except Exception as exc:
+                failed += 1
+                logger.warning(
+                    "SSH profile test failed",
+                    profile=profile.name,
+                    host=asset.ip,
+                    error=str(exc),
+                )
+                try:
+                    await notify_ssh_profile_failed(profile.name, asset.ip, str(exc))
+                except Exception:
+                    logger.exception("SSH profile failure notification error")
+
+        logger.info("SSH profile auto-test complete", tested=tested, failed=failed)
+
+
+# ── IOC auto-correlation after threat feed refresh ──────────────────────────
+
+
+async def _maybe_auto_correlate_iocs() -> None:
+    """Run IOC correlation automatically after each threat feed refresh."""
+    global _last_ioc_correlation
+
+    # Only correlate when feeds were just refreshed (within the last cycle)
+    if _last_threat_feed_refresh is None:
+        return
+
+    now = datetime.now(timezone.utc)
+    # Run correlation shortly after a feed refresh (within 2 minutes)
+    feed_age = (now - _last_threat_feed_refresh).total_seconds()
+    if feed_age > 120:
+        # Not a recent feed refresh — skip
+        if _last_ioc_correlation is not None and _last_ioc_correlation >= _last_threat_feed_refresh:
+            return
+
+    if _last_ioc_correlation is not None:
+        if _last_ioc_correlation >= _last_threat_feed_refresh:
+            return  # Already correlated for this feed refresh
+
+    from netlanventory.core.notifications import notify_ioc_match
+    from netlanventory.models.asset import Asset
+    from netlanventory.models.asset_dns import AssetDns
+    from netlanventory.models.threat_ioc import ThreatIoc
+    from sqlalchemy.orm import selectinload
+
+    _last_ioc_correlation = now
+
+    factory = get_session_factory()
+    async with factory() as session:
+        # Load active assets
+        assets_result = await session.execute(
+            select(Asset).options(selectinload(Asset.dns_entries)).where(Asset.is_active.is_(True))
+        )
+        assets = list(assets_result.scalars().all())
+
+        ip_to_assets: dict[str, list] = {}
+        domain_to_assets: dict[str, list] = {}
+        for asset in assets:
+            if asset.ip:
+                ip_to_assets.setdefault(asset.ip, []).append(asset)
+            for dns in (asset.dns_entries or []):
+                if dns.fqdn:
+                    domain_to_assets.setdefault(dns.fqdn.lower(), []).append(asset)
+
+        # Load IOCs (ip + domain only for auto-correlation)
+        iocs_result = await session.execute(
+            select(ThreatIoc).where(ThreatIoc.ioc_type.in_(["ip", "domain"]))
+        )
+        iocs = list(iocs_result.scalars().all())
+
+        matches = 0
+        for ioc in iocs:
+            matched_assets = []
+            if ioc.ioc_type == "ip" and ioc.indicator in ip_to_assets:
+                matched_assets = [(a, "ip") for a in ip_to_assets[ioc.indicator]]
+            elif ioc.ioc_type == "domain":
+                indicator_lower = ioc.indicator.lower()
+                if indicator_lower in domain_to_assets:
+                    matched_assets = [(a, "domain") for a in domain_to_assets[indicator_lower]]
+
+            for asset, match_type in matched_assets:
+                matches += 1
+                if ioc.severity in ("critical", "high"):
+                    try:
+                        await notify_ioc_match(
+                            asset=asset,
+                            ioc_indicator=ioc.indicator,
+                            ioc_type=ioc.ioc_type,
+                            ioc_severity=ioc.severity,
+                            ioc_source=ioc.source,
+                            match_type=match_type,
+                        )
+                    except Exception:
+                        logger.exception("IOC auto-correlation notification failed")
+
+        logger.info("IOC auto-correlation complete", matches=matches)
+
+
+# ── Innovation roadmap hooks (#1, #5) ────────────────────────────────────────
+
+
+_ATTACK_PATHS_INTERVAL_HOURS = 24
+_SCAN_PRIORITIES_INTERVAL_HOURS = 1
+
+
+async def _maybe_refresh_attack_paths() -> None:
+    """Recompute the attack-path graph once a day (innovation #1)."""
+    global _last_attack_paths_refresh
+
+    now = datetime.now(timezone.utc)
+    if _last_attack_paths_refresh is not None:
+        if (now - _last_attack_paths_refresh).total_seconds() < _ATTACK_PATHS_INTERVAL_HOURS * 3600:
+            return
+
+    from netlanventory.core.attack_paths import refresh_attack_paths
+
+    factory = get_session_factory()
+    async with factory() as session:
+        try:
+            count = await refresh_attack_paths(session)
+            logger.info("attack_paths_scheduler_refresh_done", count=count)
+            _last_attack_paths_refresh = now
+        except Exception:
+            logger.exception("attack_paths_scheduler_refresh_failed")
+
+
+async def _maybe_recompute_scan_priorities() -> None:
+    """Recompute priorities for every active asset hourly (innovation #5).
+
+    Cheap: one query per asset (a few rows each). Splits the work across
+    cycles by skipping if the engine is younger than the interval.
+    """
+    global _last_scan_priorities_recompute
+
+    now = datetime.now(timezone.utc)
+    if _last_scan_priorities_recompute is not None:
+        if (now - _last_scan_priorities_recompute).total_seconds() < _SCAN_PRIORITIES_INTERVAL_HOURS * 3600:
+            return
+
+    from netlanventory.core.scan_priority import recompute_for_asset
+    from netlanventory.models.asset import Asset
+
+    # Modules tracked by the priority queue. Keep small and stable.
+    tracked_modules = ["ssh_scan", "trivy_docker", "nuclei", "headers_audit"]
+
+    factory = get_session_factory()
+    async with factory() as session:
+        try:
+            asset_ids = (
+                await session.execute(
+                    select(Asset.id).where(Asset.is_active.is_(True))
+                )
+            ).scalars().all()
+
+            for asset_id in asset_ids:
+                try:
+                    await recompute_for_asset(session, asset_id, tracked_modules)
+                except Exception:
+                    logger.exception(
+                        "scan_priority_recompute_failed", asset_id=str(asset_id)
+                    )
+            await session.commit()
+            logger.info(
+                "scan_priorities_recomputed",
+                assets=len(asset_ids),
+                modules=len(tracked_modules),
+            )
+            _last_scan_priorities_recompute = now
+        except Exception:
+            logger.exception("scan_priorities_recompute_loop_failed")

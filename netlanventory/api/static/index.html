@@ -46,20 +46,20 @@
         </svg>
       </div>
       <h1 class="login-title">NetLanVentory</h1>
-      <p class="login-sub">Network inventory &amp; scanning</p>
+      <p class="login-sub" data-i18n="login.subtitle">Network inventory &amp; scanning</p>
       <form id="login-form" autocomplete="on">
         <div class="field-group">
-          <label class="field-label" for="login-username">Email or username</label>
+          <label class="field-label" for="login-username" data-i18n="login.username_label">Email or username</label>
           <input id="login-username" type="text" placeholder="admin@localhost"
                  autocomplete="username" />
         </div>
         <div class="field-group">
-          <label class="field-label" for="login-password">Password</label>
+          <label class="field-label" for="login-password" data-i18n="login.password_label">Password</label>
           <input id="login-password" type="password" placeholder="••••••••"
                  autocomplete="current-password" />
         </div>
         <div id="login-error" class="login-error hidden"></div>
-        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:4px">Sign in</button>
+        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:4px" data-i18n="login.button">Sign in</button>
       </form>
     </div>
   </div>
@@ -87,21 +87,21 @@
       </div>
 
       <div class="sidebar-section">
-        <div class="sidebar-section-label">Inventory</div>
+        <div class="sidebar-section-label" data-i18n="nav.section.inventory">Inventory</div>
         <nav class="sidebar-nav">
           <button class="nav-item" data-view="dashboard">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
               <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
             </svg>
-            Dashboard
+            <span data-i18n="nav.dashboard">Dashboard RSSI</span>
           </button>
           <button class="nav-item active" data-view="assets">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <rect x="2" y="3" width="20" height="14" rx="2"/>
               <path d="M8 21h8M12 17v4"/>
             </svg>
-            Assets
+            <span data-i18n="nav.assets">Assets</span>
             <span class="nav-count" id="nav-asset-count"></span>
           </button>
           <button class="nav-item" data-view="scans">
@@ -109,30 +109,14 @@
               <circle cx="11" cy="11" r="8"/>
               <path d="m21 21-4.35-4.35"/>
             </svg>
-            Scans
-          </button>
-          <button class="nav-item" data-view="modules">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2l9 4.5v9L12 20l-9-4.5v-9z"/>
-              <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
-              <line x1="12" y1="22.08" x2="12" y2="12"/>
-            </svg>
-            Modules
-          </button>
-          <button class="nav-item" data-view="expositions">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              <path d="M9 12l2 2 4-4"/>
-            </svg>
-            Expositions
-            <span class="nav-count" id="nav-exp-count" style="background:var(--danger)"></span>
+            <span data-i18n="nav.scans">Scans</span>
           </button>
           <button class="nav-item" data-view="cves">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
               <path d="M12 8v4M12 16h.01"/>
             </svg>
-            CVEs
+            <span data-i18n="nav.cves">CVEs</span>
             <span class="nav-count" id="nav-cve-count"></span>
           </button>
           <button class="nav-item" data-view="topology">
@@ -140,7 +124,7 @@
               <circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/>
               <line x1="12" y1="7" x2="5" y2="17"/><line x1="12" y1="7" x2="19" y2="17"/>
             </svg>
-            Topologie
+            <span data-i18n="nav.topology">Topologie</span>
           </button>
           <button class="nav-item" data-view="reports">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -149,52 +133,46 @@
               <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
               <polyline points="10 9 9 9 8 9"/>
             </svg>
-            Rapports
+            <span data-i18n="nav.reports">Rapports</span>
           </button>
           <button class="nav-item" data-view="remediation">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 11l3 3L22 4"/>
               <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
             </svg>
-            Remédiation
+            <span data-i18n="nav.remediation">Vulnérabilités</span>
           </button>
           <button class="nav-item" data-view="timeline">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="20" x2="12" y2="4"/><polyline points="6 10 12 4 18 10"/>
             </svg>
-            Timeline
+            <span data-i18n="nav.timeline">Timeline &amp; Audit</span>
           </button>
           <button class="nav-item" data-view="compliance">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
               <path d="M9 12l2 2 4-4"/>
             </svg>
-            Conformité
-          </button>
-          <button class="nav-item" data-view="executive">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 20V10M12 20V4M6 20v-6"/>
-            </svg>
-            RSSI
+            <span data-i18n="nav.compliance">Conformité</span>
           </button>
           <button class="nav-item" data-view="threat-intel">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
             </svg>
-            Threat Intel
+            <span data-i18n="nav.threat_intel">Threat Intel</span>
           </button>
         </nav>
       </div>
 
       <div class="sidebar-section" id="admin-section" style="display:none">
-        <div class="sidebar-section-label">Administration</div>
+        <div class="sidebar-section-label" data-i18n="nav.section.admin">Administration</div>
         <nav class="sidebar-nav">
           <button class="nav-item" data-view="admin">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"/>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
             </svg>
-            Settings
+            <span data-i18n="nav.admin">Settings</span>
           </button>
         </nav>
       </div>
@@ -207,6 +185,7 @@
             <div class="user-role-badge" id="nav-role"></div>
           </div>
         </div>
+        <button class="btn-lang-toggle" id="lang-toggle" onclick="toggleLang()" title="Switch language" style="padding:4px 8px;font-size:11px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-muted);cursor:pointer;margin-right:8px">EN</button>
         <button class="btn-logout" onclick="logout()" title="Sign out">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -232,62 +211,107 @@
       <div class="stats-header">
         <div class="stat-card" id="stat-assets">
           <span class="num">—</span>
-          <span class="stat-lbl">Total assets</span>
+          <span class="stat-lbl" data-i18n="dashboard.stat.total_assets">Total assets</span>
         </div>
         <div class="stat-card" id="stat-active">
           <span class="num">—</span>
-          <span class="stat-lbl">Active now</span>
+          <span class="stat-lbl" data-i18n="dashboard.stat.active_now">Active now</span>
         </div>
         <div class="stat-card" id="stat-scans">
           <span class="num">—</span>
-          <span class="stat-lbl">Scans run</span>
+          <span class="stat-lbl" data-i18n="dashboard.stat.scans_run">Scans run</span>
         </div>
         <div class="stat-card" id="stat-modules">
           <span class="num">—</span>
-          <span class="stat-lbl">Modules</span>
+          <span class="stat-lbl" data-i18n="dashboard.stat.modules">Modules</span>
         </div>
       </div>
 
       <!-- ── Dashboard panel ──────────────────────────────────────────────── -->
       <section class="panel" id="panel-dashboard">
         <div class="page-header">
-          <h1 class="page-title">Dashboard</h1>
+          <h1 class="page-title" data-i18n="dashboard.title">Dashboard RSSI</h1>
           <div class="page-actions">
-            <button class="btn btn-sm" onclick="loadDashboard()">Refresh</button>
+            <button class="btn btn-sm" onclick="exportExecutivePDF()" data-i18n="common.export_pdf">Export PDF</button>
+            <button class="btn btn-sm" onclick="exportXLSX()" data-i18n="common.export_excel">Export Excel</button>
+            <button class="btn btn-sm" onclick="loadExecutive();loadDashboard()" data-i18n="common.refresh">Refresh</button>
           </div>
         </div>
-        <div id="dashboard-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
-        <!-- Action required cards (#1) -->
-        <div id="dashboard-action-required" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-          <div class="settings-card">
-            <h3 class="settings-card-title">CVE par sévérité</h3>
-            <canvas id="dash-severity-chart" height="200"></canvas>
+
+        <!-- Row 1: KPIs -->
+        <div id="exec-kpis" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px"></div>
+
+        <!-- Row 2: Action required -->
+        <div id="dashboard-action-required" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px"></div>
+
+        <!-- Row 3: Risk gauge + Funnel + Performance — fixed height row -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px;grid-auto-rows:240px">
+          <div class="settings-card" style="overflow:hidden">
+            <h3 class="settings-card-title" data-i18n="dashboard.risk_score">Score de risque global</h3>
+            <div id="exec-risk-gauge" style="text-align:center"></div>
           </div>
-          <div class="settings-card">
-            <h3 class="settings-card-title">Top 5 assets vulnérables</h3>
-            <canvas id="dash-top-assets-chart" height="200"></canvas>
+          <div class="settings-card" style="overflow:hidden">
+            <h3 class="settings-card-title" data-i18n="dashboard.remediation_funnel">Entonnoir de remédiation</h3>
+            <div id="exec-funnel"></div>
           </div>
-        </div>
-        <!-- Trend charts (#2) -->
-        <div id="dashboard-trends" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
-          <div class="settings-card">
-            <h3 class="settings-card-title">CVE — 30 derniers jours</h3>
-            <canvas id="dash-trend-cve-chart" height="180"></canvas>
-          </div>
-          <div class="settings-card">
-            <h3 class="settings-card-title">Assets actifs (snapshot)</h3>
-            <div id="dash-active-assets-trend" style="display:flex;align-items:center;justify-content:center;height:180px;font-size:48px;font-weight:700;color:var(--success)"></div>
+          <div class="settings-card" style="overflow:hidden">
+            <h3 class="settings-card-title" data-i18n="dashboard.performance">Performance</h3>
+            <div id="exec-performance"></div>
           </div>
         </div>
-        <!-- New widgets row -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
-          <div class="settings-card">
-            <h3 class="settings-card-title">Top 5 assets à risque</h3>
-            <div id="dash-top-risk-list"></div>
+
+        <!-- Row 4: Doughnut + Bar — fixed height row -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;grid-auto-rows:240px">
+          <div class="settings-card" style="overflow:hidden">
+            <h3 class="settings-card-title" data-i18n="dashboard.cve_by_severity">CVE par sévérité</h3>
+            <div style="position:relative;height:190px"><canvas id="dash-severity-chart"></canvas></div>
           </div>
-          <div class="settings-card">
-            <h3 class="settings-card-title">SLA Breaches</h3>
+          <div class="settings-card" style="overflow:hidden">
+            <h3 class="settings-card-title" data-i18n="dashboard.top_vulnerable">Top 5 assets vulnérables</h3>
+            <div style="position:relative;height:190px"><canvas id="dash-top-assets-chart"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Row 5: Trend + Heatmap — fixed height row -->
+        <div style="display:grid;grid-template-columns:3fr 2fr;gap:12px;margin-bottom:14px;grid-auto-rows:270px">
+          <div class="settings-card" style="overflow:hidden">
+            <h3 class="settings-card-title" data-i18n="dashboard.trend_30d">Tendance 30 jours — CVEs</h3>
+            <div style="position:relative;height:220px"><canvas id="exec-trend-chart"></canvas></div>
+          </div>
+          <div class="settings-card" style="overflow-y:auto">
+            <h3 class="settings-card-title" data-i18n="dashboard.heatmap">Heatmap sévérité × criticité</h3>
+            <div id="exec-heatmap"></div>
+          </div>
+        </div>
+
+        <!-- Row 6: Velocity + Burndown + Top assets — fixed height row -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px;grid-auto-rows:230px">
+          <div class="settings-card" style="overflow:hidden">
+            <h3 class="settings-card-title" data-i18n="dashboard.velocity">Vélocité (CVEs/semaine)</h3>
+            <div style="position:relative;height:175px"><canvas id="exec-velocity-chart"></canvas></div>
+          </div>
+          <div class="settings-card" style="overflow:hidden">
+            <h3 class="settings-card-title" data-i18n="dashboard.burndown">Burndown CVEs ouvertes</h3>
+            <div style="position:relative;height:175px"><canvas id="exec-burndown-chart"></canvas></div>
+          </div>
+          <div class="settings-card" style="overflow-y:auto">
+            <h3 class="settings-card-title" data-i18n="dashboard.top_risk">Top assets à risque</h3>
+            <div id="exec-top-assets"></div>
+          </div>
+        </div>
+
+        <!-- Row 7: Coverage + SLA + Breaches — fixed height row -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px;grid-auto-rows:220px">
+          <div class="settings-card" style="overflow-y:auto">
+            <h3 class="settings-card-title" data-i18n="dashboard.coverage">Couverture sécurité</h3>
+            <div id="exec-coverage"></div>
+          </div>
+          <div class="settings-card" style="overflow-y:auto">
+            <h3 class="settings-card-title" data-i18n="dashboard.sla_compliance">SLA &amp; Conformité</h3>
+            <div id="exec-sla"></div>
+          </div>
+          <div class="settings-card" style="overflow-y:auto">
+            <h3 class="settings-card-title" data-i18n="dashboard.sla_breaches">SLA Breaches</h3>
             <div id="dash-sla-breaches"></div>
           </div>
         </div>
@@ -296,11 +320,11 @@
       <!-- ── Assets panel ──────────────────────────────────────────────────── -->
       <section class="panel active" id="panel-assets">
         <div class="page-header">
-          <h1 class="page-title">Assets</h1>
+          <h1 class="page-title" data-i18n="assets.title">Assets</h1>
           <div class="page-actions">
-            <input id="asset-search" type="text" placeholder="Search by name, IP, MAC, hostname, tag…" class="search-input" />
+            <input id="asset-search" type="text" placeholder="Search by name, IP, MAC, hostname, tag…" class="search-input" data-i18n-placeholder="assets.search_placeholder" />
             <select id="asset-filter-severity" class="search-input" style="width:130px" title="Filtrer par sévérité CVE">
-              <option value="">Toutes sévérités</option>
+              <option value="" data-i18n="severity.all">Toutes sévérités</option>
               <option value="Critical">Critical</option>
               <option value="High">High</option>
               <option value="Medium">Medium</option>
@@ -308,29 +332,29 @@
             </select>
             <label class="toggle-label">
               <input type="checkbox" id="active-only" />
-              <span>Active only</span>
+              <span data-i18n="assets.filter.active_only">Active only</span>
             </label>
             <button class="btn btn-sm" id="bulk-scan-btn" onclick="openBulkScanMenu()" style="display:none">
-              Bulk scan ▾
+              <span data-i18n="assets.bulk_scan">Bulk scan</span> ▾
             </button>
             <button class="btn btn-sm" id="bulk-edit-btn" onclick="openBulkEditModal()" style="display:none">
-              Modifier ▾
+              <span data-i18n="assets.bulk_edit">Modifier</span> ▾
             </button>
             <button class="btn btn-sm" id="group-subnet-btn" onclick="toggleGroupBySubnet()" title="Grouper par sous-réseau">
-              Grouper /24
+              <span data-i18n="assets.group_subnet">Grouper /24</span>
             </button>
             <button class="btn btn-sm" id="save-filter-btn" onclick="saveCurrentFilter()" title="Sauvegarder le filtre actuel">
               ☆ Filtre
             </button>
             <select id="saved-filters-select" class="search-input" style="width:130px;display:none" onchange="applySavedFilter(this.value)" title="Filtres sauvegardés">
-              <option value="">Filtres sauvegardés</option>
+              <option value="" data-i18n="assets.saved_filters">Filtres sauvegardés</option>
             </select>
-            <button class="btn btn-sm" onclick="exportAssetsCsv()">Export CSV</button>
+            <button class="btn btn-sm" onclick="exportAssetsCsv()" data-i18n="common.export_csv">Export CSV</button>
             <label class="btn btn-sm" style="cursor:pointer">
-              Import CSV
+              <span data-i18n="common.import_csv">Import CSV</span>
               <input type="file" accept=".csv" style="display:none" onchange="importAssetsCsv(this.files[0])">
             </label>
-            <button class="btn btn-sm" id="refresh-assets">Refresh</button>
+            <button class="btn btn-sm" id="refresh-assets" data-i18n="common.refresh">Refresh</button>
           </div>
         </div>
         <div class="table-wrap">
@@ -338,8 +362,8 @@
             <thead>
               <tr>
                 <th><input type="checkbox" id="select-all-assets" onchange="toggleSelectAllAssets(this)" /></th>
-                <th>Name / Tags</th><th>IP</th><th>MAC</th><th>Hostname</th><th>Vendor</th>
-                <th>OS</th><th>Open ports</th><th>CVEs</th><th>Criticité</th><th>Risque</th><th>Active</th><th>Last seen</th><th>Âge scan</th>
+                <th data-i18n="assets.table.name_tags" data-sort-key="name">Name / Tags</th><th data-i18n="assets.table.ip" data-sort-key="ip">IP</th><th data-i18n="assets.table.mac" data-sort-key="mac">MAC</th><th data-i18n="assets.table.hostname" data-sort-key="hostname">Hostname</th><th data-i18n="assets.table.vendor" data-sort-key="vendor">Vendor</th>
+                <th data-i18n="assets.table.os" data-sort-key="os">OS</th><th data-i18n="assets.table.open_ports" data-sort-key="ports" data-sort-type="num">Open ports</th><th data-i18n="assets.table.cves" data-sort-key="cves" data-sort-type="num">CVEs</th><th data-i18n="assets.table.criticality" data-sort-key="criticality">Criticité</th><th data-i18n="assets.table.risk" data-sort-key="risk" data-sort-type="num">Risk</th><th data-i18n="assets.table.active" data-sort-key="active">Active</th><th data-i18n="assets.table.last_seen" data-sort-key="last_seen" data-sort-type="date">Last seen</th><th data-i18n="assets.table.scan_age" data-sort-key="scan_age">Âge scan</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -347,102 +371,12 @@
         </div>
       </section>
 
-      <!-- ── Expositions panel (asset-level CVE view) ─────────────────────── -->
-      <section class="panel" id="panel-expositions">
-        <div class="page-header">
-          <h1 class="page-title">Expositions</h1>
-          <div class="page-actions">
-            <input id="exp-search" type="text" placeholder="CVE ID, asset, paquet…" class="search-input" />
-            <select id="exp-severity" class="search-input" style="width:130px">
-              <option value="">Toutes sévérités</option>
-              <option value="Critical">Critical</option>
-              <option value="High">High</option>
-              <option value="Medium">Medium</option>
-              <option value="Low">Low</option>
-            </select>
-            <select id="exp-source" class="search-input" style="width:110px">
-              <option value="">Toutes sources</option>
-              <option value="ssh">SSH</option>
-              <option value="zap">ZAP</option>
-              <option value="nuclei">Nuclei</option>
-              <option value="trivy">Trivy</option>
-            </select>
-            <select id="exp-ack" class="search-input" style="width:130px">
-              <option value="none">Non-acknowled.</option>
-              <option value="">Toutes</option>
-              <option value="accepted">Accepté</option>
-              <option value="false_positive">Faux positif</option>
-              <option value="in_progress">En cours</option>
-            </select>
-            <button class="btn btn-sm" onclick="exportExpositionsCsv()" title="Exporter CSV filtré">Export CSV</button>
-            <button class="btn btn-sm" onclick="window.print()" title="Imprimer / PDF">Imprimer</button>
-            <button class="btn btn-sm" id="exp-kanban-btn" onclick="toggleExpKanban()" title="Vue Kanban">Kanban</button>
-            <button class="btn btn-sm" onclick="loadExpositions()">Refresh</button>
-          </div>
-        </div>
-        <!-- Bulk ack bar -->
-        <div id="exp-select-bar" class="exp-select-bar" style="display:none">
-          <span id="exp-selected-count" style="font-size:13px;color:var(--text-muted)"></span>
-          <button class="btn btn-sm btn-primary" onclick="openBulkAckModal()">Acker la sélection</button>
-          <button class="btn btn-sm" onclick="clearExpSelection()">Désélectionner</button>
-        </div>
-        <!-- Table view -->
-        <div id="exp-table-view">
-          <div class="table-wrap">
-            <table id="expositions-table">
-              <thead>
-                <tr>
-                  <th><input type="checkbox" id="select-all-exp" onchange="toggleSelectAllExp(this)" /></th>
-                  <th>CVE</th><th>Sévérité</th><th>Score</th><th>EPSS</th><th>Asset</th>
-                  <th>Source</th><th>Paquet</th><th>Fix dispo</th><th>Plan d'action</th><th>Ack</th><th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="expositions-tbody"></tbody>
-            </table>
-          </div>
-          <div id="exp-pagination" style="display:flex;gap:8px;justify-content:center;margin-top:12px"></div>
-        </div>
-        <!-- Kanban view (#8) -->
-        <div id="exp-kanban-view" style="display:none">
-          <div class="kanban-board">
-            <div class="kanban-col" id="kanban-none" data-status="none" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="onKanbanDrop(event,'none')">
-              <div class="kanban-col-title" style="color:var(--text-muted)">
-                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12"><circle cx="7" cy="7" r="5"/></svg>
-                Ouvert <span class="kanban-count" id="kanban-count-none">0</span>
-              </div>
-              <div id="kanban-cards-none"></div>
-            </div>
-            <div class="kanban-col" id="kanban-in_progress" data-status="in_progress" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="onKanbanDrop(event,'in_progress')">
-              <div class="kanban-col-title" style="color:var(--warning)">
-                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12"><circle cx="7" cy="7" r="5"/><path d="M7 4v3l2 2"/></svg>
-                En cours <span class="kanban-count" id="kanban-count-in_progress">0</span>
-              </div>
-              <div id="kanban-cards-in_progress"></div>
-            </div>
-            <div class="kanban-col" id="kanban-accepted" data-status="accepted" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="onKanbanDrop(event,'accepted')">
-              <div class="kanban-col-title" style="color:var(--success)">
-                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12"><circle cx="7" cy="7" r="5"/><path d="M4.5 7l2 2 3-3"/></svg>
-                Résolu <span class="kanban-count" id="kanban-count-accepted">0</span>
-              </div>
-              <div id="kanban-cards-accepted"></div>
-            </div>
-            <div class="kanban-col" id="kanban-false_positive" data-status="false_positive" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="onKanbanDrop(event,'false_positive')">
-              <div class="kanban-col-title" style="color:var(--info)">
-                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12"><circle cx="7" cy="7" r="5"/><path d="M5 5l4 4M9 5l-4 4"/></svg>
-                Faux positif <span class="kanban-count" id="kanban-count-false_positive">0</span>
-              </div>
-              <div id="kanban-cards-false_positive"></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <!-- ── CVEs panel ────────────────────────────────────────────────────── -->
       <section class="panel" id="panel-cves">
         <div class="page-header">
-          <h1 class="page-title">Bibliothèque CVE</h1>
+          <h1 class="page-title" data-i18n="cves.title">Bibliothèque CVE</h1>
           <div class="page-actions">
-            <input id="cve-search" type="text" placeholder="Rechercher un CVE…" class="search-input" />
+            <input id="cve-search" type="text" placeholder="Rechercher un CVE…" class="search-input" data-i18n-placeholder="cves.search_placeholder" />
             <select id="cve-severity-filter" class="search-input" style="width:140px">
               <option value="">Toutes sévérités</option>
               <option value="Critical">Critical</option>
@@ -472,7 +406,7 @@
             <button class="btn btn-sm" id="cve-kev-sync-btn" title="Synchroniser le catalogue CISA KEV">KEV</button>
             <button class="btn btn-sm" id="cve-exploit-sync-btn" title="Synchroniser ExploitDB + PoC GitHub">Exploits</button>
             <button class="btn btn-sm" id="cve-enrich-btn" title="Enrichir les CVE sans données CVSS depuis OSV/NVD">CVSS</button>
-            <button class="btn btn-sm" id="refresh-cves">Refresh</button>
+            <button class="btn btn-sm" id="refresh-cves" data-i18n="common.refresh">Refresh</button>
           </div>
         </div>
         <div id="cve-enrich-status" class="status-bar hidden"></div>
@@ -480,8 +414,8 @@
           <table id="cve-table-global">
             <thead>
               <tr>
-                <th>CVE</th><th>Sévérité</th><th>CVSS</th><th>EPSS</th><th>Menace</th>
-                <th>Assets</th><th>Description</th><th>Plan d'action</th><th>Publié le</th>
+                <th data-i18n="cves.table.cve" data-sort-key="cve">CVE</th><th data-i18n="cves.table.severity" data-sort-key="severity">Sévérité</th><th data-sort-key="cvss" data-sort-type="num">CVSS</th><th data-sort-key="epss" data-sort-type="num">EPSS</th><th data-i18n="cves.table.threat" data-sort-key="threat">Menace</th>
+                <th data-i18n="cves.table.assets" data-sort-key="assets" data-sort-type="num">Assets</th><th data-i18n="cves.table.description">Description</th><th data-i18n="cves.table.action_plan">Plan d'action</th><th data-i18n="cves.table.published" data-sort-key="published" data-sort-type="date">Publié le</th>
               </tr>
             </thead>
             <tbody id="cve-global-tbody">
@@ -495,10 +429,10 @@
       <!-- ── Scans panel ───────────────────────────────────────────────────── -->
       <section class="panel" id="panel-scans">
         <div class="page-header">
-          <h1 class="page-title">Scans</h1>
+          <h1 class="page-title" data-i18n="scans.title">Scans</h1>
           <div class="page-actions">
-            <button class="btn btn-primary" id="open-scan-modal-btn">+ New scan</button>
-            <button class="btn btn-sm" id="refresh-scans">Refresh</button>
+            <button class="btn btn-primary" id="open-scan-modal-btn" data-i18n="scans.new_scan">+ New scan</button>
+            <button class="btn btn-sm" id="refresh-scans" data-i18n="common.refresh">Refresh</button>
           </div>
         </div>
         <div id="scan-status" class="status-bar hidden"></div>
@@ -506,8 +440,8 @@
           <table id="scan-table">
             <thead>
               <tr>
-                <th>Target</th><th>Modules</th><th>Status</th>
-                <th>Date</th><th>Assets</th><th>Planification</th><th>Actions</th>
+                <th data-i18n="scans.table.target">Target</th><th data-i18n="scans.table.modules">Modules</th><th data-i18n="scans.table.status">Status</th>
+                <th data-i18n="scans.table.date">Date</th><th data-i18n="scans.table.assets">Assets</th><th data-i18n="scans.table.scheduling">Planification</th><th data-i18n="common.actions">Actions</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -518,8 +452,8 @@
         <div id="scan-history-panel" style="display:none;margin-top:20px">
           <div class="settings-card">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-              <h3 class="settings-card-title" style="margin:0" id="scan-history-title">Historique</h3>
-              <button class="btn btn-sm" onclick="closeScanHistory()">Fermer</button>
+              <h3 class="settings-card-title" style="margin:0" id="scan-history-title" data-i18n="scans.history">Historique</h3>
+              <button class="btn btn-sm" onclick="closeScanHistory()" data-i18n="common.close">Fermer</button>
             </div>
             <div style="position:relative;height:200px;margin-bottom:16px">
               <canvas id="scan-history-chart"></canvas>
@@ -527,20 +461,18 @@
             <div id="scan-history-table"></div>
           </div>
         </div>
-      </section>
 
-      <!-- ── Modules panel ─────────────────────────────────────────────────── -->
-      <section class="panel" id="panel-modules">
-        <div class="page-header">
-          <h1 class="page-title">Modules</h1>
+        <!-- Available modules (integrated from Modules page) -->
+        <div class="settings-card" style="margin-top:20px">
+          <h3 class="settings-card-title" data-i18n="scans.available_modules">Modules disponibles</h3>
+          <div id="modules-grid" class="modules-grid"></div>
         </div>
-        <div id="modules-grid" class="modules-grid"></div>
       </section>
 
       <!-- ── Admin panel ───────────────────────────────────────────────────── -->
       <section class="panel" id="panel-admin">
         <div class="page-header">
-          <h1 class="page-title">Settings</h1>
+          <h1 class="page-title" data-i18n="admin.title">Settings</h1>
         </div>
 
         <div class="admin-layout">
@@ -552,28 +484,28 @@
                 <circle cx="9" cy="7" r="4"/>
                 <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
               </svg>
-              Users
+              <span data-i18n="admin.users">Users</span>
             </button>
             <button class="subnav-item" data-subtab="admin-auth">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="11" width="18" height="11" rx="2"/>
                 <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
               </svg>
-              Authentication
+              <span data-i18n="admin.authentication">Authentication</span>
             </button>
             <button class="subnav-item" data-subtab="admin-oidc">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
                 <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
               </svg>
-              OIDC Connector
+              <span data-i18n="admin.oidc">OIDC Connector</span>
             </button>
             <button class="subnav-item" data-subtab="admin-zap">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"/>
                 <polyline points="12 6 12 12 16 14"/>
               </svg>
-              ZAP Auto-scan
+              <span data-i18n="admin.zap_auto_scan">ZAP Auto-scan</span>
             </button>
             <button class="subnav-item" data-subtab="admin-ssh-profiles">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -581,14 +513,14 @@
                 <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
                 <circle cx="12" cy="16" r="1"/>
               </svg>
-              SSH Profiles
+              <span data-i18n="admin.ssh_profiles">SSH Profiles</span>
             </button>
             <button class="subnav-item" data-subtab="admin-quota">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
                 <path d="M7 8v4M12 6v6M17 9v3"/>
               </svg>
-              Quota Usage
+              <span data-i18n="admin.quota_usage">Quota Usage</span>
             </button>
             <button class="subnav-item" data-subtab="admin-audit">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -598,21 +530,21 @@
                 <line x1="16" y1="17" x2="8" y2="17"/>
                 <polyline points="10 9 9 9 8 9"/>
               </svg>
-              Audit Log
+              <span data-i18n="admin.audit_log">Audit Log</span>
             </button>
             <button class="subnav-item" data-subtab="admin-sla">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"/>
                 <polyline points="12 6 12 12 16 14"/>
               </svg>
-              SLA Config
+              <span data-i18n="admin.sla_config">SLA Config</span>
             </button>
             <button class="subnav-item" data-subtab="admin-notif">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
               </svg>
-              Notifications
+              <span data-i18n="admin.notifications">Notifications</span>
             </button>
           </nav>
 
@@ -622,10 +554,10 @@
             <!-- Users sub-panel -->
             <div class="sub-panel active" id="sub-admin-users">
               <div class="sub-panel-header">
-                <h2>Users</h2>
+                <h2 data-i18n="admin.users">Users</h2>
                 <div class="page-actions">
-                  <button class="btn btn-primary btn-sm" onclick="openUserModal()">+ New user</button>
-                  <button class="btn btn-sm" onclick="loadUsers()">Refresh</button>
+                  <button class="btn btn-primary btn-sm" onclick="openUserModal()" data-i18n="admin.new_user">+ New user</button>
+                  <button class="btn btn-sm" onclick="loadUsers()" data-i18n="common.refresh">Refresh</button>
                 </div>
               </div>
               <div class="table-wrap">
@@ -799,7 +731,7 @@
                 </div>
               </div>
               <div id="quota-chart-wrap" style="max-width:700px">
-                <canvas id="quota-chart" height="220"></canvas>
+                <div style="position:relative;height:220px"><canvas id="quota-chart"></canvas></div>
               </div>
               <div id="quota-table-wrap" style="margin-top:16px"></div>
             </div>
@@ -906,10 +838,10 @@
       <!-- ── Topology panel ─────────────────────────────────────────────────── -->
       <section class="panel" id="panel-topology">
         <div class="page-header">
-          <h1 class="page-title">Topologie réseau</h1>
+          <h1 class="page-title" data-i18n="topology.title">Topologie réseau</h1>
           <div class="page-actions">
-            <button class="btn btn-sm" id="topo-group-btn" onclick="toggleTopoGrouping()">Par subnet</button>
-            <button class="btn btn-sm" onclick="loadTopology()">Refresh</button>
+            <button class="btn btn-sm" id="topo-group-btn" onclick="toggleTopoGrouping()" data-i18n="topology.group_by_subnet">Par subnet</button>
+            <button class="btn btn-sm" onclick="loadTopology()" data-i18n="common.refresh">Refresh</button>
           </div>
         </div>
         <div class="topology-legend" id="topo-legend">
@@ -923,106 +855,193 @@
             Chargement de la topologie…
           </div>
         </div>
+        <!-- Context menu for topology nodes -->
+        <div id="topo-context-menu" class="topo-context-menu" style="display:none;position:fixed;z-index:1000;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 0;box-shadow:0 4px 12px rgba(0,0,0,.3);min-width:180px">
+          <button class="topo-ctx-item" onclick="topoCtxAction('detail')" data-i18n="topology.context.details">Voir détails</button>
+          <button class="topo-ctx-item" onclick="topoCtxAction('scan')" data-i18n="topology.context.scan">Lancer scan</button>
+          <button class="topo-ctx-item" onclick="topoCtxAction('fullaudit')" data-i18n="topology.context.full_audit">Full Audit</button>
+          <button class="topo-ctx-item" onclick="topoCtxAction('copyip')" data-i18n="topology.context.copy_ip">Copier IP</button>
+        </div>
       </section>
 
       <!-- ── Reports panel ──────────────────────────────────────────────────── -->
       <section class="panel" id="panel-reports">
         <div class="page-header">
-          <h1 class="page-title">Rapport exécutif</h1>
+          <h1 class="page-title" data-i18n="reports.title">Rapport exécutif</h1>
           <div class="page-actions">
-            <button class="btn btn-primary" onclick="openExecutiveReport()">Rapport HTML</button>
-            <button class="btn btn-sm" onclick="exportExecutivePDF()">Export PDF</button>
-            <button class="btn btn-sm" onclick="exportXLSX()">Export Excel</button>
-            <button class="btn btn-sm" onclick="window.print()">Imprimer</button>
-            <button class="btn btn-sm" onclick="loadReportsPanel()">Refresh</button>
+            <button class="btn btn-primary" onclick="openExecutiveReport()" data-i18n="reports.html_report">Rapport HTML</button>
+            <button class="btn btn-sm" onclick="exportExecutivePDF()" data-i18n="common.export_pdf">Export PDF</button>
+            <button class="btn btn-sm" onclick="exportXLSX()" data-i18n="common.export_excel">Export Excel</button>
+            <button class="btn btn-sm" onclick="window.print()" data-i18n="common.print">Imprimer</button>
+            <button class="btn btn-sm" onclick="loadReportsPanel()" data-i18n="common.refresh">Refresh</button>
           </div>
         </div>
-        <div id="reports-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-          <div class="settings-card" id="reports-sla-breaches">
-            <h3 class="settings-card-title">SLA Breaches</h3>
+        <div id="reports-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;grid-auto-rows:220px;margin-bottom:14px">
+          <div class="settings-card" id="reports-sla-breaches" style="overflow-y:auto">
+            <h3 class="settings-card-title" data-i18n="dashboard.sla_breaches">SLA Breaches</h3>
             <div id="reports-sla-list">
               <p style="color:var(--text-muted);font-size:13px">Chargement…</p>
             </div>
           </div>
-          <div class="settings-card" id="reports-top-risk">
-            <h3 class="settings-card-title">Top 5 assets à risque</h3>
+          <div class="settings-card" id="reports-top-risk" style="overflow-y:auto">
+            <h3 class="settings-card-title" data-i18n="reports.top_risk">Top 5 assets à risque</h3>
             <div id="reports-top-risk-list">
               <p style="color:var(--text-muted);font-size:13px">Chargement…</p>
             </div>
           </div>
         </div>
         <div class="settings-card" style="margin-top:16px">
-          <h3 class="settings-card-title">Évolution 30 jours</h3>
-          <canvas id="reports-trend-chart" height="160"></canvas>
+          <h3 class="settings-card-title" data-i18n="reports.evolution_30d">Évolution 30 jours</h3>
+          <div style="position:relative;height:200px"><canvas id="reports-trend-chart"></canvas></div>
         </div>
       </section>
 
       <!-- ── Remediation plan panel ──────────────────────────────────────────── -->
       <section class="panel" id="panel-remediation">
         <div class="page-header">
-          <h1 class="page-title">Suivi de remédiation</h1>
+          <h1 class="page-title" data-i18n="remediation.title">Gestion des vulnérabilités</h1>
           <div class="page-actions">
-            <select id="remediation-source-filter" style="padding:5px 8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);font-size:12px">
-              <option value="">Toutes les sources</option>
+            <input id="exp-search" type="text" placeholder="CVE ID, asset, paquet…" class="search-input" data-i18n-placeholder="remediation.search_placeholder" />
+            <select id="exp-severity" class="search-input" style="width:130px">
+              <option value="">Toutes sévérités</option>
+              <option value="Critical">Critical</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+            <select id="exp-source" class="search-input" style="width:110px">
+              <option value="">Toutes sources</option>
               <option value="ssh">SSH</option>
               <option value="zap">ZAP</option>
               <option value="nuclei">Nuclei</option>
               <option value="trivy">Trivy</option>
             </select>
+            <select id="exp-ack" class="search-input" style="width:130px">
+              <option value="none">Non-acknowled.</option>
+              <option value="">Toutes</option>
+              <option value="accepted">Accepté</option>
+              <option value="false_positive">Faux positif</option>
+              <option value="in_progress">En cours</option>
+            </select>
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="remediation-kev-only" />
-              KEV uniquement
+              KEV
             </label>
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
               <input type="checkbox" id="remediation-sla-only" />
               SLA dépassé
             </label>
-            <button class="btn btn-sm" onclick="loadRemediationBoard()">Vue Board</button>
-            <button class="btn btn-primary btn-sm" onclick="loadRemediation()">Refresh</button>
+            <button class="btn btn-sm" onclick="exportExpositionsCsv()" title="Exporter CSV filtré">CSV</button>
+            <button class="btn btn-sm" id="exp-kanban-btn" onclick="toggleExpKanban()" title="Vue Kanban">Kanban</button>
+            <button class="btn btn-sm" onclick="loadRemediationBoard()">Board</button>
+            <button class="btn btn-primary btn-sm" onclick="loadRemediation(); loadExpositions();">Refresh</button>
           </div>
         </div>
 
         <!-- Remediation stats row -->
         <div id="remediation-stats" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px"></div>
 
-        <!-- Remediation funnel / board -->
-        <div id="remediation-board" style="display:none;margin-bottom:16px">
-          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
-            <div class="settings-card" style="padding:12px">
-              <h4 style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Ouvert</h4>
-              <div id="board-open"></div>
+        <!-- Sub-tabs: Expositions vs Plan -->
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button class="btn btn-sm" id="vuln-tab-expositions" onclick="switchVulnTab('expositions')" style="font-weight:600" data-i18n="remediation.tab.expositions">Expositions</button>
+          <button class="btn btn-sm" id="vuln-tab-plan" onclick="switchVulnTab('plan')" data-i18n="remediation.tab.plan">Plan de remédiation</button>
+          <button class="btn btn-sm" id="vuln-tab-board" onclick="switchVulnTab('board')" data-i18n="remediation.tab.board">Board</button>
+        </div>
+
+        <!-- Bulk ack bar -->
+        <div id="exp-select-bar" class="exp-select-bar" style="display:none">
+          <span id="exp-selected-count" style="font-size:13px;color:var(--text-muted)"></span>
+          <button class="btn btn-sm btn-primary" onclick="openBulkAckModal()" data-i18n="remediation.acknowledge_selection">Acker la sélection</button>
+          <button class="btn btn-sm" onclick="clearExpSelection()" data-i18n="remediation.deselect">Désélectionner</button>
+        </div>
+
+        <!-- Expositions view -->
+        <div id="vuln-view-expositions">
+          <div id="exp-table-view">
+            <div class="table-wrap">
+              <table id="expositions-table">
+                <thead>
+                  <tr>
+                    <th><input type="checkbox" id="select-all-exp" onchange="toggleSelectAllExp(this)" /></th>
+                    <th data-i18n="cves.table.cve" data-sort-key="cve">CVE</th><th data-i18n="cves.table.severity" data-sort-key="severity">Sévérité</th><th data-sort-key="score" data-sort-type="num">Score</th><th data-sort-key="epss" data-sort-type="num">EPSS</th><th data-sort-key="asset">Asset</th>
+                    <th data-i18n="remediation.table.source" data-sort-key="source">Source</th><th data-i18n="remediation.table.package" data-sort-key="package">Paquet</th><th data-i18n="remediation.table.fix_available" data-sort-key="fix">Fix dispo</th><th data-i18n="cves.table.action_plan">Plan d'action</th><th data-i18n="remediation.table.ack" data-sort-key="ack">Ack</th><th data-i18n="common.actions">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="expositions-tbody"></tbody>
+              </table>
             </div>
-            <div class="settings-card" style="padding:12px">
-              <h4 style="font-size:12px;color:var(--info);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Planifié</h4>
-              <div id="board-planned"></div>
-            </div>
-            <div class="settings-card" style="padding:12px">
-              <h4 style="font-size:12px;color:var(--warning);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">En cours</h4>
-              <div id="board-in_progress"></div>
-            </div>
-            <div class="settings-card" style="padding:12px">
-              <h4 style="font-size:12px;color:var(--success);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Résolu</h4>
-              <div id="board-resolved"></div>
-            </div>
-            <div class="settings-card" style="padding:12px">
-              <h4 style="font-size:12px;color:var(--danger);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Bloqué</h4>
-              <div id="board-blocked"></div>
+            <div id="exp-pagination" style="display:flex;gap:8px;justify-content:center;margin-top:12px"></div>
+          </div>
+          <!-- Kanban view -->
+          <div id="exp-kanban-view" style="display:none">
+            <div class="kanban-board">
+              <div class="kanban-col" id="kanban-none" data-status="none" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="onKanbanDrop(event,'none')">
+                <div class="kanban-col-title" style="color:var(--text-muted)">Ouvert <span class="kanban-count" id="kanban-count-none">0</span></div>
+                <div id="kanban-cards-none"></div>
+              </div>
+              <div class="kanban-col" id="kanban-in_progress" data-status="in_progress" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="onKanbanDrop(event,'in_progress')">
+                <div class="kanban-col-title" style="color:var(--warning)">En cours <span class="kanban-count" id="kanban-count-in_progress">0</span></div>
+                <div id="kanban-cards-in_progress"></div>
+              </div>
+              <div class="kanban-col" id="kanban-accepted" data-status="accepted" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="onKanbanDrop(event,'accepted')">
+                <div class="kanban-col-title" style="color:var(--success)">Résolu <span class="kanban-count" id="kanban-count-accepted">0</span></div>
+                <div id="kanban-cards-accepted"></div>
+              </div>
+              <div class="kanban-col" id="kanban-false_positive" data-status="false_positive" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="onKanbanDrop(event,'false_positive')">
+                <div class="kanban-col-title" style="color:var(--info)">Faux positif <span class="kanban-count" id="kanban-count-false_positive">0</span></div>
+                <div id="kanban-cards-false_positive"></div>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Priority list -->
-        <div id="remediation-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
-        <div id="remediation-list"></div>
+        <!-- Plan de remédiation view -->
+        <div id="vuln-view-plan" style="display:none">
+          <div id="remediation-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
+          <div id="remediation-list"></div>
+        </div>
+
+        <!-- Board view -->
+        <div id="vuln-view-board" style="display:none">
+          <div id="remediation-board">
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+              <div class="settings-card" style="padding:12px">
+                <h4 style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Ouvert</h4>
+                <div id="board-open"></div>
+              </div>
+              <div class="settings-card" style="padding:12px">
+                <h4 style="font-size:12px;color:var(--info);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Planifié</h4>
+                <div id="board-planned"></div>
+              </div>
+              <div class="settings-card" style="padding:12px">
+                <h4 style="font-size:12px;color:var(--warning);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">En cours</h4>
+                <div id="board-in_progress"></div>
+              </div>
+              <div class="settings-card" style="padding:12px">
+                <h4 style="font-size:12px;color:var(--success);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Résolu</h4>
+                <div id="board-resolved"></div>
+              </div>
+              <div class="settings-card" style="padding:12px">
+                <h4 style="font-size:12px;color:var(--danger);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Bloqué</h4>
+                <div id="board-blocked"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- ── Timeline panel ──────────────────────────────────────────────── -->
       <section class="panel" id="panel-timeline">
         <div class="page-header">
-          <h1 class="page-title">Timeline des découvertes</h1>
+          <h1 class="page-title" data-i18n="timeline.title">Timeline &amp; Audit</h1>
           <div class="page-actions">
-            <button class="btn btn-sm" onclick="loadTimeline()">Refresh</button>
+            <select id="timeline-type-filter" class="search-input" style="width:150px">
+              <option value="" data-i18n="timeline.filter.all">Tous les événements</option>
+              <option value="system" data-i18n="timeline.filter.system">Système (découvertes)</option>
+              <option value="user" data-i18n="timeline.filter.user">Actions utilisateur</option>
+            </select>
+            <button class="btn btn-sm" onclick="loadTimeline()" data-i18n="common.refresh">Refresh</button>
           </div>
         </div>
         <div id="timeline-list" style="max-height:calc(100vh - 200px);overflow-y:auto"></div>
@@ -1031,104 +1050,40 @@
       <!-- ── Compliance panel ────────────────────────────────────────────── -->
       <section class="panel" id="panel-compliance">
         <div class="page-header">
-          <h1 class="page-title">Conformité</h1>
+          <h1 class="page-title" data-i18n="compliance.title">Conformité</h1>
           <div class="page-actions">
             <button class="btn btn-primary" onclick="runComplianceEval('iso27001')">ISO 27001</button>
             <button class="btn btn-primary" onclick="runComplianceEval('nis2')">NIS2</button>
             <button class="btn btn-primary" onclick="runComplianceEval('anssi')">ANSSI</button>
-            <button class="btn btn-sm" onclick="loadCompliance()">Refresh</button>
+            <button class="btn btn-sm" onclick="loadCompliance()" data-i18n="common.refresh">Refresh</button>
           </div>
         </div>
         <div id="compliance-frameworks" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px"></div>
         <div class="settings-card">
-          <h3 class="settings-card-title">Rapports récents</h3>
+          <h3 class="settings-card-title" data-i18n="compliance.recent_reports">Rapports récents</h3>
           <div id="compliance-reports-list"></div>
         </div>
-      </section>
-
-      <!-- ── Executive RSSI panel ────────────────────────────────────────── -->
-      <section class="panel" id="panel-executive">
-        <div class="page-header">
-          <h1 class="page-title">Vision 360° — Dashboard RSSI</h1>
-          <div class="page-actions">
-            <button class="btn btn-sm" onclick="exportExecutivePDF()">Export PDF</button>
-            <button class="btn btn-sm" onclick="exportXLSX()">Export Excel</button>
-            <button class="btn btn-sm" onclick="loadExecutive()">Refresh</button>
+        <div id="compliance-report-detail" class="settings-card" style="display:none">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <h3 class="settings-card-title" style="margin:0" id="compliance-detail-title">Findings</h3>
+            <button class="btn btn-sm" onclick="document.getElementById('compliance-report-detail').style.display='none'">✕ Fermer</button>
           </div>
-        </div>
-
-        <!-- Row 1: KPIs principaux -->
-        <div id="exec-kpis" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px"></div>
-
-        <!-- Row 2: Risk gauge + Remediation funnel + MTTR -->
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
-          <div class="settings-card">
-            <h3 class="settings-card-title">Score de risque global</h3>
-            <div id="exec-risk-gauge" style="text-align:center;padding:16px"></div>
-          </div>
-          <div class="settings-card">
-            <h3 class="settings-card-title">Entonnoir de remédiation</h3>
-            <div id="exec-funnel"></div>
-          </div>
-          <div class="settings-card">
-            <h3 class="settings-card-title">Performance</h3>
-            <div id="exec-performance"></div>
-          </div>
-        </div>
-
-        <!-- Row 3: Trend chart + Severity heatmap -->
-        <div style="display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:16px">
-          <div class="settings-card">
-            <h3 class="settings-card-title">Tendance 30 jours — CVEs</h3>
-            <div style="position:relative;height:220px"><canvas id="exec-trend-chart"></canvas></div>
-          </div>
-          <div class="settings-card">
-            <h3 class="settings-card-title">Heatmap sévérité × criticité</h3>
-            <div id="exec-heatmap"></div>
-          </div>
-        </div>
-
-        <!-- Row 4: Velocity chart + Burndown + Top assets -->
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
-          <div class="settings-card">
-            <h3 class="settings-card-title">Vélocité (CVEs/semaine)</h3>
-            <div style="position:relative;height:180px"><canvas id="exec-velocity-chart"></canvas></div>
-          </div>
-          <div class="settings-card">
-            <h3 class="settings-card-title">Burndown CVEs ouvertes</h3>
-            <div style="position:relative;height:180px"><canvas id="exec-burndown-chart"></canvas></div>
-          </div>
-          <div class="settings-card">
-            <h3 class="settings-card-title">Top assets à risque</h3>
-            <div id="exec-top-assets"></div>
-          </div>
-        </div>
-
-        <!-- Row 5: Coverage + SLA -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-          <div class="settings-card">
-            <h3 class="settings-card-title">Couverture sécurité</h3>
-            <div id="exec-coverage"></div>
-          </div>
-          <div class="settings-card">
-            <h3 class="settings-card-title">SLA & Conformité</h3>
-            <div id="exec-sla"></div>
-          </div>
+          <div id="compliance-detail-body"></div>
         </div>
       </section>
 
       <!-- ── Threat Intel panel ──────────────────────────────────────────── -->
       <section class="panel" id="panel-threat-intel">
         <div class="page-header">
-          <h1 class="page-title">Threat Intelligence</h1>
+          <h1 class="page-title" data-i18n="threat_intel.title">Threat Intelligence</h1>
           <div class="page-actions">
-            <button class="btn btn-primary" onclick="refreshThreatFeeds()">Rafraîchir les feeds</button>
-            <button class="btn btn-sm" onclick="loadThreatIntel()">Refresh</button>
+            <button class="btn btn-primary" onclick="refreshThreatFeeds()" data-i18n="threat_intel.refresh_feeds">Rafraîchir les feeds</button>
+            <button class="btn btn-sm" onclick="loadThreatIntel()" data-i18n="common.refresh">Refresh</button>
           </div>
         </div>
         <div id="threat-intel-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px"></div>
         <div class="settings-card">
-          <h3 class="settings-card-title">IOCs récents</h3>
+          <h3 class="settings-card-title" data-i18n="threat_intel.recent_iocs">IOCs récents</h3>
           <div id="threat-ioc-list"></div>
         </div>
       </section>
@@ -1226,6 +1181,7 @@
           Full Audit
           <span class="modal-tab-badge" id="fullaudit-badge" style="display:none;background:var(--danger)"></span>
         </button>
+        <button class="modal-tab" data-modaltab="posture">Posture</button>
       </div>
 
       <div class="modal-body">
@@ -1517,8 +1473,13 @@
           <!-- ── CVE panel ───────────────────────────────────────────── -->
           <div class="sec-panel" id="secpanel-cves" style="display:block">
 
-            <!-- Severity score bar (stat chips + filter) -->
-            <div class="sev-score-bar" id="sev-score-bar">
+            <!-- Priority/severity toggle + filter bar -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <button id="priority-toggle-btn" onclick="_togglePriorityView()"
+                style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid rgba(129,140,248,0.3);background:rgba(129,140,248,0.08);color:#818cf8;cursor:pointer;white-space:nowrap;font-weight:500;transition:all .15s">
+                ◎ Priorité
+              </button>
+              <div class="sev-score-bar" id="sev-score-bar" style="flex:1">
               <button class="sev-filter-btn active" data-sev="all" onclick="_setSevFilter('all',this)">
                 Toutes <span class="sev-filter-count" id="sev-count-all"></span>
               </button>
@@ -1534,6 +1495,7 @@
               <button class="sev-filter-btn sev-low" data-sev="low" onclick="_setSevFilter('low',this)">
                 Low <span class="sev-filter-count" id="sev-count-low"></span>
               </button>
+            </div>
             </div>
 
             <!-- CVE groups injected by JS -->
@@ -1663,6 +1625,26 @@
           <div id="ssl-reports-body" style="margin-top:16px">
             <p style="color:var(--text-muted);font-size:13px">Aucun scan SSL effectué.</p>
           </div>
+
+          <!-- Deep TLS/SSL audit (testssl.sh) -->
+          <div style="margin-top:28px;border-top:1px solid var(--border);padding-top:18px">
+            <div class="sec-panel-header">
+              <div>
+                <div class="sec-panel-title">Audit TLS approfondi (testssl.sh)</div>
+                <div class="sec-panel-desc">Protocoles, cipher suites, vulnérabilités TLS (BEAST, POODLE, Heartbleed, ROBOT…)</div>
+              </div>
+            </div>
+            <div class="scan-action-bar" style="margin-top:12px">
+              <button class="btn btn-primary btn-sm" id="testssl-btn" onclick="runTestsslScan()">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="13" height="13"><polygon points="3,2 13,8 3,14" fill="currentColor" stroke="none"/></svg>
+                Lancer testssl
+              </button>
+              <span id="testssl-status" class="scan-status-text"></span>
+            </div>
+            <div id="testssl-reports-body" style="margin-top:16px">
+              <p style="color:var(--text-muted);font-size:13px">Aucun audit testssl effectué.</p>
+            </div>
+          </div>
         </div>
 
         <!-- ── Baseline tab ─────────────────────────────────────────── -->
@@ -1707,6 +1689,16 @@
           </div>
           <div id="fullaudit-jobs-body" style="margin-top:16px">
             <p style="color:var(--text-muted);font-size:13px">Aucun audit lancé.</p>
+          </div>
+        </div>
+
+        <!-- ── Security Posture tab ───────────────────────────────────── -->
+        <div class="modal-tab-panel" id="mtab-posture">
+          <div id="posture-radar-container" style="display:flex;gap:20px;align-items:flex-start">
+            <div style="flex:1;text-align:center">
+              <div style="position:relative;height:300px"><canvas id="posture-radar-chart"></canvas></div>
+            </div>
+            <div id="posture-details" style="flex:1"></div>
           </div>
         </div>
 
@@ -1954,8 +1946,17 @@
     </div>
   </div>
 
+  <style>
+    .topo-ctx-item {
+      display:block;width:100%;text-align:left;padding:8px 16px;background:none;border:none;
+      color:var(--text);font-size:13px;cursor:pointer;
+    }
+    .topo-ctx-item:hover { background:var(--surface3); }
+  </style>
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js" crossorigin="anonymous"></script>
-  <script src="/static/app.js?v=5.2"></script>
+  <script src="/static/app.js?v=6.0"></script>
+  <script src="/static/innovation.js?v=1.0"></script>
 </body>
 </html>

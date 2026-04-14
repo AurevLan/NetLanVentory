@@ -12,13 +12,14 @@ import ipaddress
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from netlanventory.api.dependencies import get_db
+from netlanventory.core.limiter import limiter
 from netlanventory.core.logging import get_logger
 from netlanventory.models.asset import Asset
 from netlanventory.models.asset_cve import AssetCve
@@ -63,7 +64,8 @@ _IMPORT_COLUMNS = {
 
 
 @router.get("/assets/export/csv")
-async def export_assets_csv(db: DbDep) -> StreamingResponse:
+@limiter.limit("10/minute")
+async def export_assets_csv(request: Request, db: DbDep) -> StreamingResponse:
     """Stream all assets as a CSV file."""
     result = await db.execute(
         select(Asset).options(

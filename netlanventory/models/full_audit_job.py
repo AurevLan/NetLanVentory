@@ -69,6 +69,33 @@ class FullAuditJob(Base):
         nullable=True,
     )
 
+    # Internal audit sub-reports (added in 0051)
+    privesc_report_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("privesc_reports.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    firewall_report_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("firewall_reports.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    rootkit_report_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("rootkit_reports.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    docker_bench_report_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("docker_bench_reports.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    auth_log_report_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("auth_log_reports.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     error_msg: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

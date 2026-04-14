@@ -136,6 +136,42 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     msf_validation_reports: Mapped[list["MsfValidationReport"]] = relationship(  # noqa: F821
         "MsfValidationReport", back_populates="asset", cascade="all, delete-orphan"
     )
+    privesc_reports: Mapped[list["PrivescReport"]] = relationship(  # noqa: F821
+        "PrivescReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    firewall_reports: Mapped[list["FirewallReport"]] = relationship(  # noqa: F821
+        "FirewallReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    rootkit_reports: Mapped[list["RootkitReport"]] = relationship(  # noqa: F821
+        "RootkitReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    docker_bench_reports: Mapped[list["DockerBenchReport"]] = relationship(  # noqa: F821
+        "DockerBenchReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    auth_log_reports: Mapped[list["AuthLogReport"]] = relationship(  # noqa: F821
+        "AuthLogReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    dns_email_reports: Mapped[list["DnsEmailReport"]] = relationship(  # noqa: F821
+        "DnsEmailReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    tech_fingerprint_reports: Mapped[list["TechFingerprintReport"]] = relationship(  # noqa: F821
+        "TechFingerprintReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    js_secrets_reports: Mapped[list["JsSecretsReport"]] = relationship(  # noqa: F821
+        "JsSecretsReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    dangling_cname_reports: Mapped[list["DanglingCnameReport"]] = relationship(  # noqa: F821
+        "DanglingCnameReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
 
     @property
     def has_ssh_credentials(self) -> bool:

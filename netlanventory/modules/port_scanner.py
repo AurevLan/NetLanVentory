@@ -123,7 +123,7 @@ class PortScannerModule(BaseModule):
             hosts_data.append({"ip": host_ip, "ports": open_ports})
             total_ports += len(open_ports)
 
-            await self._persist_ports(session, host_ip, open_ports)
+            await self._persist_ports_and_detect_changes(session, host_ip, open_ports)
 
         return {
             "module": self.metadata.name,
@@ -139,10 +139,10 @@ class PortScannerModule(BaseModule):
         }
 
     @staticmethod
-    async def _persist_ports(
+    async def _persist_ports_and_detect_changes(
         session: AsyncSession, ip: str, open_ports: list[dict[str, Any]]
     ) -> None:
-        """Create/update Port records for an asset, ignoring duplicates."""
+        """Create/update Port records for an asset and detect port changes."""
         # Find asset by IP
         result = await session.execute(select(Asset).where(Asset.ip == ip))
         asset = result.scalar_one_or_none()
@@ -152,6 +152,13 @@ class PortScannerModule(BaseModule):
             asset = Asset(ip=ip, is_active=True)
             session.add(asset)
             await session.flush()  # populate asset.id
+
+        # Snapshot existing open ports for change detection
+        existing_result = await session.execute(
+            select(Port).where(Port.asset_id == asset.id, Port.state == "open")
+        )
+        old_ports = {p.port_number for p in existing_result.scalars().all()}
+        new_ports = {p["port"] for p in open_ports}
 
         for p in open_ports:
             # Upsert port: update service/version if exists
@@ -178,3 +185,14 @@ class PortScannerModule(BaseModule):
                         version=p.get("version"),
                     )
                 )
+
+        # Detect port changes and notify
+        added = sorted(new_ports - old_ports)
+        removed = sorted(old_ports - new_ports)
+        if added or removed:
+            try:
+                from netlanventory.core.notifications import notify_port_change
+                import asyncio
+                asyncio.ensure_future(notify_port_change(asset, added, removed))
+            except Exception:
+                logger.warning("Port change notification failed", ip=ip)

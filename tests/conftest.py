@@ -10,7 +10,15 @@ Provides:
 
 from __future__ import annotations
 
+import os
 import uuid
+
+# ── Environment for Settings validation ──────────────────────────────────────
+# Must be set BEFORE any import of netlanventory.core.config (Settings).
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-conftest")
+os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-for-conftest")
+os.environ.setdefault("ADMIN_PASSWORD", "Test1234!@#$")
+os.environ.setdefault("APP_DEBUG", "true")
 from typing import Any
 
 import pytest

@@ -183,7 +183,7 @@ async def trigger_lynis_scan(
 ) -> HardeningTriggerOut:
     """Run a Lynis-only system audit via SSH (no CIS checks).
 
-    Lynis must be installed on the target asset.
+    Lynis is deployed agentlessly if not installed on the target.
     Returns immediately (202) — poll GET /lynis-scan for results.
     """
     result = await db.execute(
@@ -322,19 +322,7 @@ async def _run_lynis_scan(report_id: uuid.UUID, asset_id: uuid.UUID) -> None:
                     known_hosts=None,
                     **ssh_kwargs,
                 ) as conn:
-                    # Check Lynis availability first
-                    lynis_path = await _run_cmd(
-                        conn, "which lynis 2>/dev/null || command -v lynis 2>/dev/null"
-                    )
-                    if not lynis_path:
-                        report.status = "skipped"
-                        report.error_msg = (
-                            "Lynis not found on this asset. "
-                            "Install it with: apt install lynis  or  dnf install lynis"
-                        )
-                        await session.commit()
-                        return
-
+                    # Lynis auto-deploys agentlessly if not installed
                     lynis_data = await _run_lynis(conn, report_id)
 
                 report.lynis_index = lynis_data.get("hardening_index")
@@ -442,7 +430,8 @@ async def _run_cmd(conn: asyncssh.SSHClientConnection, cmd: str, timeout: int = 
     try:
         result = await asyncio.wait_for(conn.run(cmd, check=False), timeout=timeout)
         return (result.stdout or "").strip()
-    except Exception:
+    except Exception as exc:
+        logger.debug("ssh_cmd_failed", cmd=cmd[:80], error=str(exc))
         return ""
 
 
@@ -452,12 +441,10 @@ async def _collect_findings(
     """Run all checks and return the findings dict."""
     findings: dict = {}
 
-    # ── Lynis ────────────────────────────────────────────────────────────────
-    lynis_path = await _run_cmd(conn, "which lynis 2>/dev/null || command -v lynis 2>/dev/null")
-    findings["lynis_available"] = bool(lynis_path)
-
-    if lynis_path:
-        findings["lynis"] = await _run_lynis(conn, report_id)
+    # ── Lynis (agentless — auto-deploys if not installed) ──────────────────
+    findings["lynis"] = await _run_lynis(conn, report_id)
+    findings["lynis_available"] = findings["lynis"].get("available", True)
+    if findings["lynis_available"]:
         findings["lynis_index"] = findings["lynis"].get("hardening_index")
         findings["warnings"] = findings["lynis"].get("warnings", [])
         findings["suggestions"] = findings["lynis"].get("suggestions", [])
@@ -541,25 +528,56 @@ async def _collect_findings(
     return findings
 
 
-async def _run_lynis(conn: asyncssh.SSHClientConnection, report_id: uuid.UUID) -> dict:
-    """Run Lynis on the remote asset and return fully parsed results.
+_LYNIS_GIT_TARBALL = "https://github.com/CISOfy/lynis/archive/refs/heads/master.tar.gz"
 
-    Tries root first, then sudo. Parses the full .dat report file into
-    structured data: hardening index, OS info, version, warnings,
-    suggestions, and category breakdown.
+
+async def _run_lynis(conn: asyncssh.SSHClientConnection, report_id: uuid.UUID) -> dict:
+    """Run Lynis on the remote asset agentlessly — no installation required.
+
+    Strategy (in order):
+      1. Use system Lynis if already installed
+      2. Download Lynis tarball to /tmp, extract, run, clean up
+
+    This ensures Lynis runs even on servers where nothing is pre-installed.
     """
     report_file = f"/tmp/netlanventory-lynis-{report_id}.dat"
+    tmp_dir = f"/tmp/netlanventory-lynis-{report_id}"
 
     # Detect whether we can run Lynis as root or need sudo
     whoami = await _run_cmd(conn, "whoami")
-    if whoami == "root":
-        lynis_prefix = ""
-    else:
-        sudo_ok = await _run_cmd(conn, "sudo -n lynis --version 2>/dev/null")
-        lynis_prefix = "sudo " if sudo_ok else ""
+    sudo_prefix = "" if whoami == "root" else "sudo "
+
+    # 1. Check if Lynis is already installed
+    lynis_path = await _run_cmd(conn, "which lynis 2>/dev/null || command -v lynis 2>/dev/null")
+
+    if not lynis_path:
+        # 2. Agentless deploy: download + extract to /tmp
+        logger.info("Lynis not found — deploying agentless copy to /tmp", report_id=str(report_id))
+        deploy_cmd = (
+            f"mkdir -p {tmp_dir} && "
+            f"curl -sL '{_LYNIS_GIT_TARBALL}' 2>/dev/null | tar xz -C {tmp_dir} --strip-components=1 2>/dev/null"
+        )
+        deploy_out = await _run_cmd(conn, deploy_cmd, timeout=60)
+        # Verify deployment
+        check = await _run_cmd(conn, f"test -f {tmp_dir}/lynis && echo OK")
+        if check != "OK":
+            # Fallback: try wget
+            deploy_cmd2 = (
+                f"rm -rf {tmp_dir} && mkdir -p {tmp_dir} && "
+                f"wget -qO- '{_LYNIS_GIT_TARBALL}' 2>/dev/null | tar xz -C {tmp_dir} --strip-components=1 2>/dev/null"
+            )
+            await _run_cmd(conn, deploy_cmd2, timeout=60)
+            check2 = await _run_cmd(conn, f"test -f {tmp_dir}/lynis && echo OK")
+            if check2 != "OK":
+                return {
+                    "available": False,
+                    "error": "Could not deploy Lynis agentlessly (neither curl nor wget available on target)",
+                }
+
+        lynis_path = f"{tmp_dir}/lynis"
 
     lynis_cmd = (
-        f"{lynis_prefix}lynis audit system --quiet --no-colors "
+        f"{sudo_prefix}{lynis_path} audit system --quiet --no-colors "
         f"--report-file {report_file} 2>/dev/null"
     )
 
@@ -576,9 +594,10 @@ async def _run_lynis(conn: asyncssh.SSHClientConnection, report_id: uuid.UUID) -
             except ValueError:
                 pass
 
-    # Retrieve and clean up the report file
+    # Retrieve and clean up
     dat_content = await _run_cmd(conn, f"cat {report_file} 2>/dev/null")
     await _run_cmd(conn, f"rm -f {report_file}")
+    await _run_cmd(conn, f"rm -rf {tmp_dir}")
 
     if not dat_content:
         return {
