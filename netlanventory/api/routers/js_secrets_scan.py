@@ -255,7 +255,7 @@ async def _scan_js_secrets(target_url: str) -> dict:
             script_urls.append(full_url)
 
         # Also scan inline scripts in the HTML itself
-        inline_scripts = re.findall(r'<script[^>]*>([\s\S]*?)</script\s*>', html, re.IGNORECASE)
+        inline_scripts = re.findall(r'<script[^>]*>([\s\S]*?)</script[^>]*>', html, re.IGNORECASE)
         inline_content = "\n".join(s for s in inline_scripts if len(s.strip()) > 10)
         if inline_content:
             for name, severity, pattern in _SECRET_PATTERNS:
