@@ -1,9 +1,15 @@
-"""Rootkit detection audit router.
+"""Rootkit detection audit router — 100% agentless.
 
-Connects via SSH and runs:
-  - chkrootkit (if available)
-  - rkhunter (if available)
-  - Manual checks for suspicious files, hidden processes/ports
+Connects via SSH and runs pure shell commands to detect:
+  - Hidden processes (ps vs /proc discrepancies)
+  - Hidden/suspicious ports (deleted binaries listening)
+  - Suspicious files in /dev, /tmp, /var/tmp
+  - Known rootkit signatures in filesystem
+  - Loaded kernel modules anomalies
+  - Processes with deleted executables
+  - Modified system binaries (package manager verification)
+
+No installation required on the target — all checks use standard system commands.
 """
 
 from __future__ import annotations
@@ -15,6 +21,8 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 import asyncssh
+
+from netlanventory.core.ssh import ssh_connect
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
@@ -135,7 +143,8 @@ async def _run_cmd(conn: asyncssh.SSHClientConnection, cmd: str, timeout: int = 
     try:
         result = await asyncio.wait_for(conn.run(cmd, check=False), timeout=timeout)
         return (result.stdout or "").strip()
-    except Exception:
+    except Exception as exc:
+        logger.debug("ssh_cmd_failed", cmd=cmd[:80], error=str(exc))
         return ""
 
 
@@ -155,104 +164,102 @@ async def _run_rootkit_audit(report_id: uuid.UUID, asset_id: uuid.UUID) -> None:
                 return
 
             report.status = "running"
-            await session.commit()
 
-        try:
+            # Extract SSH params while session is open (avoids greenlet_spawn)
             ssh_kwargs = _build_ssh_kwargs(asset)
             host = str(asset.ip)
             port = asset.ssh_port or (asset.ssh_profile.ssh_port if asset.ssh_profile else None) or 22
             user = asset.ssh_user or (asset.ssh_profile.ssh_user if asset.ssh_profile else None) or "root"
+            await session.commit()
 
-            async with asyncssh.connect(host, port=port, username=user, known_hosts=None, **ssh_kwargs) as conn:
-                # Check tool availability
-                chk_avail, rkh_avail = await asyncio.gather(
-                    _run_cmd(conn, "which chkrootkit 2>/dev/null", timeout=10),
-                    _run_cmd(conn, "which rkhunter 2>/dev/null", timeout=10),
-                )
+        try:
 
-                has_chkrootkit = bool(chk_avail)
-                has_rkhunter = bool(rkh_avail)
+            async with ssh_connect(host, port=port, username=user, **ssh_kwargs) as conn:
+                # All checks run via standard system commands — no tool installation needed
 
-                chkrootkit_result = {}
-                rkhunter_result = {}
-
-                # Run chkrootkit
-                if has_chkrootkit:
-                    chk_out = await _run_cmd(conn, "chkrootkit 2>/dev/null", timeout=300)
-                    chkrootkit_result = _parse_chkrootkit(chk_out)
-
-                # Run rkhunter (update DB first)
-                if has_rkhunter:
-                    await _run_cmd(conn, "rkhunter --update 2>/dev/null", timeout=60)
-                    rkh_out = await _run_cmd(conn, "rkhunter --check --skip-keypress --report-warnings-only 2>/dev/null", timeout=600)
-                    rkhunter_result = _parse_rkhunter(rkh_out)
-
-                # Manual checks (always run)
+                # ── Phase 1: Parallel lightweight checks ─────────────────────
                 (
                     hidden_procs,
                     hidden_ports,
                     suspicious_dev,
                     suspicious_tmp,
                     kernel_modules,
-                    proc_cwd_check,
+                    proc_deleted,
+                    immutable_files,
+                    promiscuous_ifaces,
+                    crontab_entries,
+                    known_rootkit_files,
                 ) = await asyncio.gather(
-                    # Hidden processes: compare ps output with /proc
+                    # Hidden processes: compare ps with /proc PIDs
                     _run_cmd(conn, r"diff <(ps -eo pid --no-headers | sort -n) <(ls /proc | grep -E '^[0-9]+$' | sort -n) 2>/dev/null | grep '^>' | head -20", timeout=30),
-                    # Hidden ports: check for deleted binaries listening
+                    # Deleted binaries listening on ports
                     _run_cmd(conn, "ss -tlnp 2>/dev/null | grep -i 'deleted' | head -20", timeout=15),
-                    # Suspicious files in /dev
+                    # Files in /dev (should be device nodes, not regular files)
                     _run_cmd(conn, r"find /dev -type f ! -name 'MAKEDEV' 2>/dev/null | head -20", timeout=30),
-                    # Suspicious hidden files in /tmp
+                    # Hidden files in /tmp, /var/tmp
                     _run_cmd(conn, "find /tmp /var/tmp -name '.*' -type f 2>/dev/null | head -30", timeout=30),
-                    # Loaded kernel modules (look for unusual ones)
+                    # Loaded kernel modules
                     _run_cmd(conn, "lsmod 2>/dev/null | tail -n +2 | awk '{print $1}'", timeout=15),
                     # Processes with deleted executables
                     _run_cmd(conn, r"ls -la /proc/*/exe 2>/dev/null | grep '(deleted)' | head -20", timeout=30),
+                    # Immutable files (could be rootkit persistence)
+                    _run_cmd(conn, "lsattr -R /usr/bin /usr/sbin /bin /sbin 2>/dev/null | grep -E '^....i' | head -20", timeout=30),
+                    # Promiscuous network interfaces (possible sniffer)
+                    _run_cmd(conn, "ip link 2>/dev/null | grep -i promisc | head -10", timeout=10),
+                    # Suspicious crontab entries (base64, curl|sh, wget|sh patterns)
+                    _run_cmd(conn, r"cat /var/spool/cron/crontabs/* /etc/crontab /etc/cron.d/* 2>/dev/null | grep -iE 'base64|curl.*\|.*sh|wget.*\|.*sh|/dev/tcp|nc\s+-' | head -20", timeout=15),
+                    # Known rootkit file signatures
+                    _run_cmd(conn, "ls -la /usr/bin/.sshd /usr/sbin/.sshd /tmp/.ICE-unix/.* /dev/.udev/.* /dev/shm/.* 2>/dev/null | head -20", timeout=15),
                 )
 
+                # ── Phase 2: Package integrity verification ──────────────────
+                pkg_verify = ""
+                pkg_mgr = await _run_cmd(conn, "which dpkg 2>/dev/null && echo dpkg || (which rpm 2>/dev/null && echo rpm) || echo none", timeout=10)
+                if "dpkg" in (pkg_mgr or ""):
+                    # Debian/Ubuntu: verify package checksums
+                    pkg_verify = await _run_cmd(conn, "dpkg --verify 2>/dev/null | head -30", timeout=60) or ""
+                elif "rpm" in (pkg_mgr or ""):
+                    # RHEL/CentOS: verify package checksums
+                    pkg_verify = await _run_cmd(conn, "rpm -Va --nomtime 2>/dev/null | grep -E '^..5' | head -30", timeout=60) or ""
+
+            # ── Aggregate findings ───────────────────────────────────────
             suspicious_files = []
             if suspicious_dev:
                 suspicious_files.extend([f"/dev: {f}" for f in suspicious_dev.splitlines()[:10]])
             if suspicious_tmp:
-                suspicious_files.extend([f for f in suspicious_tmp.splitlines()[:20]])
+                suspicious_files.extend(suspicious_tmp.splitlines()[:20])
+            if known_rootkit_files:
+                suspicious_files.extend([f"rootkit-sig: {f}" for f in known_rootkit_files.splitlines()[:10]])
 
             hidden_proc_list = [l.strip() for l in hidden_procs.splitlines() if l.strip()] if hidden_procs else []
             hidden_port_list = [l.strip() for l in hidden_ports.splitlines() if l.strip()] if hidden_ports else []
-            deleted_procs = [l.strip() for l in proc_cwd_check.splitlines() if l.strip()] if proc_cwd_check else []
+            deleted_procs = [l.strip() for l in proc_deleted.splitlines() if l.strip()] if proc_deleted else []
+            immutable_list = [l.strip() for l in immutable_files.splitlines() if l.strip()] if immutable_files else []
+            promisc_list = [l.strip() for l in promiscuous_ifaces.splitlines() if l.strip()] if promiscuous_ifaces else []
+            suspicious_cron = [l.strip() for l in crontab_entries.splitlines() if l.strip()] if crontab_entries else []
+            modified_pkgs = [l.strip() for l in pkg_verify.splitlines() if l.strip()] if pkg_verify else []
 
-            # Aggregate counts
-            total_infected = len(chkrootkit_result.get("infected", [])) + len(rkhunter_result.get("infected", []))
-            total_suspects = len(chkrootkit_result.get("suspects", [])) + len(hidden_proc_list) + len(deleted_procs)
-            total_warnings = len(rkhunter_result.get("warnings", []))
-
-            # Tool used
-            tools = []
-            if has_chkrootkit:
-                tools.append("chkrootkit")
-            if has_rkhunter:
-                tools.append("rkhunter")
-            tool_used = "+".join(tools) if tools else "manual"
+            total_infected = len([f for f in suspicious_files if "rootkit-sig" in f])
+            total_suspects = len(hidden_proc_list) + len(deleted_procs) + len(suspicious_cron) + len(promisc_list)
+            total_warnings = len(immutable_list) + len(modified_pkgs)
 
             findings = {
-                "chkrootkit": {
-                    "available": has_chkrootkit,
-                    **chkrootkit_result,
-                },
-                "rkhunter": {
-                    "available": has_rkhunter,
-                    **rkhunter_result,
-                },
+                "method": "agentless",
                 "suspicious_files": suspicious_files,
                 "hidden_processes": hidden_proc_list,
                 "hidden_ports": hidden_port_list,
                 "deleted_executables": deleted_procs,
                 "loaded_kernel_modules": kernel_modules.splitlines() if kernel_modules else [],
+                "immutable_files": immutable_list,
+                "promiscuous_interfaces": promisc_list,
+                "suspicious_crontabs": suspicious_cron,
+                "modified_packages": modified_pkgs[:30],
             }
 
             async with factory() as session:
                 report = (await session.execute(select(RootkitReport).where(RootkitReport.id == report_id))).scalar_one()
                 report.status = "completed"
-                report.tool_used = tool_used
+                report.tool_used = "agentless"
                 report.suspects_count = total_suspects
                 report.warnings_count = total_warnings
                 report.infected_count = total_infected

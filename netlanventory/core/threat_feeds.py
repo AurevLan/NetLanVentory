@@ -218,3 +218,80 @@ def _otx_severity(otx_type: str) -> str:
     if otx_type in ("IPv4", "IPv6"):
         return "high"
     return "medium"
+
+
+async def correlate_urls_against_iocs(urls: list[str]) -> list[dict]:
+    """Match a list of URLs against stored IOC URLs.
+
+    Returns list of matches: [{"url": ..., "ioc_id": ..., "source": ..., "severity": ..., "description": ...}]
+    """
+    if not urls:
+        return []
+
+    from netlanventory.core.database import get_session_factory
+    from netlanventory.models.threat_ioc import ThreatIoc
+    from sqlalchemy import select
+
+    # Normalize and deduplicate URLs
+    normalized = list({u.strip().rstrip("/").lower() for u in urls if u.strip()})
+    if not normalized:
+        return []
+
+    matches = []
+    factory = get_session_factory()
+
+    try:
+        async with factory() as session:
+            # Batch query — check against IOC URL indicators
+            # Use substring matching: if IOC URL is contained in found URL or vice versa
+            result = await session.execute(
+                select(ThreatIoc).where(
+                    ThreatIoc.ioc_type == "url",
+                    ThreatIoc.indicator.in_(normalized[:500]),  # cap to avoid huge IN clause
+                )
+            )
+            exact_matches = result.scalars().all()
+
+            for ioc in exact_matches:
+                matches.append({
+                    "url": ioc.indicator,
+                    "ioc_id": str(ioc.id),
+                    "source": ioc.source,
+                    "severity": ioc.severity,
+                    "description": ioc.description,
+                })
+
+            # Also check if any IOC URL domains match found URL domains
+            # Extract domains from both IOC URLs and found URLs
+            if not exact_matches:
+                import re
+                domain_pattern = re.compile(r"https?://([^/:]+)")
+                found_domains = set()
+                for u in normalized[:200]:
+                    m = domain_pattern.match(u)
+                    if m:
+                        found_domains.add(m.group(1).lower())
+
+                if found_domains:
+                    # Check domain IOCs
+                    domain_result = await session.execute(
+                        select(ThreatIoc).where(
+                            ThreatIoc.ioc_type == "domain",
+                            ThreatIoc.indicator.in_(list(found_domains)),
+                        )
+                    )
+                    domain_iocs = domain_result.scalars().all()
+                    for ioc in domain_iocs:
+                        matching_urls = [u for u in normalized if ioc.indicator in u]
+                        for url in matching_urls[:3]:
+                            matches.append({
+                                "url": url,
+                                "ioc_id": str(ioc.id),
+                                "source": ioc.source,
+                                "severity": ioc.severity,
+                                "description": f"Domain {ioc.indicator} matched: {ioc.description or ''}",
+                            })
+    except Exception as exc:
+        logger.warning("URL IOC correlation failed", error=str(exc))
+
+    return matches

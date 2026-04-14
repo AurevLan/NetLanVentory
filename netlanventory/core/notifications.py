@@ -221,3 +221,81 @@ async def notify_new_critical_asset(asset: "Asset") -> None:
             "message": f"New {asset.criticality} asset discovered: {asset.ip or asset.name or str(asset.id)[:8]}",
         },
     )
+
+
+async def notify_scan_done(
+    scan_id: str,
+    target: str,
+    status: str,
+    modules: list[str],
+    assets_found: int = 0,
+) -> None:
+    """Fire a 'scan_done' notification event."""
+    payload = {
+        "scan_id": scan_id,
+        "target": target,
+        "status": status,
+        "modules": modules,
+        "assets_found": assets_found,
+    }
+    await send_notification("scan_done", payload)
+    await broadcast_in_app_event(
+        "notification",
+        {
+            **payload,
+            "level": "info" if status == "completed" else "warning",
+            "message": f"Scan {status}: {target} ({', '.join(modules)})",
+        },
+    )
+
+
+async def notify_ssh_profile_failed(
+    profile_name: str,
+    asset_ip: str,
+    error: str,
+) -> None:
+    """Fire an 'ssh_profile_failed' notification when an SSH profile test fails."""
+    payload = {
+        "profile_name": profile_name,
+        "asset_ip": asset_ip,
+        "error": error,
+    }
+    await send_notification("ssh_profile_failed", payload)
+    await broadcast_in_app_event(
+        "notification",
+        {
+            **payload,
+            "level": "warning",
+            "message": f"SSH profile '{profile_name}' failed on {asset_ip}: {error}",
+        },
+    )
+
+
+async def notify_ioc_match(
+    asset: "Asset",
+    ioc_indicator: str,
+    ioc_type: str,
+    ioc_severity: str,
+    ioc_source: str,
+    match_type: str,
+) -> None:
+    """Fire an 'ioc_match' notification when an asset matches a threat IOC."""
+    payload = {
+        "asset_id": str(asset.id),
+        "asset_ip": asset.ip,
+        "asset_name": asset.name,
+        "ioc_indicator": ioc_indicator,
+        "ioc_type": ioc_type,
+        "ioc_severity": ioc_severity,
+        "ioc_source": ioc_source,
+        "match_type": match_type,
+    }
+    await send_notification("ioc_match", payload)
+    await broadcast_in_app_event(
+        "notification",
+        {
+            **payload,
+            "level": "critical" if ioc_severity in ("critical", "high") else "warning",
+            "message": f"IOC match: {asset.ip or asset.name} matched {ioc_type} indicator '{ioc_indicator}' from {ioc_source}",
+        },
+    )

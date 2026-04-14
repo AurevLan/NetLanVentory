@@ -156,6 +156,22 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         "AuthLogReport", back_populates="asset", cascade="all, delete-orphan",
         lazy="raise",
     )
+    dns_email_reports: Mapped[list["DnsEmailReport"]] = relationship(  # noqa: F821
+        "DnsEmailReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    tech_fingerprint_reports: Mapped[list["TechFingerprintReport"]] = relationship(  # noqa: F821
+        "TechFingerprintReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    js_secrets_reports: Mapped[list["JsSecretsReport"]] = relationship(  # noqa: F821
+        "JsSecretsReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    dangling_cname_reports: Mapped[list["DanglingCnameReport"]] = relationship(  # noqa: F821
+        "DanglingCnameReport", back_populates="asset", cascade="all, delete-orphan",
+        lazy="raise",
+    )
 
     @property
     def has_ssh_credentials(self) -> bool:

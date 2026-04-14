@@ -5,7 +5,13 @@ from __future__ import annotations
 import asyncio
 import secrets
 from contextlib import asynccontextmanager
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
+
+try:
+    APP_VERSION = _pkg_version("netlanventory")
+except Exception:
+    APP_VERSION = "0.0.0-dev"
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -73,6 +79,14 @@ from netlanventory.api.routers import auth_log_audit as auth_log_router
 from netlanventory.api.routers import ioc_correlation as ioc_correlation_router
 from netlanventory.api.routers import audit_diff as audit_diff_router
 from netlanventory.api.routers import stix_export as stix_export_router
+from netlanventory.api.routers import security_posture as security_posture_router
+from netlanventory.api.routers import nikto_scan as nikto_router
+from netlanventory.api.routers import subfinder_scan as subfinder_router
+from netlanventory.api.routers import masscan_scan as masscan_router
+from netlanventory.api.routers import dns_email_audit as dns_email_audit_router
+from netlanventory.api.routers import tech_fingerprint as tech_fingerprint_router
+from netlanventory.api.routers import js_secrets_scan as js_secrets_router
+from netlanventory.api.routers import dangling_cname as dangling_cname_router
 from netlanventory.core.auth import hash_password
 from netlanventory.core.config import get_settings
 from netlanventory.core.database import close_engine, get_engine, get_session_factory
@@ -275,7 +289,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="NetLanVentory",
         description="Modular network scanning and inventory API",
-        version="0.12.0",
+        version=APP_VERSION,
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=lifespan,
@@ -383,6 +397,16 @@ def create_app() -> FastAPI:
     app.include_router(ioc_correlation_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(audit_diff_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(stix_export_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(security_posture_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(nikto_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(subfinder_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(masscan_router.router, prefix=api_prefix, dependencies=_auth)
+
+    # New feature routers (0.14.0) — web recon (inspired by VICE audit)
+    app.include_router(dns_email_audit_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(tech_fingerprint_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(js_secrets_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(dangling_cname_router.router, prefix=api_prefix, dependencies=_auth)
 
     # Serve static dashboard if the directory exists
     if STATIC_DIR.exists():

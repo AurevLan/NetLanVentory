@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 import asyncssh
+
+from netlanventory.core.ssh import ssh_connect
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
@@ -140,7 +142,8 @@ async def _run_cmd(conn: asyncssh.SSHClientConnection, cmd: str, timeout: int = 
     try:
         result = await asyncio.wait_for(conn.run(cmd, check=False), timeout=timeout)
         return (result.stdout or "").strip()
-    except Exception:
+    except Exception as exc:
+        logger.debug("ssh_cmd_failed", cmd=cmd[:80], error=str(exc))
         return ""
 
 
@@ -160,15 +163,17 @@ async def _run_docker_bench(report_id: uuid.UUID, asset_id: uuid.UUID) -> None:
                 return
 
             report.status = "running"
-            await session.commit()
 
-        try:
+            # Extract SSH params while session is open (avoids greenlet_spawn)
             ssh_kwargs = _build_ssh_kwargs(asset)
             host = str(asset.ip)
             port = asset.ssh_port or (asset.ssh_profile.ssh_port if asset.ssh_profile else None) or 22
             user = asset.ssh_user or (asset.ssh_profile.ssh_user if asset.ssh_profile else None) or "root"
+            await session.commit()
 
-            async with asyncssh.connect(host, port=port, username=user, known_hosts=None, **ssh_kwargs) as conn:
+        try:
+
+            async with ssh_connect(host, port=port, username=user, **ssh_kwargs) as conn:
                 # Check if Docker is available
                 docker_version = await _run_cmd(conn, "docker version --format '{{.Server.Version}}' 2>/dev/null", timeout=15)
                 if not docker_version:

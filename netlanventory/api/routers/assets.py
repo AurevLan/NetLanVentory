@@ -5,12 +5,13 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from netlanventory.api.dependencies import actor_from_user, get_current_active_user, get_db
+from netlanventory.core.limiter import limiter
 from netlanventory.core.audit import log_action
 from netlanventory.core.crypto import encrypt
 from netlanventory.models.asset import Asset
@@ -43,7 +44,9 @@ _ASSET_OPTIONS = [
 
 
 @router.get("", response_model=AssetList)
+@limiter.limit("60/minute")
 async def list_assets(
+    request: Request,
     db: DbDep,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
@@ -69,7 +72,8 @@ async def list_assets(
 
 # NOTE: /vocabulary must be defined before /{asset_id} to avoid UUID parse conflicts
 @router.get("/vocabulary", response_model=AssetVocabularyOut)
-async def get_vocabulary(db: DbDep) -> AssetVocabularyOut:
+@limiter.limit("30/minute")
+async def get_vocabulary(request: Request, db: DbDep) -> AssetVocabularyOut:
     """Return distinct non-null values for editable dropdown fields."""
     os_result = await db.execute(
         select(distinct(Asset.os_family)).where(Asset.os_family.isnot(None))

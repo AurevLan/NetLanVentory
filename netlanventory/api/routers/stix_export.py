@@ -7,7 +7,7 @@ Exports:
   - Asset → STIX Infrastructure
   - CVEs → STIX Vulnerability + Relationship
   - Open ports → STIX observed-data
-  - Threat IOC matches → STIX Indicator
+  - Threat IOC matches → STIX Indicator + Sighting
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from netlanventory.core.limiter import limiter
 from netlanventory.core.logging import get_logger
 from netlanventory.models.asset import Asset
 from netlanventory.models.asset_cve import AssetCve
+from netlanventory.models.asset_dns import AssetDns
 from netlanventory.models.threat_ioc import ThreatIoc
 
 logger = get_logger(__name__)
@@ -271,23 +272,54 @@ def _build_stix_bundle_objects(asset: Asset, include_identity: bool = True) -> l
 
 
 async def _build_ioc_indicators(db: AsyncSession, asset: Asset) -> list[dict]:
-    """Build STIX Indicator objects for IOCs matching this asset."""
+    """Build STIX Indicator + Sighting objects for IOCs matching this asset."""
     now = _now_iso()
     objects: list[dict] = []
+    infra_id = _stix_id("infrastructure", str(asset.id))
 
-    if not asset.ip:
-        return objects
+    # Collect matching IOCs: IP + domain
+    all_iocs = []
 
-    result = await db.execute(
-        select(ThreatIoc).where(
-            ThreatIoc.indicator == str(asset.ip),
-            ThreatIoc.ioc_type == "ip",
+    if asset.ip:
+        result = await db.execute(
+            select(ThreatIoc).where(
+                ThreatIoc.indicator == str(asset.ip),
+                ThreatIoc.ioc_type == "ip",
+            )
         )
-    )
-    iocs = list(result.scalars().all())
+        all_iocs.extend(result.scalars().all())
 
-    for ioc in iocs:
+    # Domain matching
+    dns_result = await db.execute(
+        select(AssetDns.fqdn).where(AssetDns.asset_id == asset.id)
+    )
+    dns_names = [r.lower() for r in dns_result.scalars().all() if r]
+    if dns_names:
+        domain_result = await db.execute(
+            select(ThreatIoc).where(
+                ThreatIoc.indicator.in_(dns_names),
+                ThreatIoc.ioc_type == "domain",
+            )
+        )
+        all_iocs.extend(domain_result.scalars().all())
+
+    for ioc in all_iocs:
         indicator_id = _stix_id("indicator", f"ioc-{ioc.id}")
+
+        # Build STIX pattern based on IOC type
+        if ioc.ioc_type == "ip":
+            pattern = f"[ipv4-addr:value = '{ioc.indicator}']"
+        elif ioc.ioc_type == "domain":
+            pattern = f"[domain-name:value = '{ioc.indicator}']"
+        elif ioc.ioc_type == "url":
+            pattern = f"[url:value = '{ioc.indicator}']"
+        elif ioc.ioc_type.startswith("hash_"):
+            hash_algo = ioc.ioc_type.replace("hash_", "")
+            pattern = f"[file:hashes.'{hash_algo.upper()}' = '{ioc.indicator}']"
+        else:
+            pattern = f"[ipv4-addr:value = '{ioc.indicator}']"
+
+        # Indicator object
         objects.append({
             "type": "indicator",
             "spec_version": _STIX_SPEC_VERSION,
@@ -297,12 +329,29 @@ async def _build_ioc_indicators(db: AsyncSession, asset: Asset) -> list[dict]:
             "name": f"IOC: {ioc.indicator}",
             "description": ioc.description or f"Threat indicator from {ioc.source}",
             "indicator_types": ["malicious-activity"],
-            "pattern": f"[ipv4-addr:value = '{ioc.indicator}']",
+            "pattern": pattern,
             "pattern_type": "stix",
             "valid_from": (ioc.first_seen or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             "created_by_ref": _IDENTITY_ID,
             "x_netlanventory_source": ioc.source,
             "x_netlanventory_severity": ioc.severity,
+        })
+
+        # Sighting object — observation of indicator on this infrastructure
+        sighting_id = _stix_id("sighting", f"sighting-{ioc.id}-{asset.id}")
+        objects.append({
+            "type": "sighting",
+            "spec_version": _STIX_SPEC_VERSION,
+            "id": sighting_id,
+            "created": now,
+            "modified": now,
+            "sighting_of_ref": indicator_id,
+            "where_sighted_refs": [infra_id],
+            "first_seen": (ioc.first_seen or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "last_seen": (ioc.last_seen or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "count": 1,
+            "created_by_ref": _IDENTITY_ID,
+            "description": f"Asset {asset.ip or asset.name} matched IOC {ioc.indicator} ({ioc.ioc_type}) from {ioc.source}",
         })
 
     return objects

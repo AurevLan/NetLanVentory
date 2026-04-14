@@ -8,6 +8,7 @@ Unified formula combining:
   - Default credentials found (direct access = highest penalty)
   - TLS grade (testssl.sh)
   - SSH configuration weaknesses (ssh-audit)
+  - IOC correlation (threat intelligence feed matches on IP/domain)
 
 Score is normalised to [0, 100].
 """
@@ -52,6 +53,8 @@ def compute_risk_score(
     firewall_active: bool | None = None,
     rootkit_infected_count: int = 0,
     brute_force_sources: int = 0,
+    ioc_match_count: int = 0,
+    ioc_max_severity: str | None = None,
 ) -> float:
     """Return a unified risk score in [0, 100].
 
@@ -80,6 +83,10 @@ def compute_risk_score(
         Number of rootkit infections detected.
     brute_force_sources:
         Number of unique IPs performing brute-force attacks on the asset.
+    ioc_match_count:
+        Number of IOC matches (IP or domain) found in threat intelligence feeds.
+    ioc_max_severity:
+        Highest severity among matched IOCs ('critical', 'high', 'medium', 'low').
     """
     criticality_factor = _CRITICALITY_FACTORS.get(asset_criticality.lower(), 1.0)
     exposure_factor = 1.0 + 0.1 * open_port_count
@@ -129,6 +136,12 @@ def compute_risk_score(
     # Active brute-force — asset under attack
     if brute_force_sources > 0:
         penalties += 5.0 + min(brute_force_sources - 1, 4) * 2.0
+
+    # IOC correlation — asset IP/domain found in threat intelligence feeds
+    if ioc_match_count > 0:
+        severity_weight = {"critical": 25.0, "high": 15.0, "medium": 8.0, "low": 3.0}
+        base_penalty = severity_weight.get((ioc_max_severity or "").lower(), 8.0)
+        penalties += base_penalty + min(ioc_match_count - 1, 4) * 3.0
 
     # Penalties are also weighted by criticality (a critical asset with open Redis is worse)
     # but cap the factor at 1.5 to avoid double-counting with CVE criticality
@@ -273,6 +286,38 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
     if al_row:
         brute_force = al_row[0]
 
+    # IOC matches (threat intelligence correlation)
+    ioc_match_count = 0
+    ioc_max_severity: str | None = None
+    try:
+        from netlanventory.models.threat_ioc import ThreatIoc
+        from netlanventory.models.asset_dns import AssetDns
+
+        # Match by IP
+        ip_iocs = (await session.execute(
+            select(ThreatIoc.severity)
+            .where(ThreatIoc.indicator == str(asset.ip), ThreatIoc.ioc_type == "ip")
+        )).scalars().all()
+
+        # Match by DNS domains
+        dns_names = (await session.execute(
+            select(AssetDns.fqdn).where(AssetDns.asset_id == asset_id)
+        )).scalars().all()
+        domain_iocs = []
+        if dns_names:
+            domain_iocs = (await session.execute(
+                select(ThreatIoc.severity)
+                .where(ThreatIoc.indicator.in_([d.lower() for d in dns_names]), ThreatIoc.ioc_type == "domain")
+            )).scalars().all()
+
+        all_ioc_severities = list(ip_iocs) + list(domain_iocs)
+        ioc_match_count = len(all_ioc_severities)
+        if all_ioc_severities:
+            severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+            ioc_max_severity = min(all_ioc_severities, key=lambda s: severity_order.get(s.lower(), 4))
+    except Exception as exc:
+        logger.debug("ioc_correlation_query_failed", asset_id=str(asset_id), error=str(exc))
+
     score = compute_risk_score(
         asset_criticality=asset.criticality or "medium",
         active_cvss_scores=cvss_scores,
@@ -285,6 +330,8 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
         firewall_active=firewall_active,
         rootkit_infected_count=rootkit_infected,
         brute_force_sources=brute_force,
+        ioc_match_count=ioc_match_count,
+        ioc_max_severity=ioc_max_severity,
     )
 
     asset.risk_score = score
@@ -301,5 +348,6 @@ async def refresh_asset_risk_score(session, asset_id: uuid.UUID) -> float | None
         firewall_active=firewall_active,
         rootkit_infected=rootkit_infected,
         brute_force=brute_force,
+        ioc_matches=ioc_match_count,
     )
     return score

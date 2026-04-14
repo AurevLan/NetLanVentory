@@ -96,8 +96,8 @@ async def get_ioc_correlations(
         if asset.ip:
             ip_to_assets.setdefault(asset.ip, []).append(asset)
         for dns in (asset.dns_entries or []):
-            if dns.name:
-                domain_to_assets.setdefault(dns.name.lower(), []).append(asset)
+            if dns.fqdn:
+                domain_to_assets.setdefault(dns.fqdn.lower(), []).append(asset)
 
     # Load IOCs
     ioc_q = select(ThreatIoc)
@@ -106,7 +106,7 @@ async def get_ioc_correlations(
     if ioc_type:
         ioc_q = ioc_q.where(ThreatIoc.ioc_type == ioc_type)
     else:
-        ioc_q = ioc_q.where(ThreatIoc.ioc_type.in_(["ip", "domain"]))
+        ioc_q = ioc_q.where(ThreatIoc.ioc_type.in_(["ip", "domain", "url"]))
 
     iocs_result = await db.execute(ioc_q)
     iocs = list(iocs_result.scalars().all())
@@ -131,6 +131,16 @@ async def get_ioc_correlations(
                 for asset in domain_to_assets[indicator_lower]:
                     matched_assets.append((asset, "domain"))
 
+        elif ioc.ioc_type == "url":
+            # URL IOCs: check if any asset's DNS domains appear in the URL
+            import re
+            url_domain_match = re.search(r"https?://([^/:]+)", ioc.indicator)
+            if url_domain_match:
+                url_domain = url_domain_match.group(1).lower()
+                if url_domain in domain_to_assets:
+                    for asset in domain_to_assets[url_domain]:
+                        matched_assets.append((asset, "url"))
+
         for asset, match_type in matched_assets:
             match = IocMatch(
                 asset_id=asset.id,
@@ -152,6 +162,35 @@ async def get_ioc_correlations(
             by_severity[ioc.severity] = by_severity.get(ioc.severity, 0) + 1
             by_match_type[match_type] = by_match_type.get(match_type, 0) + 1
             by_source[ioc.source] = by_source.get(ioc.source, 0) + 1
+
+    # Fire notifications for high/critical IOC matches (fire-and-forget)
+    if matches:
+        import asyncio
+        from netlanventory.core.notifications import notify_ioc_match
+
+        async def _notify_matches():
+            # Only notify for high/critical severity to avoid noise
+            notifiable = [m for m in matches if m.severity in ("critical", "high")]
+            for m in notifiable[:10]:  # cap at 10 notifications per correlation run
+                try:
+                    # Build a minimal asset-like object
+                    class _AssetStub:
+                        def __init__(self, **kw):
+                            for k, v in kw.items():
+                                setattr(self, k, v)
+                    stub = _AssetStub(id=m.asset_id, ip=m.asset_ip, name=m.asset_name)
+                    await notify_ioc_match(
+                        asset=stub,
+                        ioc_indicator=m.indicator,
+                        ioc_type=m.ioc_type,
+                        ioc_severity=m.severity,
+                        ioc_source=m.source,
+                        match_type=m.match_type,
+                    )
+                except Exception as exc:
+                    logger.warning("ioc_notification_failed", indicator=m.indicator, error=str(exc))
+
+        asyncio.ensure_future(_notify_matches())
 
     return CorrelationSummary(
         total_matches=len(matches),
@@ -183,8 +222,8 @@ async def get_asset_ioc_correlations(
     if asset.ip:
         indicators.add(("ip", asset.ip))
     for dns in (asset.dns_entries or []):
-        if dns.name:
-            indicators.add(("domain", dns.name.lower()))
+        if dns.fqdn:
+            indicators.add(("domain", dns.fqdn.lower()))
 
     if not indicators:
         return AssetCorrelation(asset_id=asset_id, matches=[])

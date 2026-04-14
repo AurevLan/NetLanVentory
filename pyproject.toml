@@ -44,6 +44,8 @@ dependencies = [
     "asyncssh>=2.21.0",
     # Symmetric encryption (SSH credential storage)
     "cryptography>=46.0.0",
+    # DNS resolution (SPF/DKIM/DMARC audit, dangling CNAME detection)
+    "dnspython>=2.7.0",
     # YAML generation (Ansible playbooks)
     "pyyaml>=6.0.2",
 ]
@@ -116,6 +118,7 @@ skips = ["B101", "B603", "B607"]
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 testpaths = ["tests"]
+addopts = "--cov=netlanventory --cov-report=term-missing:skip-covered --cov-fail-under=60"
 markers = [
     "security: Security regression tests",
     "smoke: Quick smoke tests for endpoint wiring",

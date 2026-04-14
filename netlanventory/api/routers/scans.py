@@ -391,4 +391,20 @@ async def _run_scan(
         except Exception:
             logger.exception("Failed to save scan history snapshot")
 
+        # Fire scan_done notification
+        try:
+            from netlanventory.core.notifications import notify_scan_done
+            total_assets = sum(
+                m.get("assets_found", 0) for m in summary.get("modules", {}).values()
+            )
+            await notify_scan_done(
+                scan_id=str(scan_id),
+                target=target,
+                status=overall_status,
+                modules=modules,
+                assets_found=total_assets,
+            )
+        except Exception:
+            logger.exception("scan_done notification failed")
+
         logger.info("Scan complete", scan_id=str(scan_id), status=overall_status)

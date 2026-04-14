@@ -167,6 +167,24 @@ class Settings(BaseSettings):
     passive_discovery_enabled: bool = Field(default=False, description="Enable passive ARP/DHCP discovery")
     passive_interface: str = Field(default="eth0", description="Network interface for passive discovery")
 
+    # Default daily scan (all active assets)
+    default_scan_enabled: bool = Field(default=True, description="Enable default daily network scan of all active assets")
+    default_scan_interval_hours: int = Field(default=24, description="Interval (hours) between default network scans")
+    default_scan_modules: str = Field(
+        default="arp_sweep,port_scanner,service_detector,os_fingerprint",
+        description="Comma-separated modules for default scan",
+    )
+
+    # SSH profile auto-test
+    ssh_profile_test_enabled: bool = Field(default=True, description="Enable automatic SSH profile connectivity testing")
+    ssh_profile_test_interval_hours: int = Field(default=24, description="Interval (hours) between SSH profile tests")
+
+    # Additional scanners (all agentless — run locally)
+    nikto_binary: str = Field(default="nikto", description="Path to nikto binary")
+    subfinder_binary: str = Field(default="subfinder", description="Path to subfinder binary")
+    masscan_binary: str = Field(default="masscan", description="Path to masscan binary (requires root/CAP_NET_RAW)")
+    masscan_default_rate: int = Field(default=10000, description="Default masscan packets/second rate")
+
     @computed_field
     @property
     def sync_database_url(self) -> str:

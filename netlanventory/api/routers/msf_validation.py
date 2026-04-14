@@ -428,8 +428,8 @@ async def _validate_cve(
         # Always destroy the console
         try:
             await _msf_call(client, token, "console.destroy", [console_id])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("msf_console_destroy_failed", console_id=console_id, error=str(exc))
 
 
 async def _poll_console(
@@ -446,7 +446,8 @@ async def _poll_console(
         await asyncio.sleep(1)
         try:
             result = await _msf_call(client, token, "console.read", [console_id])
-        except Exception:
+        except Exception as exc:
+            logger.debug("msf_console_read_failed", console_id=console_id, error=str(exc))
             break
 
         data = result.get("data", "")

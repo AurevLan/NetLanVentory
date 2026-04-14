@@ -14,7 +14,8 @@ Triggers a complete, sequential security audit of a single asset:
   Step 10 — rootkit_audit   rootkit detection (chkrootkit / rkhunter)
   Step 11 — docker_bench    Docker daemon security audit
   Step 12 — auth_log_audit  authentication log analysis
-  Step 13 — risk_score      recompute unified risk score
+  Step 13 — ioc_correlation  threat IOC correlation (IP, domain, URL, hash)
+  Step 14 — risk_score      recompute unified risk score
 
 Each step updates the job's `steps` JSONB column with status + detail.
 Sub-report IDs are stored on the job for traceability.
@@ -305,22 +306,27 @@ async def _run_full_audit(job_id: uuid.UUID, asset_id: uuid.UUID) -> None:
                 factory, job_id, asset_id, asset, open_ports, cve_links, settings
             )
 
-            # ── Step 8 — Privileged Access Audit ──────────────────────────────
+            # ── Steps 8-12 — SSH-based internal audits ─────────────────────
+            # Stagger SSH connections to avoid triggering sshd MaxStartups;
+            # prior steps (ssh_audit, ssh_scan, nuclei) may have saturated
+            # the server's connection rate limiter.
+            if has_creds:
+                await asyncio.sleep(5)  # cooldown after network-heavy steps
+
             privesc_report_id = await _step_privesc(factory, job_id, asset_id, has_creds)
 
-            # ── Step 9 — Firewall Rules Audit ─────────────────────────────────
             firewall_report_id = await _step_firewall(factory, job_id, asset_id, has_creds)
 
-            # ── Step 10 — Rootkit Detection ───────────────────────────────────
             rootkit_report_id = await _step_rootkit(factory, job_id, asset_id, has_creds)
 
-            # ── Step 11 — Docker Bench Security ───────────────────────────────
             docker_bench_report_id = await _step_docker_bench(factory, job_id, asset_id, has_creds)
 
-            # ── Step 12 — Auth Log Analysis ───────────────────────────────────
             auth_log_report_id = await _step_auth_log(factory, job_id, asset_id, has_creds)
 
-            # ── Step 13 — Risk Score ──────────────────────────────────────────
+            # ── Step 13b — IOC Correlation ───────────────────────────────
+            await _step_ioc_correlation(factory, job_id, asset_id)
+
+            # ── Step 14 — Risk Score ──────────────────────────────────────────
             await _step_risk_score(factory, job_id, asset_id)
 
             # ── Finalise ───────────────────────────────────────────────────────
@@ -738,7 +744,7 @@ async def _step_exploit_validation(
         full_asset = (
             await session.execute(
                 select(Asset)
-                .options(selectinload(Asset.ports))
+                .options(selectinload(Asset.ports), selectinload(Asset.dns_entries))
                 .where(Asset.id == asset_id)
             )
         ).scalar_one()
@@ -975,6 +981,130 @@ async def _step_auth_log(
             await _set_step_inline(job, session, "auth_log_audit",
                 {"status": report.status if report else "failed", "detail": detail})
     return report_id
+
+
+async def _step_ioc_correlation(
+    factory, job_id: uuid.UUID, asset_id: uuid.UUID
+) -> None:
+    """Correlate asset IP/DNS against threat intelligence IOCs.
+
+    Auto-refreshes feeds if last refresh > 24h ago.
+    """
+    from datetime import timezone
+    from sqlalchemy.orm import selectinload
+    from netlanventory.models.asset_dns import AssetDns
+    from netlanventory.models.threat_ioc import ThreatIoc
+
+    async with factory() as session:
+        job = await _load_job(session, job_id)
+        if job:
+            await _set_step_inline(job, session, "ioc_correlation", {"status": "running"})
+
+    # Auto-refresh feeds if stale (>24h)
+    try:
+        settings = get_settings()
+        async with factory() as session:
+            latest_ioc = (await session.execute(
+                select(ThreatIoc.last_seen)
+                .order_by(ThreatIoc.last_seen.desc())
+                .limit(1)
+            )).scalar_one_or_none()
+
+        needs_refresh = True
+        if latest_ioc:
+            from datetime import timedelta
+            if latest_ioc.replace(tzinfo=timezone.utc if latest_ioc.tzinfo is None else latest_ioc.tzinfo) > datetime.now(timezone.utc) - timedelta(hours=24):
+                needs_refresh = False
+
+        if needs_refresh:
+            from netlanventory.core.threat_feeds import refresh_otx_feed, refresh_abusech_feed
+            if settings.otx_api_key:
+                try:
+                    await refresh_otx_feed(settings.otx_api_key)
+                except Exception as exc:
+                    logger.debug("otx_feed_refresh_failed", error=str(exc))
+            try:
+                await refresh_abusech_feed()
+            except Exception as exc:
+                logger.debug("abusech_feed_refresh_failed", error=str(exc))
+    except Exception as exc:
+        logger.debug("feed_refresh_failed", error=str(exc))
+
+    # Correlate
+    try:
+        async with factory() as session:
+            asset = (await session.execute(
+                select(Asset)
+                .options(selectinload(Asset.dns_entries))
+                .where(Asset.id == asset_id)
+            )).scalar_one()
+
+            matches = []
+
+            # IP match
+            if asset.ip:
+                ip_iocs = (await session.execute(
+                    select(ThreatIoc).where(
+                        ThreatIoc.indicator == str(asset.ip),
+                        ThreatIoc.ioc_type == "ip",
+                    )
+                )).scalars().all()
+                matches.extend([{"type": "ip", "indicator": i.indicator, "severity": i.severity, "source": i.source} for i in ip_iocs])
+
+            # Domain match
+            dns_names = [d.name.lower() for d in (asset.dns_entries or []) if d.name]
+            if dns_names:
+                domain_iocs = (await session.execute(
+                    select(ThreatIoc).where(
+                        ThreatIoc.indicator.in_(dns_names),
+                        ThreatIoc.ioc_type == "domain",
+                    )
+                )).scalars().all()
+                matches.extend([{"type": "domain", "indicator": i.indicator, "severity": i.severity, "source": i.source} for i in domain_iocs])
+
+            # Summary
+            severity_counts = {}
+            for m in matches:
+                severity_counts[m["severity"]] = severity_counts.get(m["severity"], 0) + 1
+
+            detail = f"{len(matches)} IOC matches"
+            if severity_counts:
+                detail += " (" + ", ".join(f"{k}: {v}" for k, v in sorted(severity_counts.items())) + ")"
+
+            job = await _load_job(session, job_id)
+            if job:
+                await _set_step_inline(job, session, "ioc_correlation", {
+                    "status": "completed",
+                    "detail": detail,
+                    "matches": len(matches),
+                    "by_severity": severity_counts,
+                })
+
+            # Fire notifications for high/critical matches
+            if matches:
+                from netlanventory.core.notifications import notify_ioc_match
+                for m in matches:
+                    if m["severity"] in ("critical", "high"):
+                        try:
+                            await notify_ioc_match(
+                                asset=asset,
+                                ioc_indicator=m["indicator"],
+                                ioc_type=m["type"],
+                                ioc_severity=m["severity"],
+                                ioc_source=m["source"],
+                                match_type=m["type"],
+                            )
+                        except Exception as exc:
+                            logger.warning("ioc_notification_failed", indicator=m["indicator"], error=str(exc))
+
+    except Exception as exc:
+        async with factory() as session:
+            job = await _load_job(session, job_id)
+            if job:
+                await _set_step_inline(job, session, "ioc_correlation", {
+                    "status": "failed",
+                    "detail": str(exc)[:200],
+                })
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────

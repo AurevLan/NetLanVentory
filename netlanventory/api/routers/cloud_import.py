@@ -169,8 +169,8 @@ async def import_azure(db: DbDep) -> CloudImportResult:
                             nic = network_client.network_interfaces.get(rg, nic_name)
                             if nic.ip_configurations:
                                 ip = nic.ip_configurations[0].private_ip_address
-                        except Exception:  # noqa: BLE001
-                            pass
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("azure_nic_fetch_failed", nic_name=nic_name, error=str(exc))
 
                 is_new, is_upd = await _upsert_asset(db, ip, None, name, os_name, "azure", {})
                 if is_new:
