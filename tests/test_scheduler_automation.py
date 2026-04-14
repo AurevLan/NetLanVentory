@@ -214,13 +214,7 @@ async def test_check_scheduled_scans_table(db_session):
         mock_ctx.__aexit__ = AsyncMock(return_value=False)
         mock_factory.return_value = MagicMock(return_value=mock_ctx)
 
-        # Patch Scan model creation
-        with patch("netlanventory.core.scheduler.Scan") as MockScan:
-            fake_scan = MagicMock()
-            fake_scan.id = uuid.uuid4()
-            MockScan.return_value = fake_scan
-
-            await sched._check_scheduled_scans_table()
+        await sched._check_scheduled_scans_table()
 
     # Should have been marked as run
     # (In real test with proper DB wiring, we'd check ss.run_count)
@@ -315,12 +309,7 @@ async def test_default_scan_runs_when_due(db_session, sample_asset):
         mock_ctx.__aexit__ = AsyncMock(return_value=False)
         mock_factory.return_value = MagicMock(return_value=mock_ctx)
 
-        with patch("netlanventory.core.scheduler.Scan") as MockScan:
-            fake_scan = MagicMock()
-            fake_scan.id = uuid.uuid4()
-            MockScan.return_value = fake_scan
-
-            await sched._maybe_run_default_scan()
+        await sched._maybe_run_default_scan()
 
     # Timer should have been updated
     assert sched._last_default_scan is not None
@@ -520,13 +509,13 @@ async def test_scheduler_loop_calls_all_tasks():
 
     original_sleep = sched.asyncio.sleep
 
+    import asyncio as _asyncio
+
     async def fake_sleep(t):
         nonlocal cycle_count
         cycle_count += 1
         if cycle_count > 1:
-            raise asyncio.CancelledError()
-
-    import asyncio as _asyncio
+            raise _asyncio.CancelledError()
 
     with patch.object(sched.asyncio, "sleep", side_effect=fake_sleep):
         # Patch all task functions to no-ops
@@ -546,6 +535,8 @@ async def test_scheduler_loop_calls_all_tasks():
             "_maybe_sync_kev",
             "_maybe_compute_sla",
             "_take_daily_kpi_snapshot",
+            "_maybe_refresh_attack_paths",
+            "_maybe_recompute_scan_priorities",
         ]
 
         patches = {}

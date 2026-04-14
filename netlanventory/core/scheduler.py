@@ -14,7 +14,14 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
+import httpx
+
+from netlanventory.api.routers.epss import _download_epss_map
+from netlanventory.api.routers.scans import _run_scan
+from netlanventory.core.config import get_settings
+from netlanventory.core.database import get_session_factory
 from netlanventory.core.logging import get_logger
+from netlanventory.models.scan import Scan
 
 logger = get_logger(__name__)
 
@@ -79,7 +86,6 @@ async def scheduler_loop() -> None:
 
 async def _check_and_trigger_auto_scans() -> None:
     """Check all assets and trigger ZAP scans where due."""
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.asset import Asset
     from netlanventory.models.asset_dns import AssetDns
     from netlanventory.models.global_settings import GlobalSettings
@@ -205,7 +211,6 @@ async def _check_and_trigger_auto_scans() -> None:
 
 async def _check_and_trigger_ssh_auto_scans() -> None:
     """Check all assets and trigger SSH CVE scans where due."""
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.asset import Asset
     from netlanventory.models.ssh_scan_report import SshScanReport
     from netlanventory.api.routers.ssh_scan import _run_ssh_scan
@@ -267,7 +272,6 @@ async def _check_and_trigger_ssh_auto_scans() -> None:
 async def _check_and_trigger_trivy_auto_scans() -> None:
     """Check all assets and trigger Trivy Docker scans where due."""
     import shutil
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.asset import Asset
     from netlanventory.models.trivy_docker_report import TrivyDockerReport
     from netlanventory.api.routers.trivy_docker_scan import _run_trivy_docker_scan, TRIVY_BINARY
@@ -331,7 +335,6 @@ async def _check_and_trigger_trivy_auto_scans() -> None:
 async def _check_new_assets() -> None:
     """Notify about high/critical assets discovered in the last 5 minutes."""
     from datetime import timedelta
-    from netlanventory.core.database import get_session_factory
     from netlanventory.core.notifications import notify_new_critical_asset
     from netlanventory.models.asset import Asset
 
@@ -361,7 +364,6 @@ async def _maybe_refresh_threat_feeds() -> None:
         if elapsed < _THREAT_FEED_INTERVAL_SECONDS:
             return
 
-    from netlanventory.core.config import get_settings
     from netlanventory.core.threat_feeds import refresh_abusech_feed, refresh_otx_feed
 
     _last_threat_feed_refresh = now
@@ -384,7 +386,6 @@ async def _maybe_refresh_threat_feeds() -> None:
 async def _check_scheduled_reports() -> None:
     """Send overdue scheduled reports."""
     from datetime import timedelta
-    from netlanventory.core.database import get_session_factory
     from netlanventory.core.email_sender import send_report_email
     from netlanventory.models.scheduled_report import ScheduledReport
 
@@ -433,10 +434,7 @@ async def _check_scheduled_scans() -> None:
     Re-runs the SAME scan in place (resets status, clears old results)
     instead of creating a new scan row. The scan list stays clean.
     """
-    from netlanventory.core.database import get_session_factory
-    from netlanventory.models.scan import Scan
     from netlanventory.models.scan_result import ScanResult
-    from netlanventory.api.routers.scans import _run_scan
 
     factory = get_session_factory()
     now = datetime.now(timezone.utc)
@@ -503,7 +501,6 @@ async def _check_scheduled_scans() -> None:
 
 async def _take_daily_kpi_snapshot() -> None:
     """Create a daily KPI snapshot if one does not already exist for today."""
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.asset import Asset
     from netlanventory.models.asset_cve import AssetCve
     from netlanventory.models.cve import Cve
@@ -655,8 +652,6 @@ async def _maybe_enrich_epss() -> None:
         if (now - _last_epss_refresh).total_seconds() < _EPSS_INTERVAL_SECONDS:
             return
 
-    from netlanventory.api.routers.epss import _download_epss_map
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.cve import Cve
 
     _last_epss_refresh = now
@@ -700,8 +695,6 @@ async def _maybe_sync_kev() -> None:
         if (now - _last_kev_sync).total_seconds() < _KEV_INTERVAL_SECONDS:
             return
 
-    import httpx
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.cve import Cve
 
     _last_kev_sync = now
@@ -770,7 +763,6 @@ async def _maybe_compute_sla() -> None:
         if (now - _last_sla_compute).total_seconds() < _SLA_INTERVAL_SECONDS:
             return
 
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.asset import Asset
     from netlanventory.models.asset_cve import AssetCve
     from netlanventory.models.cve import Cve
@@ -846,10 +838,7 @@ async def _maybe_compute_sla() -> None:
 
 async def _check_scheduled_scans_table() -> None:
     """Check the ScheduledScan table for due scans and launch them."""
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.scheduled_scan import ScheduledScan
-    from netlanventory.models.scan import Scan
-    from netlanventory.api.routers.scans import _run_scan
 
     factory = get_session_factory()
     now = datetime.now(timezone.utc)
@@ -913,7 +902,6 @@ async def _maybe_run_default_scan() -> None:
     """Run a default network scan on all active assets at the configured interval."""
     global _last_default_scan
 
-    from netlanventory.core.config import get_settings
     settings = get_settings()
 
     if not settings.default_scan_enabled:
@@ -925,10 +913,7 @@ async def _maybe_run_default_scan() -> None:
         if (now - _last_default_scan).total_seconds() < interval_seconds:
             return
 
-    from netlanventory.core.database import get_session_factory
     from netlanventory.models.asset import Asset
-    from netlanventory.models.scan import Scan
-    from netlanventory.api.routers.scans import _run_scan
 
     _last_default_scan = now
 
@@ -995,7 +980,6 @@ async def _maybe_test_ssh_profiles() -> None:
     """Test all SSH profiles against their assigned assets periodically."""
     global _last_ssh_profile_test
 
-    from netlanventory.core.config import get_settings
     settings = get_settings()
 
     if not settings.ssh_profile_test_enabled:
@@ -1008,7 +992,6 @@ async def _maybe_test_ssh_profiles() -> None:
             return
 
     import asyncssh
-    from netlanventory.core.database import get_session_factory
     from netlanventory.core.notifications import notify_ssh_profile_failed
     from netlanventory.models.asset import Asset
     from netlanventory.models.ssh_profile import SshProfile
@@ -1091,7 +1074,6 @@ async def _maybe_auto_correlate_iocs() -> None:
         if _last_ioc_correlation >= _last_threat_feed_refresh:
             return  # Already correlated for this feed refresh
 
-    from netlanventory.core.database import get_session_factory
     from netlanventory.core.notifications import notify_ioc_match
     from netlanventory.models.asset import Asset
     from netlanventory.models.asset_dns import AssetDns
@@ -1168,7 +1150,6 @@ async def _maybe_refresh_attack_paths() -> None:
             return
 
     from netlanventory.core.attack_paths import refresh_attack_paths
-    from netlanventory.core.database import get_session_factory
 
     factory = get_session_factory()
     async with factory() as session:
@@ -1193,7 +1174,6 @@ async def _maybe_recompute_scan_priorities() -> None:
         if (now - _last_scan_priorities_recompute).total_seconds() < _SCAN_PRIORITIES_INTERVAL_HOURS * 3600:
             return
 
-    from netlanventory.core.database import get_session_factory
     from netlanventory.core.scan_priority import recompute_for_asset
     from netlanventory.models.asset import Asset
 
