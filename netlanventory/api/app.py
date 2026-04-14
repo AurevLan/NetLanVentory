@@ -51,6 +51,7 @@ from netlanventory.api.routers import exploit_validation as exploit_validation_r
 from netlanventory.api.routers import testssl as testssl_router
 from netlanventory.api.routers import ssh_audit as ssh_audit_router
 from netlanventory.api.routers import default_creds as default_creds_router
+from netlanventory.api.routers import attack_paths as attack_paths_router
 from netlanventory.api.routers import compensating_controls as compensating_controls_router
 from netlanventory.api.routers import full_audit as full_audit_router
 from netlanventory.api.routers import scheduler_priorities as scheduler_priorities_router
@@ -414,6 +415,8 @@ def create_app() -> FastAPI:
     app.include_router(compensating_controls_router.router, prefix=api_prefix, dependencies=_auth)
     # Innovation roadmap #5: Smart Re-scan priority queue visibility
     app.include_router(scheduler_priorities_router.router, prefix=api_prefix, dependencies=_auth)
+    # Innovation roadmap #1: Attack Path Graph
+    app.include_router(attack_paths_router.router, prefix=api_prefix, dependencies=_auth)
 
     # Serve static dashboard if the directory exists
     if STATIC_DIR.exists():
