@@ -1,4 +1,13 @@
-"""Smart Re-scan priority engine (innovation #5).
+"""Smart Re-scan priority engine (innovation #5) — V1: OBSERVATIONAL ONLY.
+
+⚠️  Status: the scoring engine below is complete and its scores are computed
+hourly, stored, and exposed read-only via `/scheduler/*`. They do **NOT** yet
+drive any scan. The fixed-interval auto-scan loops in `core/scheduler.py` are
+still the only thing that triggers scans. Wiring the queue
+(`pop_due_priorities` / `mark_scanned` / `force_stale_into_queue`) into those
+loops is deferred to a future release and gated by the reserved
+`smart_scheduler_queue_enabled` setting (currently no effect). Until then,
+treat this module as a visibility/explainability tool, not a scheduler.
 
 Maintains a per-(asset, module) priority score so the scheduler can pop
 the most urgent scans first instead of sweeping every asset on a fixed

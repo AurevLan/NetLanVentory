@@ -199,6 +199,20 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Smart re-scan scheduler (innovation #5). RESERVED for a future release.
+    # The priority engine computes and exposes per-(asset, module) scores today,
+    # but the scheduler loops are NOT yet wired to the priority queue — this flag
+    # currently has NO effect. It exists so the queue wiring can ship behind an
+    # opt-in switch without another config change. See core/scan_priority.py.
+    smart_scheduler_queue_enabled: bool = Field(
+        default=False,
+        description=(
+            "RESERVED (no effect yet): when wired, drive auto-scans from the smart "
+            "priority queue instead of fixed-interval sweeps. Today the queue is "
+            "observational only."
+        ),
+    )
+
     @computed_field
     @property
     def sync_database_url(self) -> str:

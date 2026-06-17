@@ -102,6 +102,11 @@
 - **Inline controls** — dropdown interval selector + "Planifier" button, green badge when active with countdown to next run
 - **Scheduler** — checks every 60 seconds; auto-triggers ZAP, SSH, Trivy, and network rescans when intervals elapse
 
+### Preview features (opt-in, off by default)
+These two innovation-roadmap axes are intentionally not active by default; the rest of the suite does not depend on them.
+- **AI triage** — per-(CVE, asset) urgency recommendation from a local Ollama or Anthropic model, with a prompt-versioned cache and a Redis token-budget guard. **Disabled by default** (`AI_TRIAGE_ENABLED=false` → the `/triage` endpoints return `503`). To enable, set the `AI_TRIAGE_*` / `OLLAMA_*` variables in `.env` (see `.env.example`) and run a provider. Recommendations are advisory only — they never drive automation.
+- **Smart re-scan scheduler** — per-(asset, module) priority scores (EPSS delta, new KEV, age, unacked criticals) are computed hourly and exposed at `/scheduler/priorities`. **Observational for now**: they help you see what *should* be rescanned but do not yet trigger scans — the fixed-interval scheduler above still does. Queue wiring is reserved behind `smart_scheduler_queue_enabled`.
+
 ### Security & authentication
 - **JWT authentication** — all API endpoints require a valid Bearer token (except `/api/v1/auth/login`); `sub`, `exp`, and `iss` claims required; issuer verified as `netlanventory`
 - **ANSSI R22 password policy** — 12+ characters, uppercase, lowercase, digit, special character; bcrypt 14 rounds
