@@ -40,6 +40,7 @@ COPY --from=builder /install /usr/local
 
 # Copy source and tests
 COPY netlanventory/ ./netlanventory/
+COPY remediation_worker/ ./remediation_worker/
 COPY tests/ ./tests/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
