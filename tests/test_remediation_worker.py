@@ -51,7 +51,8 @@ class TestBuildInventory:
 
     def test_falls_back_to_hostname(self):
         inv = _build_inventory({"hostname": "host.example.com"})
-        assert "host.example.com" in inv
+        # token membership (not substring) — the host is its own inventory field
+        assert "host.example.com" in inv.split()
 
     def test_falls_back_to_localhost(self):
         inv = _build_inventory({})
