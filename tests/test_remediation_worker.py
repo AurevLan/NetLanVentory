@@ -51,8 +51,10 @@ class TestBuildInventory:
 
     def test_falls_back_to_hostname(self):
         inv = _build_inventory({"hostname": "host.example.com"})
-        # token membership (not substring) — the host is its own inventory field
-        assert "host.example.com" in inv.split()
+        # exact-equality on the parsed host field (no substring/membership
+        # check, which CodeQL flags as incomplete-URL-sanitization)
+        host_field = inv.splitlines()[1].split()[0]
+        assert host_field == "host.example.com"
 
     def test_falls_back_to_localhost(self):
         inv = _build_inventory({})
