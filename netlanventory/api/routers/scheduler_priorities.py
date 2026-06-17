@@ -1,9 +1,13 @@
 """Smart Re-scan priorities — visibility and manual boost (innovation #5).
 
+⚠️  V1 OBSERVATIONAL: these scores are computed for visibility only. They do
+NOT drive auto-scans yet — scanning is still done by the fixed-interval loops
+in `core.scheduler`. Queue popping (`core.scan_priority.pop_due_priorities`)
+is reserved behind the `smart_scheduler_queue_enabled` setting (no effect
+today) and will be wired into `core.scheduler` in a future release.
+
 Read-only endpoints to inspect the priority queue plus an admin-only POST
-to manually boost a (asset, module) ahead of the next cycle. The actual
-queue popping is done by `core.scan_priority.pop_due_priorities`, which
-will be wired into `core.scheduler` in a follow-up PR.
+to manually boost a (asset, module) ahead of the next cycle.
 """
 
 from __future__ import annotations
@@ -54,7 +58,10 @@ async def list_priorities(
     _user: UserDep,
     limit: int = 50,
 ) -> list[PriorityRowOut]:
-    """Top N priority rows by score, descending. Default 50."""
+    """Top N priority rows by score, descending. Default 50.
+
+    Note: these scores are observational — they do not trigger scans yet.
+    """
     rows = (
         await db.execute(
             select(ScanPriority).order_by(ScanPriority.score.desc()).limit(min(limit, 500))

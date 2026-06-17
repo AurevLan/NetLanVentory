@@ -216,11 +216,17 @@ class AnthropicProvider:
 
 
 def get_provider() -> TriageProvider:
-    """Pick a provider based on env. Default = Ollama local."""
+    """Pick a provider based on env. Default = Ollama local.
+
+    Ollama endpoint/model are configurable via OLLAMA_BASE_URL and OLLAMA_MODEL
+    so the container does not have to reach localhost:11434.
+    """
     name = (os.environ.get("AI_PROVIDER") or "ollama").lower()
     if name == "anthropic":
         return AnthropicProvider()
-    return OllamaProvider()
+    base_url = os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434"
+    model = os.environ.get("OLLAMA_MODEL") or "llama3.1"
+    return OllamaProvider(base_url=base_url, model=model)
 
 
 # ── Cost guard (Redis counter, fail-closed) ───────────────────────────────────
