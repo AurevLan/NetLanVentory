@@ -1,10 +1,10 @@
 """Smart Re-scan priorities — visibility and manual boost (innovation #5).
 
-⚠️  V1 OBSERVATIONAL: these scores are computed for visibility only. They do
-NOT drive auto-scans yet — scanning is still done by the fixed-interval loops
-in `core.scheduler`. Queue popping (`core.scan_priority.pop_due_priorities`)
-is reserved behind the `smart_scheduler_queue_enabled` setting (no effect
-today) and will be wired into `core.scheduler` in a future release.
+These scores are always computed and exposed for visibility. Whether they
+*drive* scanning depends on the `smart_scheduler_queue_enabled` setting: when
+on (since v0.15), the drain loop in `core.scheduler` pops this queue
+(`core.scan_priority.pop_due_priorities`) to trigger scans; when off (the
+default), scoring is observational and the fixed-interval loops drive scanning.
 
 Read-only endpoints to inspect the priority queue plus an admin-only POST
 to manually boost a (asset, module) ahead of the next cycle.

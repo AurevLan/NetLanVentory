@@ -7,13 +7,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **#5 Smart re-scan scheduler — queue wiring (opt-in)** — the priority queue
+  can now *drive* auto-scans, not just observe. With
+  `smart_scheduler_queue_enabled=true`, a new scheduler task
+  (`core/scheduler.py::_drain_priority_queue`) pops the most urgent
+  `(asset, module)` rows (`pop_due_priorities`), dispatches the scan via the new
+  `core/scan_dispatch.py` router (`ssh_scan`, `trivy_docker`, `nuclei`,
+  `headers_audit`), then resets the row (`mark_scanned`) — with
+  `force_stale_into_queue` as the hourly famine guard. Undispatchable assets
+  (no SSH creds / no open web port) are pushed forward via the new
+  `scan_priority.defer()` instead of hot-looping the queue. While the flag is
+  on, the fixed-interval SSH and Trivy loops yield to the queue (ZAP, not a
+  tracked module, stays on its fixed interval). **Default off** → behaviour is
+  unchanged until explicitly enabled.
+
 ### Changed
 - **Innovation roadmap status clarified** — two axes are explicitly marked as
   preview/observational rather than active, so no feature is left half-wired:
-  - **#5 Smart re-scan scheduler** is observational only (scores computed &
-    exposed, but auto-scans still run on fixed intervals). Added reserved
-    `smart_scheduler_queue_enabled` setting (no effect yet) for the future
-    queue wiring; docstrings and API now say so.
+  - **#5 Smart re-scan scheduler** is observational *by default*; the
+    `smart_scheduler_queue_enabled` flag (see Added above) opts into
+    queue-driven scanning. Docstrings and the `/scheduler` API now describe
+    both modes.
   - **#3 AI-triage** documented as disabled-by-default preview. `OLLAMA_BASE_URL`
     / `OLLAMA_MODEL` are now configurable via env (were hardcoded). Corrected
     earlier notes: output field is `top_factors` (not `reasoning`), and OpenAI

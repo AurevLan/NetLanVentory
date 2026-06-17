@@ -199,17 +199,17 @@ class Settings(BaseSettings):
         ),
     )
 
-    # Smart re-scan scheduler (innovation #5). RESERVED for a future release.
-    # The priority engine computes and exposes per-(asset, module) scores today,
-    # but the scheduler loops are NOT yet wired to the priority queue — this flag
-    # currently has NO effect. It exists so the queue wiring can ship behind an
-    # opt-in switch without another config change. See core/scan_priority.py.
+    # Smart re-scan scheduler (innovation #5). Opt-in, default off.
+    # When ON, the scheduler drains the priority queue (core/scan_priority.py)
+    # to drive ssh_scan / trivy_docker / nuclei / headers_audit, and the
+    # fixed-interval SSH & Trivy loops yield to it. When OFF (default), the
+    # queue stays observational and the fixed-interval loops drive scanning.
     smart_scheduler_queue_enabled: bool = Field(
         default=False,
         description=(
-            "RESERVED (no effect yet): when wired, drive auto-scans from the smart "
-            "priority queue instead of fixed-interval sweeps. Today the queue is "
-            "observational only."
+            "When on, drive auto-scans from the smart priority queue (most "
+            "urgent asset/module first) instead of fixed-interval sweeps; the "
+            "SSH and Trivy fixed loops yield. Off by default (observational)."
         ),
     )
 

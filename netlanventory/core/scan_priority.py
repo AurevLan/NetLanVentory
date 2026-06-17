@@ -1,13 +1,13 @@
-"""Smart Re-scan priority engine (innovation #5) — V1: OBSERVATIONAL ONLY.
+"""Smart Re-scan priority engine (innovation #5).
 
-⚠️  Status: the scoring engine below is complete and its scores are computed
-hourly, stored, and exposed read-only via `/scheduler/*`. They do **NOT** yet
-drive any scan. The fixed-interval auto-scan loops in `core/scheduler.py` are
-still the only thing that triggers scans. Wiring the queue
-(`pop_due_priorities` / `mark_scanned` / `force_stale_into_queue`) into those
-loops is deferred to a future release and gated by the reserved
-`smart_scheduler_queue_enabled` setting (currently no effect). Until then,
-treat this module as a visibility/explainability tool, not a scheduler.
+Scores are computed hourly, stored, and exposed read-only via `/scheduler/*`.
+Since v0.15 they can also **drive** auto-scans: when the
+`smart_scheduler_queue_enabled` setting is on, the drain loop in
+`core/scheduler.py` pops the most urgent (asset, module) rows
+(`pop_due_priorities`), dispatches the scan (`core/scan_dispatch.py`), then
+resets the row (`mark_scanned`) — with `force_stale_into_queue` as the famine
+guard. When the setting is off (the default) the engine stays purely
+observational and the fixed-interval loops remain the only trigger.
 
 Maintains a per-(asset, module) priority score so the scheduler can pop
 the most urgent scans first instead of sweeping every asset on a fixed
@@ -22,10 +22,9 @@ Design rules:
     forced into the queue once stale.
   - **Cooldown** via `next_eligible_at` — a freshly scanned (asset, module)
     cannot be re-popped before a configurable floor.
-  - **No scheduler refactor in this commit** — the engine and DB helpers
-    are wired, but the existing scheduler loops still run. Migrating the
-    actual loops to `pop_due_priorities()` is a follow-up PR so we can
-    observe the queue before flipping behaviour.
+  - **Defer, don't reset, on ineligibility** — a popped row whose asset
+    cannot currently be scanned (no creds, no web port) is pushed forward
+    via `defer()` so it does not hot-loop the queue every cycle.
 """
 
 from __future__ import annotations
@@ -165,6 +164,31 @@ async def mark_scanned(
             last_scan_at=now,
             next_eligible_at=now + timedelta(minutes=cooldown_minutes),
         )
+    )
+
+
+async def defer(
+    session: AsyncSession,
+    asset_id: uuid.UUID,
+    module: str,
+    *,
+    minutes: int = DEFAULT_RATELIMIT_MINUTES,
+) -> None:
+    """Push a popped-but-undispatchable (asset, module) forward in the queue.
+
+    Unlike `mark_scanned`, the score is left untouched — the row stays urgent,
+    it just won't be re-popped for `minutes`. Used when the asset is not
+    eligible for the module right now (missing SSH creds, no open web port, …)
+    so the drain loop does not spin on it every cycle.
+    """
+    now = datetime.now(timezone.utc)
+    await session.execute(
+        update(ScanPriority)
+        .where(
+            ScanPriority.asset_id == asset_id,
+            ScanPriority.module == module,
+        )
+        .values(next_eligible_at=now + timedelta(minutes=minutes))
     )
 
 

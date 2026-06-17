@@ -44,6 +44,7 @@ _last_ssh_profile_test: datetime | None = None
 _last_ioc_correlation: datetime | None = None
 _last_attack_paths_refresh: datetime | None = None
 _last_scan_priorities_recompute: datetime | None = None
+_last_famine_guard: datetime | None = None
 
 
 async def scheduler_loop() -> None:
@@ -72,6 +73,7 @@ async def scheduler_loop() -> None:
         # Innovation roadmap hooks
         ("Attack paths refresh", _maybe_refresh_attack_paths),
         ("Scan priorities recompute", _maybe_recompute_scan_priorities),
+        ("Smart queue drain", _drain_priority_queue),
     ]
     while True:
         await asyncio.sleep(_CHECK_INTERVAL_SECONDS)
@@ -215,6 +217,9 @@ async def _check_and_trigger_ssh_auto_scans() -> None:
     from netlanventory.models.ssh_scan_report import SshScanReport
     from netlanventory.api.routers.ssh_scan import _run_ssh_scan
 
+    if get_settings().smart_scheduler_queue_enabled:
+        return  # smart priority queue owns ssh_scan dispatch (see _drain_priority_queue)
+
     factory = get_session_factory()
 
     async with factory() as session:
@@ -278,6 +283,9 @@ async def _check_and_trigger_trivy_auto_scans() -> None:
 
     if not shutil.which(TRIVY_BINARY):
         return  # Trivy not installed, skip silently
+
+    if get_settings().smart_scheduler_queue_enabled:
+        return  # smart priority queue owns trivy_docker dispatch (see _drain_priority_queue)
 
     factory = get_session_factory()
 
@@ -1205,3 +1213,105 @@ async def _maybe_recompute_scan_priorities() -> None:
             _last_scan_priorities_recompute = now
         except Exception:
             logger.exception("scan_priorities_recompute_loop_failed")
+
+
+# ── Smart priority queue drain (innovation #5, gated) ────────────────────────
+
+_FAMINE_GUARD_INTERVAL_HOURS = 1
+_DRAIN_BUDGET = 20  # max scans launched per cycle
+
+
+async def _drain_priority_queue() -> None:
+    """Pop the most urgent (asset, module) rows and launch their scans.
+
+    Active only when `smart_scheduler_queue_enabled` is set — otherwise this is
+    a no-op and the fixed-interval loops drive scanning as before. On each
+    cycle it:
+
+      1. runs the famine guard (`force_stale_into_queue`) at most hourly,
+      2. pops up to `_DRAIN_BUDGET` due rows (highest score first),
+      3. dispatches each via `scan_dispatch.dispatch_module`,
+      4. `mark_scanned` on launch, or `defer` when the asset is ineligible.
+    """
+    global _last_famine_guard
+
+    if not get_settings().smart_scheduler_queue_enabled:
+        return
+
+    from sqlalchemy.orm import selectinload
+
+    from netlanventory.core import scan_priority
+    from netlanventory.core.scan_dispatch import dispatch_module
+    from netlanventory.models.asset import Asset
+
+    factory = get_session_factory()
+    now = datetime.now(timezone.utc)
+
+    async with factory() as session:
+        # 1. Famine guard (hourly): promote rows starved past max_age_hours.
+        if (
+            _last_famine_guard is None
+            or (now - _last_famine_guard).total_seconds()
+            >= _FAMINE_GUARD_INTERVAL_HOURS * 3600
+        ):
+            try:
+                bumped = await scan_priority.force_stale_into_queue(session)
+                if bumped:
+                    logger.info("smart_queue_famine_guard", promoted=bumped)
+                _last_famine_guard = now
+            except Exception:
+                logger.exception("smart_queue_famine_guard_failed")
+
+        # 2. Pop the due rows.
+        due = await scan_priority.pop_due_priorities(session, budget=_DRAIN_BUDGET)
+        if not due:
+            await session.commit()
+            return
+
+        # 3. Load the assets referenced (with ports + DNS for web/nuclei targets).
+        asset_ids = {row.asset_id for row in due}
+        assets = (
+            await session.execute(
+                select(Asset)
+                .where(Asset.id.in_(asset_ids), Asset.is_active.is_(True))
+                .options(selectinload(Asset.ports), selectinload(Asset.dns_entries))
+            )
+        ).scalars().all()
+        asset_by_id = {a.id: a for a in assets}
+
+        launched = 0
+        deferred = 0
+        for row in due:
+            asset = asset_by_id.get(row.asset_id)
+            if asset is None:
+                # Asset gone or inactive — defer so we stop popping it.
+                await scan_priority.defer(session, row.asset_id, row.module)
+                deferred += 1
+                continue
+            try:
+                ok = await dispatch_module(session, asset, row.module)
+            except Exception:
+                logger.exception(
+                    "smart_queue_dispatch_failed",
+                    asset_id=str(row.asset_id),
+                    module=row.module,
+                )
+                await scan_priority.defer(session, row.asset_id, row.module)
+                deferred += 1
+                continue
+
+            if ok:
+                await scan_priority.mark_scanned(session, row.asset_id, row.module)
+                launched += 1
+            else:
+                await scan_priority.defer(session, row.asset_id, row.module)
+                deferred += 1
+
+        await session.commit()
+        if launched or deferred:
+            logger.info(
+                "smart_queue_drained",
+                popped=len(due),
+                launched=launched,
+                deferred=deferred,
+            )
