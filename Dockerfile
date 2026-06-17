@@ -40,6 +40,7 @@ COPY --from=builder /install /usr/local
 
 # Copy source and tests
 COPY netlanventory/ ./netlanventory/
+COPY remediation_worker/ ./remediation_worker/
 COPY tests/ ./tests/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
@@ -55,7 +56,7 @@ FROM python:3.14-slim
 
 LABEL org.opencontainers.image.title="NetLanVentory"
 LABEL org.opencontainers.image.description="Modular network scanning and inventory tool"
-LABEL org.opencontainers.image.version="0.13.0"
+LABEL org.opencontainers.image.version="0.14.0"
 
 # Install runtime system dependencies
 # nmap: port/OS scanning   iputils-ping: ping discovery

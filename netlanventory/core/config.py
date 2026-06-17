@@ -199,6 +199,20 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Smart re-scan scheduler (innovation #5). Opt-in, default off.
+    # When ON, the scheduler drains the priority queue (core/scan_priority.py)
+    # to drive ssh_scan / trivy_docker / nuclei / headers_audit, and the
+    # fixed-interval SSH & Trivy loops yield to it. When OFF (default), the
+    # queue stays observational and the fixed-interval loops drive scanning.
+    smart_scheduler_queue_enabled: bool = Field(
+        default=False,
+        description=(
+            "When on, drive auto-scans from the smart priority queue (most "
+            "urgent asset/module first) instead of fixed-interval sweeps; the "
+            "SSH and Trivy fixed loops yield. Off by default (observational)."
+        ),
+    )
+
     @computed_field
     @property
     def sync_database_url(self) -> str:

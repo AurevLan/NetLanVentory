@@ -2,7 +2,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/AurevLan/NetLanVentory)](https://github.com/AurevLan/NetLanVentory/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/AurevLan/NetLanVentory/ci.yml?branch=main&label=CI)](https://github.com/AurevLan/NetLanVentory/actions)
-[![Tests](https://img.shields.io/badge/tests-288%20(278%20passed)-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-628%20(621%20passed)-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
@@ -101,6 +101,11 @@
 - **Re-run in place** — re-running a scan updates the same row instead of creating duplicates
 - **Inline controls** — dropdown interval selector + "Planifier" button, green badge when active with countdown to next run
 - **Scheduler** — checks every 60 seconds; auto-triggers ZAP, SSH, Trivy, and network rescans when intervals elapse
+
+### Preview features (opt-in, off by default)
+These two innovation-roadmap axes are intentionally not active by default; the rest of the suite does not depend on them.
+- **AI triage** — per-(CVE, asset) urgency recommendation from a local Ollama or Anthropic model, with a prompt-versioned cache and a Redis token-budget guard. **Disabled by default** (`AI_TRIAGE_ENABLED=false` → the `/triage` endpoints return `503`). To enable, set the `AI_TRIAGE_*` / `OLLAMA_*` variables in `.env` (see `.env.example`) and run a provider. Recommendations are advisory only — they never drive automation.
+- **Smart re-scan scheduler** — per-(asset, module) priority scores (EPSS delta, new KEV, age, unacked criticals) are computed hourly and exposed at `/scheduler/priorities`. **Observational by default**; set `smart_scheduler_queue_enabled=true` to make the scheduler drive scans from the queue (most urgent asset/module first) for `ssh_scan` / `trivy_docker` / `nuclei` / `headers_audit` — the fixed-interval SSH & Trivy loops then yield to it. A famine guard (`max_age_hours`) and per-row cooldown keep coverage fair.
 
 ### Security & authentication
 - **JWT authentication** — all API endpoints require a valid Bearer token (except `/api/v1/auth/login`); `sub`, `exp`, and `iss` claims required; issuer verified as `netlanventory`
@@ -401,7 +406,7 @@ make test-security    # security tests only
 make test-coverage    # with HTML coverage report
 ```
 
-Tests use SQLite in-memory — no PostgreSQL required. **288 tests** across 20 test files covering:
+Tests use SQLite in-memory — no PostgreSQL required. **628 tests** across 40 test files covering:
 - Security regression (CSP, HSTS, CORS, auth enforcement, input validation, JWT, crypto)
 - RSSI 360° vision (executive KPIs, remediation workflow, SLA, compliance, timeline)
 - All 180+ API endpoints (CRUD, scans, admin, compliance)
@@ -429,7 +434,7 @@ Tests use SQLite in-memory — no PostgreSQL required. **288 tests** across 20 t
 | Logging | structlog |
 | Linting | Ruff (with bandit security rules) |
 | Type checking | MyPy (strict mode) |
-| Testing | pytest-asyncio (288 tests) |
+| Testing | pytest-asyncio (628 tests) |
 | Container | Docker Compose (multi-stage build) |
 
 ## Contributing
