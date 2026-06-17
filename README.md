@@ -2,7 +2,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/AurevLan/NetLanVentory)](https://github.com/AurevLan/NetLanVentory/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/AurevLan/NetLanVentory/ci.yml?branch=main&label=CI)](https://github.com/AurevLan/NetLanVentory/actions)
-[![Tests](https://img.shields.io/badge/tests-571%20(564%20passed)-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-615%20(608%20passed)-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
@@ -406,7 +406,7 @@ make test-security    # security tests only
 make test-coverage    # with HTML coverage report
 ```
 
-Tests use SQLite in-memory — no PostgreSQL required. **571 tests** across 37 test files covering:
+Tests use SQLite in-memory — no PostgreSQL required. **615 tests** across 39 test files covering:
 - Security regression (CSP, HSTS, CORS, auth enforcement, input validation, JWT, crypto)
 - RSSI 360° vision (executive KPIs, remediation workflow, SLA, compliance, timeline)
 - All 180+ API endpoints (CRUD, scans, admin, compliance)
@@ -434,7 +434,7 @@ Tests use SQLite in-memory — no PostgreSQL required. **571 tests** across 37 t
 | Logging | structlog |
 | Linting | Ruff (with bandit security rules) |
 | Type checking | MyPy (strict mode) |
-| Testing | pytest-asyncio (571 tests) |
+| Testing | pytest-asyncio (615 tests) |
 | Container | Docker Compose (multi-stage build) |
 
 ## Contributing
