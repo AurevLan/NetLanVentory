@@ -25,6 +25,8 @@ jobs:
         run: |
           pip install -e ".[dev]"
           pip install pip-audit
+          # Runner ships setuptools 79.x, vulnerable to PYSEC-2026-3447 (fixed in 83)
+          pip install -U "setuptools>=83"
 
       - name: Audit installed packages for known CVEs
         run: pip-audit
