@@ -33,6 +33,11 @@ class TopVulnerableAsset(BaseModel):
     critical_count: int
 
 
+class SsvcDecisionCount(BaseModel):
+    decision: str                   # act | attend | track* | track | unevaluated
+    count: int
+
+
 class DashboardStats(BaseModel):
     total_assets: int
     active_assets: int
@@ -42,6 +47,9 @@ class DashboardStats(BaseModel):
     top_vulnerable_assets: list[TopVulnerableAsset]
     assets_not_scanned_30d: int
     critical_cves_without_remediation: int
+    # Unified patching verdict (most urgent first); default keeps pre-v0.16
+    # cached payloads deserializable.
+    ssvc_open: list[SsvcDecisionCount] = []
 
 
 class TrendPoint(BaseModel):
@@ -154,6 +162,15 @@ async def get_dashboard_stats(
         )
     ).scalar_one()
 
+    # SSVC verdict counts (unacked pairs), most urgent first
+    from netlanventory.core.prioritization import open_decision_counts
+
+    decision_counts = await open_decision_counts(db)
+    ssvc_open = [
+        SsvcDecisionCount(decision=d, count=decision_counts[d])
+        for d in ("act", "attend", "track*", "track", "unevaluated")
+    ]
+
     result = DashboardStats(
         total_assets=total_assets,
         active_assets=active_assets,
@@ -163,6 +180,7 @@ async def get_dashboard_stats(
         top_vulnerable_assets=top_vulnerable,
         assets_not_scanned_30d=assets_not_scanned_30d,
         critical_cves_without_remediation=critical_no_remediation,
+        ssvc_open=ssvc_open,
     )
     await cache_set_json(_cache_key, result.model_dump(), ttl=get_settings().cache_ttl_seconds)
     return result

@@ -83,6 +83,16 @@ class RemediationFunnel(BaseModel):
     blocked: int
 
 
+class PatchPriorities(BaseModel):
+    """Open (unacked) exposure pairs per unified SSVC verdict."""
+
+    act: int = 0
+    attend: int = 0
+    track_star: int = 0
+    track: int = 0
+    unevaluated: int = 0
+
+
 class ExecutiveSummary(BaseModel):
     # Overall risk score (0-100, higher = worse)
     global_risk_score: float
@@ -124,6 +134,9 @@ class ExecutiveSummary(BaseModel):
 
     # Remediation funnel
     remediation_funnel: RemediationFunnel
+
+    # Unified patching verdict (SSVC) — the primary "what do we patch" signal
+    patch_priorities: PatchPriorities = PatchPriorities()
 
     # Context
     total_assets: int
@@ -456,6 +469,18 @@ async def get_executive_summary(db: DbDep) -> ExecutiveSummary:
         blocked=funnel_map.get("blocked", 0),
     )
 
+    # ── Unified patching verdict (SSVC) ──────────────────────────────
+    from netlanventory.core.prioritization import open_decision_counts
+
+    decision_counts = await open_decision_counts(db)
+    patch_priorities = PatchPriorities(
+        act=decision_counts["act"],
+        attend=decision_counts["attend"],
+        track_star=decision_counts["track*"],
+        track=decision_counts["track"],
+        unevaluated=decision_counts["unevaluated"],
+    )
+
     return ExecutiveSummary(
         global_risk_score=global_risk_score,
         risk_trend=risk_trend,
@@ -474,6 +499,7 @@ async def get_executive_summary(db: DbDep) -> ExecutiveSummary:
         heatmap=heatmap,
         sla_metrics=sla_metrics,
         remediation_funnel=remediation_funnel,
+        patch_priorities=patch_priorities,
         total_assets=total_assets,
         active_assets=active_assets,
         generated_at=now.isoformat(),
