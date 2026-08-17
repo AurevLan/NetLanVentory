@@ -468,7 +468,7 @@ def create_app() -> FastAPI:
         checks["nuclei"] = "ok" if shutil.which(get_settings().nuclei_binary) else "unavailable"
 
         overall = "ok" if all(v in ("ok", "unavailable") for v in checks.values()) else "degraded"
-        return {"status": overall, "version": "0.12.0", "checks": checks}
+        return {"status": overall, "version": APP_VERSION, "checks": checks}
 
     return app
 
