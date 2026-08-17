@@ -9,6 +9,10 @@ on:
     # Every Monday at 08:00 UTC
     - cron: "0 8 * * 1"
 
+# Least privilege: audit only reads the repository.
+permissions:
+  contents: read
+
 jobs:
   pip-audit:
     name: pip-audit

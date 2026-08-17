@@ -1,0 +1,27 @@
+name: CI/CD compliance (Plumber)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Every Monday at 08:15 UTC — catches repo-settings drift, not just diffs
+    - cron: "15 8 * * 1"
+
+permissions:
+  contents: read
+  security-events: write   # Code Scanning upload of findings
+
+jobs:
+  plumber:
+    name: plumber-score
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to v0.4.39 by commit SHA (Plumber's own pinning rule).
+      - uses: getplumber/plumber@031bc86d1e5f661626e2000f4f8779912d608d5f
+        with:
+          min-score: "B"
+          score-push: false
