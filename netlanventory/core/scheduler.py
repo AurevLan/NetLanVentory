@@ -780,6 +780,7 @@ async def _maybe_compute_sla() -> None:
     from netlanventory.models.cve import Cve
     from netlanventory.models.sla_config import SlaConfig
     from netlanventory.core.notifications import notify_sla_breach
+    from netlanventory.core.sla_policy import effective_sla_deadline
     from sqlalchemy.orm import selectinload
 
     _last_sla_compute = now
@@ -811,10 +812,12 @@ async def _maybe_compute_sla() -> None:
             severity = (cve.severity or "Medium").capitalize()
             days = sla_config.get(severity, 30)
 
-            disc = link.discovered_at
-            if disc.tzinfo is None:
-                disc = disc.replace(tzinfo=timezone.utc)
-            deadline = (disc + timedelta(days=days)).date()
+            deadline = effective_sla_deadline(
+                discovered_at=link.discovered_at,
+                severity_days=days,
+                ssvc_decision=link.ssvc_decision,
+                ssvc_decided_at=link.ssvc_evaluated_at,
+            )
             link.sla_deadline = deadline
 
             was_breached = link.sla_breached

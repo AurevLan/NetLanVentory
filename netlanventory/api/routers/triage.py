@@ -128,9 +128,12 @@ async def get_ssvc_decision(
     result = evaluate_pair(cve, asset_cve, asset, ctx)
 
     now = datetime.now(timezone.utc)
+    # Same anchor rule as ssvc_eval.recompute_for_asset: the timestamp is
+    # the SLA clock start (core/sla_policy), only moved on decision change.
+    if asset_cve.ssvc_decision != result.decision.value:
+        asset_cve.ssvc_evaluated_at = now
     asset_cve.ssvc_decision = result.decision.value
     asset_cve.ssvc_inputs = result.to_dict()
-    asset_cve.ssvc_evaluated_at = now
     await db.commit()
 
     return SsvcOut(
@@ -143,7 +146,7 @@ async def get_ssvc_decision(
         technical_impact=result.technical_impact.value,
         mission_wellbeing=result.mission_wellbeing.value,
         rationale=result.rationale,
-        evaluated_at=now,
+        evaluated_at=asset_cve.ssvc_evaluated_at or now,
     )
 
 

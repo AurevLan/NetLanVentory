@@ -90,9 +90,13 @@ async def recompute_for_asset(session: AsyncSession, asset_id: uuid.UUID) -> dic
     decisions: list[ssvc.Decision] = []
     for asset_cve, cve in rows:
         result = evaluate_pair(cve, asset_cve, asset, ctx)
+        # ssvc_evaluated_at anchors the verdict SLA clock (core/sla_policy):
+        # refresh it only when the decision actually changes, so it reads
+        # "act since <date>" instead of sliding forward every hourly run.
+        if asset_cve.ssvc_decision != result.decision.value:
+            asset_cve.ssvc_evaluated_at = now
         asset_cve.ssvc_decision = result.decision.value
         asset_cve.ssvc_inputs = result.to_dict()
-        asset_cve.ssvc_evaluated_at = now
         counts[result.decision.value] = counts.get(result.decision.value, 0) + 1
         decisions.append(result.decision)
 

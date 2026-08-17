@@ -84,13 +84,16 @@ class RemediationFunnel(BaseModel):
 
 
 class PatchPriorities(BaseModel):
-    """Open (unacked) exposure pairs per unified SSVC verdict."""
+    """Open (unacked) exposure pairs per unified SSVC verdict, plus the
+    outcome story for `act` decisions (étape 3: verdict → action)."""
 
     act: int = 0
     attend: int = 0
     track_star: int = 0
     track: int = 0
     unevaluated: int = 0
+    act_resolved_30d: int = 0
+    mttr_act_hours: float | None = None
 
 
 class ExecutiveSummary(BaseModel):
@@ -473,12 +476,46 @@ async def get_executive_summary(db: DbDep) -> ExecutiveSummary:
     from netlanventory.core.prioritization import open_decision_counts
 
     decision_counts = await open_decision_counts(db)
+
+    act_resolved_30d = (
+        await db.execute(
+            select(func.count())
+            .select_from(AssetCve)
+            .where(
+                AssetCve.ssvc_decision == "act",
+                AssetCve.remediation_status == "resolved",
+                AssetCve.remediation_resolved_at.isnot(None),
+                AssetCve.remediation_resolved_at >= cutoff_30d,
+            )
+        )
+    ).scalar_one()
+
+    mttr_act = (
+        await db.execute(
+            select(
+                func.avg(
+                    func.extract("epoch", AssetCve.remediation_resolved_at)
+                    - func.extract("epoch", AssetCve.discovered_at)
+                )
+                / 3600.0
+            )
+            .where(
+                AssetCve.ssvc_decision == "act",
+                AssetCve.remediation_status == "resolved",
+                AssetCve.remediation_resolved_at.isnot(None),
+                AssetCve.remediation_resolved_at >= cutoff_90d,
+            )
+        )
+    ).scalar_one_or_none()
+
     patch_priorities = PatchPriorities(
         act=decision_counts["act"],
         attend=decision_counts["attend"],
         track_star=decision_counts["track*"],
         track=decision_counts["track"],
         unevaluated=decision_counts["unevaluated"],
+        act_resolved_30d=act_resolved_30d,
+        mttr_act_hours=round(mttr_act, 2) if mttr_act is not None else None,
     )
 
     return ExecutiveSummary(
