@@ -306,6 +306,7 @@ function switchToView(viewName, { pushHistory = true } = {}) {
 
   // Load data for the panel
   const loaders = {
+    'todo': () => loadTodoView(),
     'admin': () => loadUsers(),
     'cves': () => loadCves(),
     'dashboard': () => { loadExecutive(); loadDashboard(); },
@@ -325,7 +326,7 @@ function _getViewFromHash() {
   if (hash === 'executive') return 'dashboard';
   if (hash === 'expositions') return 'remediation';
   if (hash === 'modules') return 'scans';
-  return hash || 'assets';
+  return hash || 'todo';
 }
 
 function initNav() {
@@ -343,9 +344,7 @@ function initNav() {
 
   // On initial load, restore view from hash
   const initialView = _getViewFromHash();
-  if (initialView !== 'assets') {
-    switchToView(initialView, { pushHistory: false });
-  }
+  switchToView(initialView, { pushHistory: false });
 }
 
 // ── Authentication ────────────────────────────────────────────────────────────

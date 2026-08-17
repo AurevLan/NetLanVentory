@@ -89,6 +89,15 @@
       <div class="sidebar-section">
         <div class="sidebar-section-label" data-i18n="nav.section.inventory">Inventory</div>
         <nav class="sidebar-nav">
+          <button class="nav-item active" data-view="todo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"/>
+              <circle cx="12" cy="12" r="4"/>
+              <circle cx="12" cy="12" r="0.7" fill="currentColor" stroke="none"/>
+            </svg>
+            <span data-i18n="nav.todo">À traiter</span>
+            <span class="nav-count" id="nav-todo-count"></span>
+          </button>
           <button class="nav-item" data-view="dashboard">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
@@ -96,7 +105,7 @@
             </svg>
             <span data-i18n="nav.dashboard">Dashboard RSSI</span>
           </button>
-          <button class="nav-item active" data-view="assets">
+          <button class="nav-item" data-view="assets">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <rect x="2" y="3" width="20" height="14" rx="2"/>
               <path d="M8 21h8M12 17v4"/>
@@ -227,6 +236,23 @@
         </div>
       </div>
 
+      <!-- ── À traiter panel (SSVC unified todo view — home page) ───────────── -->
+      <section class="panel active" id="panel-todo">
+        <div class="page-header">
+          <h1 class="page-title" data-i18n="todo.title">À traiter</h1>
+          <div class="page-actions">
+            <button class="btn btn-sm" onclick="loadTodoView()" data-i18n="common.refresh">Refresh</button>
+          </div>
+        </div>
+        <p class="todo-subtitle" data-i18n="todo.subtitle">Vos priorités de patching, décidées par SSVC</p>
+
+        <div id="todo-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px"></div>
+        <div id="todo-unevaluated-note" class="todo-unevaluated-note hidden"></div>
+
+        <div id="todo-list" class="todo-list"></div>
+        <div id="todo-load-more" style="text-align:center;margin-top:14px"></div>
+      </section>
+
       <!-- ── Dashboard panel ──────────────────────────────────────────────── -->
       <section class="panel" id="panel-dashboard">
         <div class="page-header">
@@ -318,7 +344,7 @@
       </section>
 
       <!-- ── Assets panel ──────────────────────────────────────────────────── -->
-      <section class="panel active" id="panel-assets">
+      <section class="panel" id="panel-assets">
         <div class="page-header">
           <h1 class="page-title" data-i18n="assets.title">Assets</h1>
           <div class="page-actions">
@@ -1958,5 +1984,6 @@
   <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js" crossorigin="anonymous"></script>
   <script src="/static/app.js?v=6.0"></script>
   <script src="/static/innovation.js?v=1.0"></script>
+  <script src="/static/todo.js?v=1.0"></script>
 </body>
 </html>

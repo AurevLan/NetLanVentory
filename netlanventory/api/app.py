@@ -59,6 +59,7 @@ from netlanventory.api.routers import scheduler_priorities as scheduler_prioriti
 from netlanventory.api.routers import triage as triage_router
 from netlanventory.api.routers import remediation as remediation_router
 from netlanventory.api.routers import priority_matrix as priority_matrix_router
+from netlanventory.api.routers import prioritization as prioritization_router
 from netlanventory.api.routers import hardening as hardening_router
 from netlanventory.api.routers import headers_audit as headers_audit_router
 from netlanventory.api.routers import msf_validation as msf_validation_router
@@ -372,6 +373,7 @@ def create_app() -> FastAPI:
 
     # New feature routers (0.8.0) — security audit suite
     app.include_router(priority_matrix_router.router, prefix=api_prefix, dependencies=_auth)
+    app.include_router(prioritization_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(hardening_router.router, prefix=api_prefix, dependencies=_auth)
     app.include_router(hardening_router.lynis_router, prefix=api_prefix, dependencies=_auth)
     app.include_router(headers_audit_router.router, prefix=api_prefix, dependencies=_auth)

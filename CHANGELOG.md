@@ -9,6 +9,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **« À traiter » home view** — the unified verdict becomes the landing page
+  (étape 2 of the convergence plan):
+  - New endpoint `GET /prioritization/todo?limit=` — fleet-wide ranked feed of
+    open (asset, CVE) exposures ordered by the unified verdict (act first,
+    then intra-tier tie-breaker), with headline counts (`act_open`,
+    `attend_open`, `internet_facing_open`, `sla_breached`, `unevaluated`) and
+    ready-to-display French `reasons` chips (KEV, exploit verified,
+    internet-facing, asset criticality, controls demotion, fix available).
+    Only stored SSVC decisions are listed; unevaluated pairs are surfaced in
+    the counts so coverage stays honest.
+  - New `static/todo.js` module (innovation.js pattern) + `panel-todo`
+    section: 3 stat tiles (Act ouverts / Expositions Internet / SLA
+    dépassés), the ranked action list with tier badge, effective-vs-base
+    severity (`9.8 → 7.8`), EPSS, fix badge, SLA label and reason chips,
+    empty/error states, and a "Voir plus" pagination (20 → 100).
+  - The todo view is now the **default view** (nav first position; dashboard
+    stays available). `fr`/`en` locales extended.
+
 - **Unified prioritization verdict** (`netlanventory/core/prioritization.py`) —
   ONE answer per (asset, CVE) to "what do we patch first?", consumed by the
   priority matrix, dashboard, and executive summary (previously each computed

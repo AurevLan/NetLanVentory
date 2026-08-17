@@ -2662,6 +2662,7 @@ button:focus-visible,
   .stats-header { flex-wrap: wrap; }
   .stat-card { min-width: 50%; }
   #side-panel { width: 100vw; }
+  #todo-stats { grid-template-columns: 1fr !important; }
 }
 
 @media (max-width: 480px) {
@@ -2670,3 +2671,75 @@ button:focus-visible,
   .stat-card { border-right: none; border-bottom: 1px solid var(--border); }
   .stat-card:last-child { border-bottom: none; }
 }
+
+/* ── "À traiter" (todo) view — v0.16 SSVC convergence ─────────────────────── */
+.todo-subtitle {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: -8px;
+}
+.todo-unevaluated-note {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  padding: 8px 2px 0;
+}
+.todo-unevaluated-note strong { color: var(--text-subtle); font-family: var(--font-mono); }
+.todo-list { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.todo-list .cve-row { border-radius: var(--radius-sm); gap: 6px; }
+.todo-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.todo-tier-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(0,0,0,.4);
+  border: 1px solid var(--tier-color, var(--border));
+  color: var(--tier-color, var(--text-muted));
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+  cursor: default;
+}
+.todo-sla-badge {
+  background: rgba(0,0,0,.4);
+  border: 1px solid var(--tier-color, var(--border));
+  color: var(--tier-color, var(--text-muted));
+  border-radius: 3px;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.todo-action-line {
+  font-size: 12.5px;
+  color: var(--text-subtle);
+  padding: 4px 10px;
+  margin-left: 2px;
+  border-left: 2px solid var(--tier-color, var(--border));
+  line-height: 1.5;
+}
+.todo-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 2px 2px;
+}
+.todo-reason-chip {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+.todo-empty-state { padding: 56px 20px; }
