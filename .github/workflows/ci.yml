@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: no job in this workflow writes to the repository.
+permissions:
+  contents: read
+
 jobs:
   # ── Lint & Type Check ──────────────────────────────────────────
   lint:
