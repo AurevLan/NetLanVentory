@@ -7,7 +7,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+---
+
+## [v0.16.0] — 2026-08-18
+
 ### Added
+
+- **CI/CD compliance gate (Plumber)** — `.github/workflows/plumber.yml` runs
+  [Plumber](https://getplumber.io) (action pinned by commit SHA, `min-score:
+  B`) on push/PR + weekly to catch repository-settings drift. All workflows
+  now declare least-privilege `permissions: contents: read`; the 4 stale
+  unprotected `release/v0.6–0.12` branches (content preserved in `main` and
+  tags) were removed. Initial score E (30/100) → passing ≥ B.
 
 - **Verdict → action loop** (étape 3 of the convergence plan):
   - `GET /prioritization/todo/{asset_cve_id}/prefill` — ready-to-submit

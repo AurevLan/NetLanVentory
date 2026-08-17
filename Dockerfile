@@ -57,7 +57,7 @@ FROM python:3.14-slim
 
 LABEL org.opencontainers.image.title="NetLanVentory"
 LABEL org.opencontainers.image.description="Modular network scanning and inventory tool"
-LABEL org.opencontainers.image.version="0.15.0"
+LABEL org.opencontainers.image.version="0.16.0"
 
 # Install runtime system dependencies
 # nmap: port/OS scanning   iputils-ping: ping discovery
