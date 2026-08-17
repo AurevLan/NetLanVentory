@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, func
 from sqlalchemy import Uuid
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from netlanventory.models.base import Base
@@ -82,6 +83,18 @@ class AssetCve(Base):
         DateTime(timezone=True), nullable=True
     )
     remediation_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ── SSVC (CISA Coordinator) — primary patch-prioritisation decision ──
+    # Deterministic, per (cve, asset). Source of truth for patch triage; the
+    # AI triage recommendation (if enabled) is a nuance layer on top.
+    # Decision: track | track* | attend | act   (see core/ssvc.Decision)
+    ssvc_decision: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Full provenance behind the decision (four decision points + raw facts),
+    # see core/ssvc.SsvcResult.to_dict — kept for auditability/explainability.
+    ssvc_inputs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    ssvc_evaluated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     asset: Mapped["Asset"] = relationship("Asset", back_populates="cves")  # noqa: F821

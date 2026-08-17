@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from netlanventory.api.dependencies import get_current_active_user, get_db, require_admin
 from netlanventory.core.ai_triage import (
@@ -26,7 +29,12 @@ from netlanventory.core.ai_triage import (
     build_inputs_from_db,
     get_or_create_recommendation,
 )
+from netlanventory.core.compensating_controls import build_context
 from netlanventory.core.logging import get_logger
+from netlanventory.core.ssvc_eval import evaluate_pair
+from netlanventory.models.asset import Asset
+from netlanventory.models.asset_cve import AssetCve
+from netlanventory.models.cve import Cve
 from netlanventory.models.triage_recommendation import TriageRecommendation, TriageUrgency
 
 logger = get_logger(__name__)
@@ -67,6 +75,75 @@ def _to_out(rec: TriageRecommendation) -> TriageOut:
         cached_until=rec.cached_until,
         tokens_in=rec.tokens_in,
         tokens_out=rec.tokens_out,
+    )
+
+
+class SsvcOut(BaseModel):
+    cve_id: str
+    asset_id: uuid.UUID
+    decision: str                      # track | track* | attend | act
+    urgency: str                       # mapped to now|24h|7d|30d vocabulary
+    exploitation: str
+    automatable: str
+    technical_impact: str
+    mission_wellbeing: str
+    rationale: dict
+    evaluated_at: datetime
+
+
+@router.get("/ssvc/{cve_id}/asset/{asset_id}", response_model=SsvcOut)
+async def get_ssvc_decision(
+    cve_id: str, asset_id: uuid.UUID, db: DbDep, _user: UserDep,
+) -> SsvcOut:
+    """Deterministic CISA SSVC decision for a (cve, asset) pair.
+
+    The *primary* patch-prioritisation signal — unlike AI triage this is always
+    available (no feature flag, no LLM, no token budget). Recomputes fresh from
+    current facts and persists the decision + provenance on the AssetCve.
+    """
+    cve = (
+        await db.execute(select(Cve).where(Cve.cve_id == cve_id))
+    ).scalar_one_or_none()
+    asset = (
+        await db.execute(
+            select(Asset).where(Asset.id == asset_id).options(selectinload(Asset.tags))
+        )
+    ).scalar_one_or_none()
+    if cve is None or asset is None:
+        raise HTTPException(status_code=404, detail="Asset or CVE not found")
+
+    asset_cve = (
+        await db.execute(
+            select(AssetCve).where(
+                AssetCve.asset_id == asset_id, AssetCve.cve_id == cve.id
+            )
+        )
+    ).scalar_one_or_none()
+    if asset_cve is None:
+        raise HTTPException(
+            status_code=404, detail="CVE is not linked to this asset"
+        )
+
+    ctx = await build_context(db, asset)
+    result = evaluate_pair(cve, asset_cve, asset, ctx)
+
+    now = datetime.now(timezone.utc)
+    asset_cve.ssvc_decision = result.decision.value
+    asset_cve.ssvc_inputs = result.to_dict()
+    asset_cve.ssvc_evaluated_at = now
+    await db.commit()
+
+    return SsvcOut(
+        cve_id=cve_id,
+        asset_id=asset_id,
+        decision=result.decision.value,
+        urgency=result.urgency,
+        exploitation=result.exploitation.value,
+        automatable=result.automatable.value,
+        technical_impact=result.technical_impact.value,
+        mission_wellbeing=result.mission_wellbeing.value,
+        rationale=result.rationale,
+        evaluated_at=now,
     )
 
 

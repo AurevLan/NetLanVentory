@@ -44,6 +44,7 @@ COPY remediation_worker/ ./remediation_worker/
 COPY tests/ ./tests/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+COPY scripts/ ./scripts/
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -101,6 +102,8 @@ WORKDIR /app
 COPY --chown=netlv:netlv netlanventory/ ./netlanventory/
 COPY --chown=netlv:netlv alembic/ ./alembic/
 COPY --chown=netlv:netlv alembic.ini .
+# One-off maintenance/backfill scripts (e.g. backfill_cvss_vectors.py)
+COPY --chown=netlv:netlv scripts/ ./scripts/
 
 # Create temp directories with correct ownership
 RUN mkdir -p /tmp/netlv && chown netlv:netlv /tmp/netlv

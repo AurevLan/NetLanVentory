@@ -7,6 +7,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **#6 SSVC patch-prioritisation engine** — deterministic CISA SSVC decisions
+  (`Track / Track* / Attend / Act`) as the **primary** patching signal; CVSS
+  sorting and AI-triage become secondary/explanatory layers.
+  - `core/ssvc.py` — pure decision tree pinned to **CISA Coordinator v2.0.3**
+    (rows imported verbatim from the CERT/CC SSVC repository CSV; bump
+    `TABLE_VERSION` when CISA publishes a new table).
+  - Evaluated per `(cve, asset)` via `core/ssvc_eval.py`; decision persisted on
+    `AssetCve` (`ssvc_decision`, `ssvc_inputs` JSONB audit trail,
+    `ssvc_evaluated_at` — migration 0057).
+  - Input derivation: *Exploitation* ← KEV / Nuclei-verified / exploit maturity
+    / PoC; *Technical Impact* ← CVSS vector `C:H/I:H/A:H` (fallback CVSS ≥ 9);
+    *Automatable* ← vector `AV:N+AC:L+PR:N+UI:N` (+`AT:N` on v4, fallback EPSS
+    percentile ≥ 0.90) **and** asset internet-facing; *Mission & Wellbeing* ←
+    asset criticality. The method used is recorded in
+    `ssvc_inputs.rationale.derivation` (`vector` | `epss` | `base_score`).
+  - `Cve.cvss_vector` column (migration 0058) captured during enrichment from
+    NVD `vectorString` and OSV `CVSS_V3`/`CVSS_V4` entries; pure parser
+    `core/cvss_vector.py` (v3.0 / v3.1 / v4.0).
+  - Backfill for existing CVEs: `cve_enrichment.backfill_cvss_vectors()`
+    (keyset-paginated) + runner `scripts/backfill_cvss_vectors.py`
+    (`--dry-run` / `--batch-limit` / `--max-batches`); `scripts/` is now
+    shipped in the Docker runtime and test stages.
+  - Wired as the **dominant term** of `scan_priority.compute_score` (an `act`
+    decision outweighs any single legacy factor) so urgent-to-patch assets
+    re-scan first; the scheduler recomputes SSVC hourly
+    (`_maybe_recompute_ssvc`) before the priority recompute.
+  - Deterministic endpoint `GET /triage/ssvc/{cve_id}/asset/{asset_id}` —
+    available regardless of `AI_TRIAGE_ENABLED`.
+  - Tests: `tests/test_ssvc.py` (28), `tests/test_cvss_vector.py` (14), plus
+    enrichment integration coverage for vector capture and backfill.
+
 ---
 
 ## [v0.15.0] — 2026-06-17

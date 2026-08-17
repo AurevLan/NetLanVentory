@@ -25,6 +25,11 @@ class Cve(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # CVSS v3 base score (0.0 – 10.0)
     cvss_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Full CVSS base vector string (e.g. "CVSS:3.1/AV:N/AC:L/.../C:H/I:H/A:H").
+    # Feeds the SSVC engine (Automatable / Technical Impact) far more faithfully
+    # than the collapsed base score. See core/cvss_vector.py.
+    cvss_vector: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Free-text remediation / action plan (admin-editable)

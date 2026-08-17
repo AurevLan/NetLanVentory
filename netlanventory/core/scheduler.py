@@ -44,6 +44,7 @@ _last_ssh_profile_test: datetime | None = None
 _last_ioc_correlation: datetime | None = None
 _last_attack_paths_refresh: datetime | None = None
 _last_scan_priorities_recompute: datetime | None = None
+_last_ssvc_recompute: datetime | None = None
 _last_famine_guard: datetime | None = None
 
 
@@ -72,6 +73,9 @@ async def scheduler_loop() -> None:
         ("KPI snapshot", _take_daily_kpi_snapshot),
         # Innovation roadmap hooks
         ("Attack paths refresh", _maybe_refresh_attack_paths),
+        # SSVC must run before the priority recompute so the dominant SSVC
+        # term reads freshly-stored decisions.
+        ("SSVC recompute", _maybe_recompute_ssvc),
         ("Scan priorities recompute", _maybe_recompute_scan_priorities),
         ("Smart queue drain", _drain_priority_queue),
     ]
@@ -1146,6 +1150,7 @@ async def _maybe_auto_correlate_iocs() -> None:
 
 _ATTACK_PATHS_INTERVAL_HOURS = 24
 _SCAN_PRIORITIES_INTERVAL_HOURS = 1
+_SSVC_INTERVAL_HOURS = 1
 
 
 async def _maybe_refresh_attack_paths() -> None:
@@ -1167,6 +1172,49 @@ async def _maybe_refresh_attack_paths() -> None:
             _last_attack_paths_refresh = now
         except Exception:
             logger.exception("attack_paths_scheduler_refresh_failed")
+
+
+async def _maybe_recompute_ssvc() -> None:
+    """Recompute & persist the SSVC decision per (cve, asset) hourly (#6).
+
+    SSVC is the primary patch-prioritisation signal. Runs after the KEV/EPSS
+    syncs (which feed Exploitation/Automatable) and before the scan-priority
+    recompute (which reads the stored decisions as its dominant term).
+    """
+    global _last_ssvc_recompute
+
+    now = datetime.now(timezone.utc)
+    if _last_ssvc_recompute is not None:
+        if (now - _last_ssvc_recompute).total_seconds() < _SSVC_INTERVAL_HOURS * 3600:
+            return
+
+    from netlanventory.core.ssvc_eval import recompute_for_asset as ssvc_recompute
+    from netlanventory.models.asset import Asset
+
+    factory = get_session_factory()
+    async with factory() as session:
+        try:
+            asset_ids = (
+                await session.execute(
+                    select(Asset.id).where(Asset.is_active.is_(True))
+                )
+            ).scalars().all()
+
+            act = attend = 0
+            for asset_id in asset_ids:
+                try:
+                    summary = await ssvc_recompute(session, asset_id)
+                    act += summary.get("act", 0)
+                    attend += summary.get("attend", 0)
+                except Exception:
+                    logger.exception("ssvc_recompute_failed", asset_id=str(asset_id))
+            await session.commit()
+            logger.info(
+                "ssvc_recomputed", assets=len(asset_ids), act=act, attend=attend
+            )
+            _last_ssvc_recompute = now
+        except Exception:
+            logger.exception("ssvc_recompute_loop_failed")
 
 
 async def _maybe_recompute_scan_priorities() -> None:
