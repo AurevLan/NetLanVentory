@@ -1,120 +1,18 @@
-"""Unit tests for priority matrix scoring and Lynis .dat parser."""
+"""Unit tests for the Lynis .dat parser and hardening risk indicators.
+
+The priority-matrix composite score / tier tests that used to live here were
+retired in v0.16: tiers are now the unified SSVC verdict, covered by
+tests/test_prioritization.py.
+"""
 
 from __future__ import annotations
 
-import uuid
-from unittest.mock import MagicMock
-
-import pytest
-
-from netlanventory.api.routers.priority_matrix import _composite_score, _tier
 from netlanventory.api.routers.hardening import (
     _parse_lynis_dat,
     _parse_lynis_finding,
     _parse_lynis_compliance,
     _compute_risk_indicators,
 )
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _make_cve(**kwargs):
-    cve = MagicMock()
-    cve.kev_date_added = kwargs.get("kev_date_added", None)
-    cve.epss_percentile = kwargs.get("epss_percentile", 0.0)
-    cve.epss_score = kwargs.get("epss_score", 0.0)
-    cve.cvss_score = kwargs.get("cvss_score", 0.0)
-    return cve
-
-
-def _make_link(**kwargs):
-    link = MagicMock()
-    link.id = uuid.uuid4()
-    link.exploit_verified = kwargs.get("exploit_verified", None)
-    return link
-
-
-# ── _composite_score ──────────────────────────────────────────────────────────
-
-class TestCompositeScore:
-    def test_all_zero(self):
-        score = _composite_score(_make_link(), _make_cve())
-        assert score == 0.0
-
-    def test_kev_only(self):
-        cve = _make_cve(kev_date_added="2024-01-01")
-        score = _composite_score(_make_link(), cve)
-        assert abs(score - 0.40) < 0.001
-
-    def test_exploit_verified(self):
-        link = _make_link(exploit_verified=True)
-        score = _composite_score(link, _make_cve())
-        assert abs(score - 0.20) < 0.001
-
-    def test_cvss_max(self):
-        cve = _make_cve(cvss_score=10.0)
-        score = _composite_score(_make_link(), cve)
-        assert abs(score - 0.10) < 0.001
-
-    def test_all_max(self):
-        cve = _make_cve(kev_date_added="2024-01-01", epss_percentile=1.0, cvss_score=10.0)
-        link = _make_link(exploit_verified=True)
-        score = _composite_score(link, cve)
-        assert score == 1.0
-
-    def test_cvss_capped_at_10(self):
-        # cvss > 10 is normalised to 1.0
-        cve = _make_cve(cvss_score=15.0)
-        score = _composite_score(_make_link(), cve)
-        assert abs(score - 0.10) < 0.001
-
-    def test_exploit_false_contributes_nothing(self):
-        link = _make_link(exploit_verified=False)
-        score = _composite_score(link, _make_cve())
-        assert score == 0.0
-
-
-# ── _tier ─────────────────────────────────────────────────────────────────────
-
-class TestTier:
-    def test_p1_kev_and_exploit(self):
-        cve = _make_cve(kev_date_added="2024-01-01")
-        link = _make_link(exploit_verified=True)
-        assert _tier(link, cve) == "P1"
-
-    def test_p1_kev_and_high_epss(self):
-        cve = _make_cve(kev_date_added="2024-01-01", epss_percentile=0.9)
-        assert _tier(_make_link(), cve) == "P1"
-
-    def test_p2_exploit_high_cvss(self):
-        cve = _make_cve(cvss_score=9.0)
-        link = _make_link(exploit_verified=True)
-        assert _tier(link, cve) == "P2"
-
-    def test_p2_high_epss_high_cvss(self):
-        cve = _make_cve(epss_percentile=0.8, cvss_score=8.0)
-        assert _tier(_make_link(), cve) == "P2"
-
-    def test_p3_high_cvss_no_exploit(self):
-        cve = _make_cve(cvss_score=7.5)
-        assert _tier(_make_link(), cve) == "P3"
-
-    def test_p3_exactly_7(self):
-        cve = _make_cve(cvss_score=7.0)
-        assert _tier(_make_link(), cve) == "P3"
-
-    def test_p4_low_cvss(self):
-        cve = _make_cve(cvss_score=4.0)
-        assert _tier(_make_link(), cve) == "P4"
-
-    def test_p4_everything_zero(self):
-        assert _tier(_make_link(), _make_cve()) == "P4"
-
-    def test_kev_alone_is_not_p1(self):
-        # KEV without exploit or high EPSS → P3 if CVSS >= 7
-        cve = _make_cve(kev_date_added="2024-01-01", cvss_score=8.0)
-        # EPSS = 0, exploit = None → epss_high=False, is_expl=False → not P1
-        assert _tier(_make_link(), cve) == "P3"
 
 
 # ── _parse_lynis_finding ──────────────────────────────────────────────────────

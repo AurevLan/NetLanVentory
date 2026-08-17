@@ -9,6 +9,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Unified prioritization verdict** (`netlanventory/core/prioritization.py`) —
+  ONE answer per (asset, CVE) to "what do we patch first?", consumed by the
+  priority matrix, dashboard, and executive summary (previously each computed
+  its own ranking):
+  - **SSVC decision = backbone**: act → P1 (<24h), attend → P2 (<7d),
+    track* → P3 (<30d), track → P4 (backlog). Stored decisions (hourly
+    recompute) are trusted; unevaluated pairs are evaluated live on read.
+  - **Compensating controls = modulator**: an effective-severity downgrade
+    ≥ 2.0 points demotes attend/track* by one tier (never an `act`; the KEV
+    clamp keeps KEV CVEs from ever reaching the threshold).
+  - **EPSS + effective severity = intra-tier tie-breaker** (0.6/0.4); never
+    changes the tier.
+  - `GET /assets/{id}/priority-matrix` is re-expressed on the verdict — same
+    shape, new additive fields (`ssvc_decision`, `ssvc_source`,
+    `effective_severity`, `demoted_by_controls`).
+  - `GET /dashboard` gains `ssvc_open` (open pairs per decision, most urgent
+    first, including `unevaluated` coverage); `GET /executive/summary` gains
+    `patch_priorities` (same counts for management reporting).
+
+### Changed
+
+- **Priority-matrix tiers are now SSVC-driven** — the ad-hoc composite score
+  (KEV 40 % / EPSS 30 % / exploit 20 % / CVSS 10 %) and threshold tiering are
+  retired; the old `score` field now carries the intra-tier tie-breaker.
+
 - **#6 SSVC patch-prioritisation engine** — deterministic CISA SSVC decisions
   (`Track / Track* / Attend / Act`) as the **primary** patching signal; CVSS
   sorting and AI-triage become secondary/explanatory layers.
