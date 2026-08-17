@@ -14,6 +14,7 @@ NVD REST API with key        — 50 req / 30 s → sleep 0.6 s between calls
 from __future__ import annotations
 
 import asyncio
+import uuid
 from datetime import datetime, timezone
 from typing import Sequence
 
@@ -153,6 +154,86 @@ async def enrich_cves(
         logger.debug("MITRE enrichment failed", error=str(exc))
 
 
+async def backfill_cvss_vectors(
+    session: AsyncSession,
+    *,
+    nvd_api_key: str = "",
+    batch_limit: int = _MAX_PER_CALL,
+    after_id: uuid.UUID | None = None,
+) -> tuple[int, int, uuid.UUID | None]:
+    """One-shot: populate ``cvss_vector`` on existing CVEs that lack it.
+
+    The normal :func:`enrich_cves` filter keys on missing ``cvss_score`` /
+    ``severity``, so CVEs scored before the vector column existed are never
+    revisited. This targets ``cvss_vector IS NULL`` directly and fetches just
+    the vector via OSV (then NVD for canonical IDs) — reusing ``_apply_osv`` /
+    ``_apply_nvd``, which only write fields that are still empty.
+
+    Uses **keyset pagination** on ``id`` (``id > after_id``) rather than a plain
+    ``LIMIT``: a CVE whose vector cannot be found stays NULL, so a NULL-filtered
+    ``LIMIT`` would re-select it forever. Walking by id guarantees forward
+    progress and termination.
+
+    Returns ``(processed, updated, last_id)`` for one batch. Call repeatedly,
+    feeding ``last_id`` back as ``after_id``, until ``processed == 0``
+    (see ``scripts/backfill_cvss_vectors.py``).
+    """
+    stmt = select(Cve).where(Cve.cvss_vector.is_(None))
+    if after_id is not None:
+        stmt = stmt.where(Cve.id > after_id)
+    rows = (
+        await session.execute(stmt.order_by(Cve.id).limit(batch_limit))
+    ).scalars().all()
+    if not rows:
+        return (0, 0, None)
+
+    nvd_sleep = 0.6 if nvd_api_key else 6.0
+    nvd_headers = {"apiKey": nvd_api_key} if nvd_api_key else {}
+    updated = 0
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        for cve in rows:
+            osv_id = _osv_lookup_id(cve.cve_id)
+
+            # ── OSV individual lookup ─────────────────────────────────────────
+            try:
+                resp = await client.get(_OSV_VULN_URL.format(cve_id=osv_id))
+                if resp.status_code == 200:
+                    _apply_osv(cve, resp.json())
+                elif resp.status_code == 404 and osv_id != cve.cve_id:
+                    resp2 = await client.get(_OSV_VULN_URL.format(cve_id=cve.cve_id))
+                    if resp2.status_code == 200:
+                        _apply_osv(cve, resp2.json())
+            except Exception as exc:
+                logger.debug("OSV vector backfill failed", cve_id=cve.cve_id, error=str(exc))
+
+            await asyncio.sleep(0.05)
+
+            # ── NVD fallback — only for canonical CVE-YYYY-NNNNN, vector still missing
+            canonical = _canonical_cve_id(cve.cve_id)
+            if canonical and not cve.cvss_vector:
+                try:
+                    resp = await client.get(
+                        _NVD_CVE_URL,
+                        params={"cveId": canonical},
+                        headers=nvd_headers,
+                    )
+                    if resp.status_code == 200:
+                        vulns = resp.json().get("vulnerabilities", [])
+                        if vulns:
+                            _apply_nvd(cve, vulns[0]["cve"])
+                    await asyncio.sleep(nvd_sleep)
+                except Exception as exc:
+                    logger.debug("NVD vector backfill failed", cve_id=canonical, error=str(exc))
+
+            if cve.cvss_vector:
+                updated += 1
+
+    await session.flush()
+    logger.info("cvss_vector_backfill_batch", processed=len(rows), updated=updated)
+    return (len(rows), updated, rows[-1].id)
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _apply_osv(cve: Cve, data: dict) -> None:
@@ -164,6 +245,18 @@ def _apply_osv(cve: Cve, data: dict) -> None:
             if label in _SEVERITY_TEXT:
                 cve.severity = _SEVERITY_TEXT[label]
                 break
+
+    # CVSS base vector — OSV CVSS_V*/CVSS_V4 entries carry the vector string in
+    # "score". Capture it for the SSVC engine (prefer the highest version seen).
+    if not cve.cvss_vector:
+        best_vector: str | None = None
+        for entry in (data.get("severity") or []):
+            score = entry.get("score", "")
+            if isinstance(score, str) and score.upper().startswith("CVSS:"):
+                if best_vector is None or score > best_vector:
+                    best_vector = score
+        if best_vector:
+            cve.cvss_vector = best_vector[:120]
 
     # Description (OSV uses "details" for the full text)
     if not cve.description:
@@ -182,8 +275,17 @@ def _apply_nvd(cve: Cve, nvd_cve: dict) -> None:
         if not entries:
             continue
         try:
-            score = float(entries[0]["cvssData"]["baseScore"])
-            cve.cvss_score = score
+            cvss_data = entries[0]["cvssData"]
+            score = float(cvss_data["baseScore"])
+            # Never clobber an existing score (matters for the vector backfill,
+            # where the CVE already has a score; no-op for normal enrichment
+            # which only reaches NVD when cvss_score is None).
+            if cve.cvss_score is None:
+                cve.cvss_score = score
+            if not cve.cvss_vector:
+                vector = cvss_data.get("vectorString")
+                if isinstance(vector, str) and vector:
+                    cve.cvss_vector = vector[:120]
             if not cve.severity or cve.severity == "Unknown":
                 if score >= 9.0:
                     cve.severity = "Critical"

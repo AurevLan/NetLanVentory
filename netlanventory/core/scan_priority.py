@@ -37,6 +37,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netlanventory.core import ssvc
 from netlanventory.core.logging import get_logger
 from netlanventory.models.asset import Asset
 from netlanventory.models.asset_cve import AssetCve
@@ -81,14 +82,24 @@ class PriorityInputs:
     hours_since_last_scan: float          # 0.0 if never scanned, then huge bonus
     has_unack_critical_cve: bool
     scanned_within_cooldown: bool
+    # Most urgent SSVC decision across the asset's CVEs (track|track*|attend|act).
+    # None when SSVC has not been evaluated yet — keeps the term a no-op so the
+    # rest of the formula (and the existing tests) are unaffected.
+    top_ssvc_decision: str | None = None
 
 
 def compute_score(inputs: PriorityInputs) -> float:
     """Return the priority score (no DB access).
 
     Higher = more urgent. Always >= 0 to keep the priority queue stable.
+
+    SSVC is the **dominant** term: an `act` decision adds more than any single
+    heuristic so an asset that must be patched now is re-scanned first. The
+    legacy heuristics (EPSS delta, KEV, age, criticality) remain as tie-breakers
+    and as the fallback for assets whose SSVC has not been computed yet.
     """
     score = 1.0
+    score += _ssvc_weight(inputs.top_ssvc_decision)
     score += WEIGHT_EPSS_DELTA * max(0.0, inputs.max_epss_delta_24h)
     if inputs.new_kev_matches > 0:
         score += WEIGHT_NEW_KEV * min(inputs.new_kev_matches, 5)
@@ -99,6 +110,16 @@ def compute_score(inputs: PriorityInputs) -> float:
     if inputs.scanned_within_cooldown:
         score += COOLDOWN_PENALTY
     return max(0.0, score)
+
+
+def _ssvc_weight(decision: str | None) -> float:
+    """Additive priority weight for a stored SSVC decision string (0.0 if none)."""
+    if not decision:
+        return 0.0
+    member = ssvc.Decision._value2member_map_.get(decision)
+    if member is None:
+        return 0.0
+    return ssvc.DECISION_PRIORITY_WEIGHT[member]
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -258,7 +279,13 @@ async def recompute_for_asset(
     # Collect CVE-derived signals once
     cve_rows = (
         await session.execute(
-            select(Cve.epss_score, Cve.kev_date_added, Cve.cvss_score, AssetCve.ack_status)
+            select(
+                Cve.epss_score,
+                Cve.kev_date_added,
+                Cve.cvss_score,
+                AssetCve.ack_status,
+                AssetCve.ssvc_decision,
+            )
             .join(AssetCve, AssetCve.cve_id == Cve.id)
             .where(AssetCve.asset_id == asset_id)
         )
@@ -271,6 +298,18 @@ async def recompute_for_asset(
         for r in cve_rows
     )
 
+    # Most urgent SSVC decision already stored on this asset's CVEs (computed
+    # by core/ssvc_eval). Dominant term in compute_score; None until evaluated.
+    top_ssvc = None
+    ssvc_decisions = [
+        ssvc.Decision(r.ssvc_decision)
+        for r in cve_rows
+        if r.ssvc_decision in ssvc.Decision._value2member_map_
+    ]
+    top = ssvc.most_urgent(ssvc_decisions)
+    if top is not None:
+        top_ssvc = top.value
+
     # Per-module score (currently uniform — same inputs for every module).
     # V2 may diverge: SSH-only signals for ssh_scan, web signals for nuclei, …
     inputs = PriorityInputs(
@@ -280,6 +319,7 @@ async def recompute_for_asset(
         hours_since_last_scan=0.0,             # filled per-row below
         has_unack_critical_cve=has_unack_critical,
         scanned_within_cooldown=False,
+        top_ssvc_decision=top_ssvc,
     )
 
     for module in modules:
@@ -308,6 +348,7 @@ async def recompute_for_asset(
             hours_since_last_scan=age_h,
             has_unack_critical_cve=inputs.has_unack_critical_cve,
             scanned_within_cooldown=in_cooldown,
+            top_ssvc_decision=inputs.top_ssvc_decision,
         )
         score = compute_score(per_module_inputs)
         await upsert_priority(session, asset_id, module, score)
