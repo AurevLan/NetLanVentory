@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+---
+
+## [v0.15.0] — 2026-06-17
+
 ### Added
 - **#5 Smart re-scan scheduler — queue wiring (opt-in)** — the priority queue
   can now *drive* auto-scans, not just observe. With
