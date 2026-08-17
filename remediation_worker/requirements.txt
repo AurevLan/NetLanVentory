@@ -1,2 +1,2 @@
-ansible-core>=2.19.10
+ansible-core>=2.19.12
 httpx>=0.28.0
