@@ -60,8 +60,8 @@ async def _seed(db: AsyncSession) -> None:
     db.add_all([
         AssetCve(
             asset_id=exposed.id, cve_id=kev_cve.id, source="test",
-            ssvc_decision="act", fixed_version="1.2.3", exploit_verified=True,
-            sla_breached=True,
+            ssvc_decision="act", package_name="openssl", fixed_version="1.2.3",
+            exploit_verified=True, sla_breached=True,
         ),
         AssetCve(
             asset_id=exposed.id, cve_id=attend_cve.id, source="test",
@@ -119,6 +119,69 @@ async def test_todo_ranked_feed(client, db_session):
     assert quiet["decision"] == "track"
     assert quiet["internet_facing"] is False
     assert quiet["reasons"] == []
+
+
+@pytest.mark.asyncio
+async def test_prefill_act_row(client, db_session):
+    await _seed(db_session)
+
+    todo = (await client.get("/api/v1/prioritization/todo")).json()
+    act_row = todo["items"][0]
+    r = await client.get(f"/api/v1/prioritization/todo/{act_row['asset_cve_id']}/prefill")
+    assert r.status_code == 200
+    d = r.json()
+
+    assert d["decision"] == "act"
+    assert d["tier"] == "P1"
+    assert d["ticket"]["priority"] == "Highest"
+    assert d["ticket"]["summary"].startswith("[P1 · SSVC act] CVE-2025-0001")
+    assert "edge-web" in d["ticket"]["summary"]
+    assert "Exploitée dans la nature (KEV)" in d["ticket"]["description"]
+    assert "SLA <24h" in d["ticket"]["description"]
+
+    yaml = d["remediation"]["playbook_yaml"]
+    assert d["remediation"]["cve_id"] == "CVE-2025-0001"
+    assert "CVE-2025-0001" in yaml
+    assert "1.2.3" in yaml           # fixed version surfaced in the draft
+    assert "hosts: 203.0.113.10" in yaml
+    # Long enough for POST /remediation/jobs (min_length=10)
+    assert len(yaml) >= 10
+
+
+@pytest.mark.asyncio
+async def test_prefill_unknown_link(client):
+    import uuid
+
+    r = await client.get(f"/api/v1/prioritization/todo/{uuid.uuid4()}/prefill")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_executive_act_outcomes(client, db_session):
+    from datetime import datetime, timedelta, timezone
+
+    await _seed(db_session)
+
+    # Resolve the act pair 48 h after discovery.
+    from sqlalchemy import select
+    link = (
+        await db_session.execute(
+            select(AssetCve).where(AssetCve.ssvc_decision == "act",
+                                   AssetCve.ack_status == "none")
+        )
+    ).scalar_one()
+    link.remediation_status = "resolved"
+    link.remediation_resolved_at = link.discovered_at + timedelta(hours=48)
+    # Keep it inside the 30d/90d windows relative to now.
+    link.discovered_at = datetime.now(timezone.utc) - timedelta(days=3)
+    link.remediation_resolved_at = link.discovered_at + timedelta(hours=48)
+    await db_session.commit()
+
+    r = await client.get("/api/v1/executive/summary")
+    assert r.status_code == 200
+    pp = r.json()["patch_priorities"]
+    assert pp["act_resolved_30d"] == 1
+    assert pp["mttr_act_hours"] == pytest.approx(48.0, abs=0.1)
 
 
 @pytest.mark.asyncio

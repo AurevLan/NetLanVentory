@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from netlanventory.api.dependencies import get_current_active_user, get_db, require_admin
 from netlanventory.core.logging import get_logger
+from netlanventory.core.sla_policy import effective_sla_deadline
 from netlanventory.models.asset_cve import AssetCve
 from netlanventory.models.sla_config import SlaConfig
 
@@ -138,10 +139,12 @@ async def compute_sla_deadlines(db: DbDep, _admin: AdminDep) -> SlaComputeResult
         severity = (cve.severity or "Medium").capitalize()
         days = sla_config.get(severity, 30)
 
-        disc = link.discovered_at
-        if disc.tzinfo is None:
-            disc = disc.replace(tzinfo=timezone.utc)
-        deadline = (disc + timedelta(days=days)).date()
+        deadline = effective_sla_deadline(
+            discovered_at=link.discovered_at,
+            severity_days=days,
+            ssvc_decision=link.ssvc_decision,
+            ssvc_decided_at=link.ssvc_evaluated_at,
+        )
         link.sla_deadline = deadline
 
         # Breach: deadline passed and not accepted

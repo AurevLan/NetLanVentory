@@ -9,6 +9,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Verdict → action loop** (étape 3 of the convergence plan):
+  - `GET /prioritization/todo/{asset_cve_id}/prefill` — ready-to-submit
+    drafts for one todo row: a ticket (summary `[P1 · SSVC act] CVE-… sur
+    <asset>`, French description with verdict/reasons/fix, priority mapped
+    from the tier) and a remediation job (draft Ansible playbook — package
+    pin when a fix is known, guided placeholder otherwise; the workflow
+    state machine still enforces dry-run + 4-eyes approval).
+  - **SLA clock starts at the verdict** — new `core/sla_policy.py` shared by
+    both SLA recomputes (scheduler task and `POST /sla/compute`, previously
+    duplicated): effective deadline = earlier of the severity deadline and
+    the verdict deadline (act +1 d, attend +7 d, track* +30 d from
+    `ssvc_evaluated_at`; track imposes nothing).
+  - `ssvc_evaluated_at` semantics: now only refreshed when the decision
+    *changes* ("act since <date>") so the verdict SLA anchor is stable
+    across the hourly recompute instead of sliding forward.
+  - `GET /executive/summary` `patch_priorities` gains the outcome story:
+    `act_resolved_30d` and `mttr_act_hours` (MTTR restricted to
+    `act`-verdict pairs, 90-day window).
+
 - **« À traiter » home view** — the unified verdict becomes the landing page
   (étape 2 of the convergence plan):
   - New endpoint `GET /prioritization/todo?limit=` — fleet-wide ranked feed of

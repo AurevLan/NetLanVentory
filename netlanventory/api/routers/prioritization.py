@@ -17,14 +17,14 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from netlanventory.api.dependencies import get_current_active_user, get_db
-from netlanventory.core import ssvc
+from netlanventory.core import ssvc, ssvc_eval
 from netlanventory.core.compensating_controls import (
     build_context,
     compute_effective_severity,
@@ -93,6 +93,29 @@ class TodoOut(BaseModel):
     total_open: int
     items: list[TodoItem]
     generated_at: datetime
+
+
+class TicketPrefill(BaseModel):
+    summary: str
+    description: str
+    priority: str                   # Highest | High | Medium | Low
+
+
+class RemediationPrefill(BaseModel):
+    asset_id: uuid.UUID
+    cve_id: str
+    playbook_yaml: str
+
+
+class PrefillOut(BaseModel):
+    asset_cve_id: uuid.UUID
+    asset_id: uuid.UUID
+    cve_id: str
+    decision: str
+    tier: str
+    sla_label: str
+    ticket: TicketPrefill
+    remediation: RemediationPrefill
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -261,4 +284,142 @@ async def get_todo(
         total_open=total_open,
         items=items,
         generated_at=datetime.now(timezone.utc),
+    )
+
+
+# ── Verdict → action prefill ─────────────────────────────────────────────────
+
+_TIER_TICKET_PRIORITY = {"P1": "Highest", "P2": "High", "P3": "Medium", "P4": "Low"}
+
+
+def _playbook_skeleton(
+    *, cve_id: str, asset_name: str, target: str,
+    decision: str, tier: str, sla_label: str,
+    package_name: str | None, fixed_version: str | None,
+) -> str:
+    """Draft Ansible playbook for the remediation workflow.
+
+    Always a reviewable draft: the workflow state machine enforces dry-run +
+    approval before anything runs, so a best-effort skeleton is safe.
+    """
+    if package_name and fixed_version:
+        task = f"""    - name: Mettre à jour {package_name} vers la version corrigée
+      ansible.builtin.package:
+        name: "{package_name}"
+        state: latest
+      # Version corrigée attendue : {fixed_version} — épingler selon votre
+      # gestionnaire de paquets (apt: "{package_name}={fixed_version}*",
+      # yum/dnf: "{package_name}-{fixed_version}")."""
+    else:
+        task = f"""    - name: "À compléter : remédiation {cve_id}"
+      ansible.builtin.debug:
+        msg: >-
+          Aucun paquet/correctif identifié automatiquement pour {cve_id}.
+          Remplacer cette tâche par la remédiation applicable
+          (mise à jour, changement de configuration, atténuation)."""
+
+    return f"""---
+# Brouillon généré par NetLanVentory — à relire avant le dry-run.
+# CVE : {cve_id} sur {asset_name}
+# Verdict SSVC : {decision} ({tier}, SLA {sla_label})
+- name: Remédiation {cve_id} — {asset_name}
+  hosts: {target}
+  become: true
+  tasks:
+{task}
+"""
+
+
+@router.get("/todo/{asset_cve_id}/prefill", response_model=PrefillOut)
+async def get_prefill(
+    asset_cve_id: uuid.UUID,
+    db: DbDep,
+    _user: UserDep,
+) -> PrefillOut:
+    """Pre-filled remediation job + ticket drafts for one todo row.
+
+    Uses the same verdict as the feed (stored decision; live evaluation as
+    fallback so the buttons work even before the hourly recompute).
+    """
+    row = (
+        await db.execute(
+            select(AssetCve, Cve, Asset)
+            .join(Cve, Cve.id == AssetCve.cve_id)
+            .join(Asset, Asset.id == AssetCve.asset_id)
+            .where(AssetCve.id == asset_cve_id)
+            .options(selectinload(Asset.tags))
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Asset CVE link not found")
+    link, cve, asset = row
+
+    ctx = await build_context(db, asset)
+    eff = compute_effective_severity(cve, ctx)
+    if link.ssvc_decision in ssvc.Decision._value2member_map_:
+        decision = ssvc.Decision(link.ssvc_decision)
+    else:
+        decision = ssvc_eval.evaluate_pair(cve, link, asset, ctx).decision
+    verdict = compute_verdict(
+        decision=decision, eff=eff, epss_percentile=cve.epss_percentile
+    )
+
+    asset_label = asset.name or asset.ip or str(asset.id)[:8]
+    criticality = (asset.criticality or "medium").lower()
+    reasons = _reasons(
+        kev=bool(cve.kev_date_added),
+        exploit_verified=link.exploit_verified,
+        internet_facing=ctx.is_internet_facing,
+        criticality=criticality,
+        demoted=verdict.demoted_by_controls,
+        fixed_version=link.fixed_version,
+    )
+
+    epss_pct = (
+        f"{cve.epss_percentile * 100:.0f}ᵉ percentile"
+        if cve.epss_percentile is not None else "n/a"
+    )
+    fix_line = (
+        f"{link.package_name or 'paquet inconnu'} → {link.fixed_version}"
+        if link.fixed_version else "aucun correctif identifié automatiquement"
+    )
+    description = (
+        "Vulnérabilité priorisée par NetLanVentory (verdict SSVC unifié).\n\n"
+        f"Asset : {asset_label} ({asset.ip or 'IP inconnue'}) — criticité {criticality}\n"
+        f"CVE : {cve.cve_id} — {cve.severity or 'sévérité inconnue'} "
+        f"(CVSS {cve.cvss_score if cve.cvss_score is not None else 'n/a'}, "
+        f"effectif {verdict.effective_severity}, EPSS {epss_pct})\n"
+        f"Décision SSVC : {verdict.decision.value} → {verdict.tier} (SLA {verdict.sla_label})\n"
+        f"Raisons : {', '.join(reasons) if reasons else '—'}\n"
+        f"Correctif : {fix_line}\n\n"
+        f"Action recommandée : {verdict.action}"
+    )
+
+    return PrefillOut(
+        asset_cve_id=link.id,
+        asset_id=asset.id,
+        cve_id=cve.cve_id,
+        decision=verdict.decision.value,
+        tier=verdict.tier,
+        sla_label=verdict.sla_label,
+        ticket=TicketPrefill(
+            summary=f"[{verdict.tier} · SSVC {verdict.decision.value}] "
+                    f"{cve.cve_id} sur {asset_label}",
+            description=description,
+            priority=_TIER_TICKET_PRIORITY[verdict.tier],
+        ),
+        remediation=RemediationPrefill(
+            asset_id=asset.id,
+            cve_id=cve.cve_id,
+            playbook_yaml=_playbook_skeleton(
+                cve_id=cve.cve_id,
+                asset_name=asset_label,
+                target=asset.ip or asset_label,
+                decision=verdict.decision.value,
+                tier=verdict.tier,
+                sla_label=verdict.sla_label,
+                package_name=link.package_name,
+                fixed_version=link.fixed_version,
+            ),
+        ),
     )

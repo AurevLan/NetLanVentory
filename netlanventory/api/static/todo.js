@@ -33,6 +33,12 @@
 
   let _todoLimit = 20;
 
+  // GET /tickets/configs is fetched once (not per row) and cached for the
+  // page's lifetime — a failure degrades to "no connector configured"
+  // rather than blocking the todo list itself.
+  let _ticketConfigsPromise = null;
+  let _todoListenersBound = false;
+
   function _t(key, fallback) {
     return typeof t === 'function' ? t(key, fallback) : (fallback || key);
   }
@@ -64,13 +70,17 @@
     if (listEl) {
       listEl.innerHTML = `<div style="padding:24px;color:var(--text-muted);font-size:13px">${_t('common.loading', 'Chargement…')}</div>`;
     }
+    _bindTodoListEvents();
 
     try {
-      const data = await api(`/prioritization/todo?limit=${encodeURIComponent(_todoLimit)}`);
+      const [data, ticketConfigs] = await Promise.all([
+        api(`/prioritization/todo?limit=${encodeURIComponent(_todoLimit)}`),
+        _getTicketConfigs(),
+      ]);
       if (!data) return;
       _renderTodoStats(data.counts || {});
       _renderTodoUnevaluated(data.counts || {});
-      _renderTodoList(data);
+      _renderTodoList(data, ticketConfigs);
       _renderTodoLoadMore(data);
 
       const navCount = document.getElementById('nav-todo-count');
@@ -81,6 +91,19 @@
         listEl.innerHTML = `<span style="color:var(--danger);font-size:13px">${_t('common.error', 'Erreur')} : ${_esc(String(e.message || e))}</span>`;
       }
     }
+  }
+
+  // Fetches GET /tickets/configs once and caches the (filtered, enabled-only)
+  // result for subsequent renders/clicks. Any failure resolves to an empty
+  // list so the "Ticket" button simply falls back to its disabled state.
+  function _getTicketConfigs() {
+    if (!_ticketConfigsPromise) {
+      _ticketConfigsPromise = Promise.resolve()
+        .then(() => api('/tickets/configs'))
+        .then((rows) => (Array.isArray(rows) ? rows.filter((c) => c.enabled !== false) : []))
+        .catch(() => []);
+    }
+    return _ticketConfigsPromise;
   }
 
   function _renderTodoStats(counts) {
@@ -166,7 +189,7 @@
     return `<span class="clickable" style="color:var(--accent)" onclick="${onclick}">${_esc(label)}</span>`;
   }
 
-  function _renderTodoItem(item) {
+  function _renderTodoItem(item, ticketConfigs) {
     const cfg = TODO_TIER_CONFIG[item.tier] || { color: 'var(--text-muted)' };
     const critBadge = typeof criticalityBadge === 'function' ? criticalityBadge(item.asset_criticality) : '';
     const cveHref = typeof cveUrl === 'function' ? cveUrl(item.cve_id) : '#';
@@ -188,10 +211,166 @@
             ${_renderFixBadge(item)}
             <span class="todo-sla-badge" style="--tier-color:${cfg.color}">${_esc(item.sla_label || '—')}</span>
           </div>
+          ${_renderRowActions(item, ticketConfigs)}
         </div>
         ${item.action ? `<div class="todo-action-line" style="--tier-color:${cfg.color}">${_esc(item.action)}</div>` : ''}
         ${_renderReasons(item)}
       </div>`;
+  }
+
+  // ── Verdict → action buttons (v0.16 convergence step 3) ───────────────────
+  // Two discrete per-row actions: create a draft remediation job (which is
+  // then piloted through dry-run/4-eyes from innovation.js's kanban), or
+  // open a ticket via one of the configured connectors. Both call the
+  // prefill endpoint first so the server — not the client — composes the
+  // ticket text / playbook.
+  function _renderRowActions(item, ticketConfigs) {
+    if (!item.asset_cve_id) return '';
+    const id = _escAttr(item.asset_cve_id);
+    const hasConfigs = Array.isArray(ticketConfigs) && ticketConfigs.length > 0;
+    const ticketTitle = _escAttr(hasConfigs
+      ? _t('todo.action.ticket_tooltip', 'Créer un ticket depuis ce connecteur')
+      : _t('todo.action.ticket_disabled_tooltip', 'Configurer un connecteur de tickets (Admin)'));
+    return `
+      <div class="todo-row-actions">
+        <button type="button" class="todo-action-btn" data-action="remediate" data-asset-cve-id="${id}">${_esc(_t('todo.action.remediate', 'Remédier'))}</button>
+        <button type="button" class="todo-action-btn" data-action="ticket" data-asset-cve-id="${id}" title="${ticketTitle}"${hasConfigs ? '' : ' disabled'}>${_esc(_t('todo.action.ticket', 'Ticket'))}</button>
+        <span class="todo-action-feedback" data-feedback-for="${id}"></span>
+      </div>`;
+  }
+
+  function _feedbackEl(assetCveId) {
+    return document.querySelector(`.todo-action-feedback[data-feedback-for="${assetCveId}"]`);
+  }
+
+  // Single delegated listener on #todo-list, bound once — re-renders swap
+  // innerHTML on every load, so per-button listeners would leak/duplicate.
+  function _bindTodoListEvents() {
+    if (_todoListenersBound) return;
+    const listEl = document.getElementById('todo-list');
+    if (!listEl) return;
+    _todoListenersBound = true;
+    listEl.addEventListener('click', (ev) => {
+      const gotoBtn = ev.target.closest('[data-goto-kanban]');
+      if (gotoBtn) { _goToRemediationKanban(); return; }
+
+      const btn = ev.target.closest('.todo-action-btn');
+      if (!btn || btn.disabled) return;
+      const id = btn.dataset.assetCveId;
+      const action = btn.dataset.action;
+      if (!id || !action) return;
+      if (action === 'remediate') _handleRemediateClick(btn, id);
+      else if (action === 'ticket') _handleTicketClick(btn, id);
+    });
+  }
+
+  async function _handleRemediateClick(btn, id) {
+    const feedback = _feedbackEl(id);
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = _t('common.loading', 'Chargement…');
+    if (feedback) { feedback.className = 'todo-action-feedback'; feedback.innerHTML = ''; }
+
+    try {
+      const pre = await api(`/prioritization/todo/${encodeURIComponent(id)}/prefill`);
+      if (!pre || !pre.remediation) throw new Error(_t('todo.action.prefill_error', 'Préremplissage indisponible'));
+      await api('/remediation/jobs', {
+        method: 'POST',
+        body: JSON.stringify({
+          asset_id: pre.remediation.asset_id,
+          playbook_yaml: pre.remediation.playbook_yaml,
+          cve_id: pre.remediation.cve_id,
+        }),
+      });
+      if (feedback) {
+        feedback.className = 'todo-action-feedback success';
+        feedback.innerHTML = `${_esc(_t('todo.action.remediate_success', 'Job de remédiation créé (brouillon)'))} — ` +
+          `<button type="button" class="link-btn" data-goto-kanban="1">${_esc(_t('todo.action.view_kanban', 'Voir le kanban'))}</button>`;
+      }
+    } catch (e) {
+      if (feedback) {
+        feedback.className = 'todo-action-feedback error';
+        feedback.innerHTML = `${_esc(_t('common.error', 'Erreur'))} : ${_esc(String(e.message || e))}`;
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  async function _handleTicketClick(btn, id) {
+    const feedback = _feedbackEl(id);
+    if (feedback) { feedback.className = 'todo-action-feedback'; feedback.innerHTML = ''; }
+
+    // Disable up front (not just around the network calls) so a second
+    // click can't slip in while the connector-choice prompt is being set up.
+    const original = btn.textContent;
+    btn.disabled = true;
+    try {
+      const configs = await _getTicketConfigs();
+      if (!configs.length) return; // button should already be disabled in this case
+
+      let configId = configs[0].id;
+      if (configs.length > 1) {
+        const names = configs.map((c, i) => `${i + 1}. ${c.name} (${c.type})`).join('\n');
+        const choice = window.prompt(`${_t('todo.action.ticket_choose', 'Choisir un connecteur :')}\n${names}`, '1');
+        if (choice === null) return; // user cancelled
+        const idx = parseInt(choice, 10) - 1;
+        if (!Number.isInteger(idx) || idx < 0 || idx >= configs.length) {
+          if (feedback) {
+            feedback.className = 'todo-action-feedback error';
+            feedback.textContent = _t('todo.action.ticket_invalid_choice', 'Choix invalide.');
+          }
+          return;
+        }
+        configId = configs[idx].id;
+      }
+
+      btn.textContent = _t('common.loading', 'Chargement…');
+      const pre = await api(`/prioritization/todo/${encodeURIComponent(id)}/prefill`);
+      if (!pre || !pre.ticket) throw new Error(_t('todo.action.prefill_error', 'Préremplissage indisponible'));
+      const resp = await api('/tickets/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          config_id: configId,
+          asset_cve_id: id,
+          summary: pre.ticket.summary,
+          description: pre.ticket.description,
+          priority: pre.ticket.priority,
+        }),
+      });
+      if (feedback && resp) {
+        feedback.className = 'todo-action-feedback success';
+        feedback.innerHTML = `${_esc(_t('todo.action.ticket_success', 'Ticket créé'))} — ` +
+          `<a href="${_escAttr(resp.ticket_url)}" target="_blank" rel="noopener">${_esc(resp.ticket_id)}</a>`;
+      }
+    } catch (e) {
+      if (feedback) {
+        feedback.className = 'todo-action-feedback error';
+        feedback.innerHTML = `${_esc(_t('common.error', 'Erreur'))} : ${_esc(String(e.message || e))}`;
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  // Navigates to innovation.js's existing remediation-jobs kanban (draft →
+  // dry-run → 4-eyes approval → running → succeeded/failed/rolled_back).
+  // That module renders its section on this exact hash but isn't wired
+  // into app.js's sidebar nav, so this is its only entry point today.
+  function _goToRemediationKanban() {
+    if (location.hash === '#innovation-remediation') {
+      if (window.NLV_Innovation && typeof window.NLV_Innovation.renderRemediationKanban === 'function') {
+        window.NLV_Innovation.renderRemediationKanban();
+      }
+    } else {
+      location.hash = '#innovation-remediation';
+    }
+    requestAnimationFrame(() => {
+      const el = document.getElementById('nlv-remediation');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }
 
   function _renderTodoEmptyState(allEvaluated) {
@@ -206,7 +385,7 @@
       </div>`;
   }
 
-  function _renderTodoList(data) {
+  function _renderTodoList(data, ticketConfigs) {
     const el = document.getElementById('todo-list');
     if (!el) return;
     const items = data.items || [];
@@ -218,7 +397,7 @@
       return;
     }
 
-    el.innerHTML = items.map(_renderTodoItem).join('');
+    el.innerHTML = items.map((item) => _renderTodoItem(item, ticketConfigs)).join('');
   }
 
   function _renderTodoLoadMore(data) {

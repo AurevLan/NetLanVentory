@@ -6866,6 +6866,22 @@ async function loadExecutive() {
       { label: t('dashboard.kpi.forecast'), value: forecast, color: 'var(--accent)' },
     ].map(k => `<div class="stat-card"><span class="num" style="color:${k.color};font-size:20px">${k.value}</span><span class="stat-lbl">${k.label}</span></div>`).join('');
 
+    // ── Act decisions summary (verdict → action outcome, v0.16 step 3) ──
+    let actSummaryEl = document.getElementById('exec-act-summary');
+    if (!actSummaryEl) {
+      actSummaryEl = document.createElement('div');
+      actSummaryEl.id = 'exec-act-summary';
+      actSummaryEl.className = 'exec-act-summary';
+      kpisEl.insertAdjacentElement('afterend', actSummaryEl);
+    }
+    const pp = d.patch_priorities || {};
+    const ppMttr = pp.mttr_act_hours != null ? `${pp.mttr_act_hours.toFixed(1)} h` : '—';
+    actSummaryEl.innerHTML =
+      `<strong>${t('dashboard.act_summary.label')}</strong> : ` +
+      `${pp.act || 0} ${t('dashboard.act_summary.open')} · ` +
+      `${pp.act_resolved_30d || 0} ${t('dashboard.act_summary.resolved_30d')} · ` +
+      `${t('dashboard.act_summary.mttr')} ${ppMttr}`;
+
     // ── Risk gauge ──
     const gaugeEl = document.getElementById('exec-risk-gauge');
     if (gaugeEl) {
