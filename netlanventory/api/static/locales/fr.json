@@ -1,4 +1,5 @@
 {
+  "nav.todo": "À traiter",
   "nav.dashboard": "Dashboard RSSI",
   "nav.assets": "Assets",
   "nav.scans": "Scans",
@@ -107,6 +108,18 @@
   "dashboard.action.no_remediation": "CVE Critical(s) sans plan de remédiation",
   "dashboard.assets_active": "assets actifs",
   "dashboard.no_risk_assets": "Aucun asset à risque",
+
+  "todo.title": "À traiter",
+  "todo.subtitle": "Vos priorités de patching, décidées par SSVC",
+  "todo.stat.act_open": "Décisions Act ouvertes",
+  "todo.stat.internet_facing": "Expositions Internet",
+  "todo.stat.sla_breached": "SLA dépassés",
+  "todo.unevaluated_suffix": "expositions pas encore évaluées (recalcul horaire)",
+  "todo.effective_tooltip": "Sévérité effective après contrôles compensatoires",
+  "todo.demoted_hint": "Sévérité réduite par des contrôles compensatoires",
+  "todo.empty.title": "Rien d'urgent à traiter",
+  "todo.empty.hint": "Lancez un scan pour détecter de nouvelles expositions.",
+  "todo.load_more": "Voir plus",
 
   "assets.title": "Assets",
   "assets.search_placeholder": "Rechercher par nom, IP, MAC, hostname, tag…",

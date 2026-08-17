@@ -1,4 +1,5 @@
 {
+  "nav.todo": "To do",
   "nav.dashboard": "CISO Dashboard",
   "nav.assets": "Assets",
   "nav.scans": "Scans",
@@ -107,6 +108,18 @@
   "dashboard.action.no_remediation": "Critical CVE(s) without remediation plan",
   "dashboard.assets_active": "active assets",
   "dashboard.no_risk_assets": "No at-risk assets",
+
+  "todo.title": "To do",
+  "todo.subtitle": "Your patching priorities, decided by SSVC",
+  "todo.stat.act_open": "Open Act decisions",
+  "todo.stat.internet_facing": "Internet exposures",
+  "todo.stat.sla_breached": "SLA breached",
+  "todo.unevaluated_suffix": "exposures not yet evaluated (hourly recompute)",
+  "todo.effective_tooltip": "Effective severity after compensating controls",
+  "todo.demoted_hint": "Severity reduced by compensating controls",
+  "todo.empty.title": "Nothing urgent to handle",
+  "todo.empty.hint": "Run a scan to detect new exposures.",
+  "todo.load_more": "Show more",
 
   "assets.title": "Assets",
   "assets.search_placeholder": "Search by name, IP, MAC, hostname, tag…",
