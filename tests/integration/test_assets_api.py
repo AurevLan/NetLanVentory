@@ -7,6 +7,7 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netlanventory.api.app import APP_VERSION
 from netlanventory.models.asset import Asset
 
 
@@ -73,4 +74,4 @@ async def test_health_endpoint(client):
     data = resp.json()
     assert data["status"] in ("ok", "degraded")
     assert "version" in data
-    assert data["version"] == "0.12.0"
+    assert data["version"] == APP_VERSION
