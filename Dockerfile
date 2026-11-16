@@ -13,7 +13,7 @@ RUN curl -sSL https://github.com/drwetter/testssl.sh/raw/3.2/testssl.sh \
     -o /usr/local/bin/testssl.sh && chmod +x /usr/local/bin/testssl.sh
 
 # ── Stage 1: Builder ──────────────────────────────────────────────────────────
-FROM python:3.14-slim AS builder
+FROM python:3.15-slim AS builder
 
 WORKDIR /build
 
@@ -31,7 +31,7 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir --prefix=/install ".[dev]"
 
 # ── Stage 2: Test runner ──────────────────────────────────────────────────────
-FROM python:3.14-slim AS test
+FROM python:3.15-slim AS test
 
 WORKDIR /app
 
@@ -53,7 +53,7 @@ ENV PYTHONUNBUFFERED=1 \
 CMD ["pytest", "tests/", "-v", "--tb=short"]
 
 # ── Stage 3: Runtime ──────────────────────────────────────────────────────────
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 LABEL org.opencontainers.image.title="NetLanVentory"
 LABEL org.opencontainers.image.description="Modular network scanning and inventory tool"
